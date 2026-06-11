@@ -1,0 +1,20 @@
+## .NET build kimenet
+bin/
+obj/
+*.user
+
+## Publish
+publish/
+
+## Titkok — SOHA ne kerüljön repo-ba
+*.pfx
+*.pem
+*.key
+id_ed25519*
+appsettings.*.Local.json
+secrets.json
+
+## IDE
+.vs/
+.idea/
+*.suo

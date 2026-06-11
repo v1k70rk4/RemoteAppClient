@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="EnrollUsage" xml:space="preserve">
+    <value>Használat: RemoteAgent enroll --token &lt;token&gt; [--server &lt;url&gt;]</value>
+  </data>
+  <data name="EnrollMissingToken" xml:space="preserve">
+    <value>Beléptető token szükséges (--token).</value>
+  </data>
+  <data name="EnrollGeneratingKeys" xml:space="preserve">
+    <value>Eszköz-kulcspár generálása...</value>
+  </data>
+  <data name="EnrollContactingServer" xml:space="preserve">
+    <value>Kapcsolódás a beléptető szerverhez...</value>
+  </data>
+  <data name="EnrollSuccess" xml:space="preserve">
+    <value>Sikeres beléptetés. Az eszköz-tanúsítvány eltárolva.</value>
+  </data>
+  <data name="EnrollServerUnreachable" xml:space="preserve">
+    <value>A beléptető szerver nem érhető el.</value>
+  </data>
+  <data name="EnrollFailedFmt" xml:space="preserve">
+    <value>A beléptetés sikertelen: {0}</value>
+  </data>
+</root>

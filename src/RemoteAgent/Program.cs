@@ -1,0 +1,40 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using RemoteAgent.Commands;
+using RemoteAgent.Configuration;
+using RemoteAgent.Enrollment;
+using RemoteAgent.Services;
+using RemoteAgent.Telemetry;
+using RemoteAgent.Tunnel;
+
+// "enroll" mód: telepítéskori, emberi lépés — nem a service-t indítja, hanem beléptet.
+if (args is ["enroll", ..])
+    return await EnrollCommand.RunAsync(args[1..]);
+
+var builder = Host.CreateApplicationBuilder(args);
+
+// Windows service-ként fut (SYSTEM alatt). Konzolból is indul (debug).
+builder.Services.AddWindowsService(o => o.ServiceName = "RemoteAgent");
+
+// Logolás: konzol + Windows EventLog (SYSTEM service-nél ez a látható napló).
+builder.Logging.AddEventLog(o => o.SourceName = "RemoteAgent");
+
+// Konfiguráció kötése.
+builder.Services.Configure<AgentOptions>(
+    builder.Configuration.GetSection(AgentOptions.SectionName));
+
+// Megosztott állapot és infrastruktúra.
+builder.Services.AddSingleton<CommandBus>();
+builder.Services.AddSingleton<TunnelState>();
+builder.Services.AddSingleton<CommandVerifier>();
+builder.Services.AddSingleton<SystemInfoCollector>();
+
+// A három háttérszolgáltatás.
+builder.Services.AddHostedService<CommandChannelService>();
+builder.Services.AddHostedService<TunnelOrchestratorService>();
+builder.Services.AddHostedService<TelemetryService>();
+
+var host = builder.Build();
+host.Run();
+return 0;

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Platformfüggetlen (sem -windows): a kliens (net10.0-windows) ÉS a
+         szerver (net10.0, Linux) is hivatkozza. Csak POCO-k + kripto, nincs Win API. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RemoteAgent</RootNamespace>
+  </PropertyGroup>
+
+</Project>

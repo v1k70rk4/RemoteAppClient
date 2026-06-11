@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Platformfüggetlen, minden projekt (agent, server, client.exe) hivatkozhatja. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RemoteAgent.Resources</RootNamespace>
+    <AssemblyName>RemoteAgent.Resources</AssemblyName>
+    <!-- Az alap (semleges) kultúra angol; ez a fallback. -->
+    <NeutralLanguage>en</NeutralLanguage>
+  </PropertyGroup>
+
+</Project>

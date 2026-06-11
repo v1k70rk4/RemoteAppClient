@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RemoteAgent.Contracts/RemoteAgent.Contracts.csproj" />
+    <Project Path="src/RemoteAgent.Resources/RemoteAgent.Resources.csproj" />
+    <Project Path="src/RemoteAgent/RemoteAgent.csproj" />
+    <Project Path="src/RemoteServer/RemoteServer.csproj" />
+  </Folder>
+</Solution>
