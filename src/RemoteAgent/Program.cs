@@ -13,6 +13,10 @@ using RemoteAgent.Tunnel;
 if (args is ["enroll", ..])
     return await EnrollCommand.RunAsync(args[1..]);
 
+// "provision-vnc" mód: a TightVNC csendes telepítése + hardening (admin/SYSTEM kell).
+if (args is ["provision-vnc", ..])
+    return await RemoteAgent.Vnc.VncProvisioner.RunAsync(args[1..]);
+
 var builder = Host.CreateApplicationBuilder(args);
 
 // Windows service-ként fut (SYSTEM alatt). Konzolból is indul (debug).

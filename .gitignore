@@ -10,9 +10,14 @@ publish/
 *.pfx
 *.pem
 *.key
+*.crt
 id_ed25519*
+cloudflare.ini
 appsettings.*.Local.json
 secrets.json
+
+## Letöltött harmadik féltől (fetch-tightvnc.sh szerzi be, nem verziózzuk)
+third_party/
 
 ## IDE
 .vs/
