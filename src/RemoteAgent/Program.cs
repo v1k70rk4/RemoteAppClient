@@ -42,6 +42,8 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     opt.CommandChannel.Url = baseUrl.Replace("https://", "wss://").Replace("http://", "ws://") + "/agent";
     opt.Telemetry.IngestUrl = baseUrl + "/api/telemetry";
     opt.ClientCertPfxPath = Path.Combine(opt.EnrollmentDir, "agent.pfx");
+    if (!string.IsNullOrWhiteSpace(rec.CommandSigningPublicKey))
+        opt.CommandChannel.CommandSigningPublicKey = rec.CommandSigningPublicKey;
 });
 
 // Megosztott állapot és infrastruktúra.

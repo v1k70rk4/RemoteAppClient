@@ -87,6 +87,7 @@ public static class EnrollCommand
             DeviceId = resp.DeviceId,
             CertThumbprint = withKey.Thumbprint,
             CaPinSha256 = Convert.ToHexString(SHA256.HashData(caCert.GetRawCertData())),
+            CommandSigningPublicKey = resp.CommandSigningPublicKey,
             ServerUrl = server,
             EnrolledAtUtc = DateTimeOffset.UtcNow,
         };

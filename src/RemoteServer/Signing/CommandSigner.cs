@@ -25,6 +25,9 @@ public sealed class CommandSigner : IDisposable
         _privateKey.ImportFromPem(File.ReadAllText(path));
     }
 
+    /// <summary>A publikus kulcs Base64 SPKI-ben (ezt kapja az agent enrollkor).</summary>
+    public string PublicKeySpkiBase64 => Convert.ToBase64String(_privateKey.ExportSubjectPublicKeyInfo());
+
     /// <summary>Új, friss nonce-szal és időbélyeggel ellátott, aláírt parancs.</summary>
     public AgentCommand Create(string type, CommandData? data = null)
     {

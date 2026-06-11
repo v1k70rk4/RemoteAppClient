@@ -18,6 +18,7 @@ namespace RemoteServer.Services;
 public sealed class EnrollmentService(
     AppDbContext db,
     CertificateAuthority ca,
+    CommandSigner signer,
     ILogger<EnrollmentService> logger)
 {
     public sealed record Result(EnrollResponse? Response, string? ErrorCode);
@@ -83,6 +84,7 @@ public sealed class EnrollmentService(
             DeviceId = deviceId,
             Certificate = certPem,
             CaCertificate = ca.CaCertificatePem,
+            CommandSigningPublicKey = signer.PublicKeySpkiBase64,
         }, null);
     }
 

@@ -35,6 +35,11 @@ public sealed class EnrollResponse
     /// <summary>A CA tanúsítványa (PEM) — az agent ezt pinneli a szerver-kapcsolathoz.</summary>
     [JsonPropertyName("caCertificate")]
     public string CaCertificate { get; set; } = string.Empty;
+
+    /// <summary>A szerver parancs-aláíró PUBLIKUS kulcsa (ECDSA P-256, Base64 SPKI).
+    /// Az agent ezzel ellenőrzi a parancsok aláírását.</summary>
+    [JsonPropertyName("commandSigningPublicKey")]
+    public string CommandSigningPublicKey { get; set; } = string.Empty;
 }
 
 /// <summary>Hiba esetén gép-olvasható kód (a kliens lokalizál belőle).</summary>

@@ -18,6 +18,10 @@ public sealed class EnrollmentRecord
     [JsonPropertyName("caPinSha256")]
     public string CaPinSha256 { get; set; } = string.Empty;
 
+    /// <summary>A szerver parancs-aláíró publikus kulcsa (Base64 SPKI) — a parancsok ellenőrzéséhez.</summary>
+    [JsonPropertyName("commandSigningPublicKey")]
+    public string CommandSigningPublicKey { get; set; } = string.Empty;
+
     [JsonPropertyName("serverUrl")]
     public string ServerUrl { get; set; } = string.Empty;
 
