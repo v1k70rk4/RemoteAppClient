@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -23,6 +24,25 @@ builder.Logging.AddEventLog(o => o.SourceName = "RemoteAgent");
 // Konfiguráció kötése.
 builder.Services.Configure<AgentOptions>(
     builder.Configuration.GetSection(AgentOptions.SectionName));
+
+// Beléptetés bekötése: ha van enrollment.json, az adja a szerver-URL-eket és a
+// kliens-cert PFX-et (felülírja az appsettings placeholdereket). Ez a forrása annak,
+// hová és milyen identitással csatlakozik a beléptetett gép.
+builder.Services.PostConfigure<AgentOptions>(opt =>
+{
+    var path = Path.Combine(opt.EnrollmentDir, "enrollment.json");
+    if (!File.Exists(path)) return;
+
+    EnrollmentRecord? rec;
+    try { rec = JsonSerializer.Deserialize(File.ReadAllText(path), AgentLocalJsonContext.Default.EnrollmentRecord); }
+    catch { return; }
+    if (rec is null || string.IsNullOrWhiteSpace(rec.ServerUrl)) return;
+
+    var baseUrl = rec.ServerUrl.TrimEnd('/');
+    opt.CommandChannel.Url = baseUrl.Replace("https://", "wss://").Replace("http://", "ws://") + "/agent";
+    opt.Telemetry.IngestUrl = baseUrl + "/api/telemetry";
+    opt.ClientCertPfxPath = Path.Combine(opt.EnrollmentDir, "agent.pfx");
+});
 
 // Megosztott állapot és infrastruktúra.
 builder.Services.AddSingleton<CommandBus>();

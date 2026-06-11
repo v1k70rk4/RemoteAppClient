@@ -19,6 +19,7 @@ public sealed class TelemetryService(
     ILogger<TelemetryService> logger) : BackgroundService
 {
     private readonly TelemetryOptions _opt = options.Value.Telemetry;
+    private readonly string _pfxPath = options.Value.ClientCertPfxPath;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -62,11 +63,11 @@ public sealed class TelemetryService(
     {
         var handler = new SocketsHttpHandler();
 
-        if (!string.IsNullOrWhiteSpace(_opt.ClientCertThumbprint))
+        if (!string.IsNullOrWhiteSpace(_pfxPath) || !string.IsNullOrWhiteSpace(_opt.ClientCertThumbprint))
         {
             handler.SslOptions.ClientCertificates ??= new();
             handler.SslOptions.ClientCertificates.Add(
-                CertHelper.LoadClientCertificate(_opt.ClientCertThumbprint));
+                CertHelper.ResolveClientCertificate(_pfxPath, _opt.ClientCertThumbprint));
         }
 
         if (!string.IsNullOrWhiteSpace(_opt.ServerCertPinSha256))

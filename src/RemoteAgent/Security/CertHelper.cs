@@ -31,6 +31,25 @@ public static class CertHelper
     }
 
     /// <summary>
+    /// Kliens-tanúsítvány betöltése PFX-fájlból (az enroll-mód ezt írja: agent.pfx).
+    /// PersistKeySet kell, mert a Windows SChannel az efemer kulcsot nem tudja kliens-
+    /// authhoz használni. A privát kulcs egy kulcs-konténerbe kerül a futtató fiók alatt.
+    /// </summary>
+    public static X509Certificate2 LoadClientCertificateFromPfx(string path, string? password = null)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            throw new InvalidOperationException($"A kliens-tanúsítvány PFX nem található: '{path}'.");
+
+        return X509CertificateLoader.LoadPkcs12FromFile(path, password, X509KeyStorageFlags.PersistKeySet);
+    }
+
+    /// <summary>PFX-fájlból tölt, ha van útvonal; különben a store-ból ujjlenyomat alapján.</summary>
+    public static X509Certificate2 ResolveClientCertificate(string? pfxPath, string? thumbprint) =>
+        !string.IsNullOrWhiteSpace(pfxPath)
+            ? LoadClientCertificateFromPfx(pfxPath)
+            : LoadClientCertificate(thumbprint ?? string.Empty);
+
+    /// <summary>
     /// Visszaad egy callbacket, ami CSAK akkor fogadja el a szervert, ha annak
     /// tanúsítvány-ujjlenyomata (SHA-256) megegyezik a pinnelt értékkel.
     /// A lánc/CA érvényessége így másodlagos — a pin a horgony.

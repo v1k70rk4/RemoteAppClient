@@ -146,17 +146,38 @@ app.MapPost("/admin/tokens", async (EnrollmentService enroll, int? maxUses, int?
 
 app.Run();
 
-// A device-azonosító feloldása: előbb a validált kliens-certből, fallback a query-ből.
+// A device-azonosító feloldása. Éles üzemben az nginx validálja a kliens-certet
+// (mTLS) és a CN-t headerben adja át; a backend csak localhostról (nginx) érhető el,
+// így a headerek megbízhatók. Fallback: közvetlen Kestrel-cert, majd ?deviceId= (dev).
 static string? ResolveDeviceId(HttpContext ctx)
 {
+    if (string.Equals(ctx.Request.Headers["X-Client-Verify"], "SUCCESS", StringComparison.OrdinalIgnoreCase))
+    {
+        var cn = ExtractCn(ctx.Request.Headers["X-Client-Dn"].ToString());
+        if (!string.IsNullOrWhiteSpace(cn)) return cn;
+    }
+
     var cert = ctx.Connection.ClientCertificate;
     if (cert is not null)
     {
         var cn = cert.GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false);
         if (!string.IsNullOrWhiteSpace(cn)) return cn;
     }
+
     var q = ctx.Request.Query["deviceId"].ToString();
     return string.IsNullOrWhiteSpace(q) ? null : q;
+}
+
+// CN kinyerése egy DN-ből (pl. "CN=abc123" vagy "/CN=abc123" vagy "CN=abc,O=...").
+static string? ExtractCn(string dn)
+{
+    if (string.IsNullOrWhiteSpace(dn)) return null;
+    foreach (var part in dn.Split([',', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        if (part.StartsWith("CN=", StringComparison.OrdinalIgnoreCase))
+            return part[3..].Trim();
+    }
+    return null;
 }
 
 // Bejövő üzenetek (ACK-ok, státusz) olvasása. Most logol; később a commands.result-ba megy.

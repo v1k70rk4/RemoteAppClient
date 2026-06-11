@@ -22,6 +22,7 @@ public sealed class CommandChannelService(
     ILogger<CommandChannelService> logger) : BackgroundService
 {
     private readonly CommandChannelOptions _opt = options.Value.CommandChannel;
+    private readonly string _pfxPath = options.Value.ClientCertPfxPath;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -61,8 +62,9 @@ public sealed class CommandChannelService(
     {
         using var ws = new ClientWebSocket();
 
-        if (!string.IsNullOrWhiteSpace(_opt.ClientCertThumbprint))
-            ws.Options.ClientCertificates.Add(CertHelper.LoadClientCertificate(_opt.ClientCertThumbprint));
+        if (!string.IsNullOrWhiteSpace(_pfxPath) || !string.IsNullOrWhiteSpace(_opt.ClientCertThumbprint))
+            ws.Options.ClientCertificates.Add(
+                CertHelper.ResolveClientCertificate(_pfxPath, _opt.ClientCertThumbprint));
 
         if (!string.IsNullOrWhiteSpace(_opt.ServerCertPinSha256))
             ws.Options.RemoteCertificateValidationCallback =

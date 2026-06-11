@@ -11,6 +11,12 @@ public sealed class AgentOptions
     /// <summary>Stabil gépazonosító. Üresen hagyva a gép SID/MachineGuid alapján képződik.</summary>
     public string AgentId { get; set; } = string.Empty;
 
+    /// <summary>A beléptetés kimenetének mappája (enrollment.json, agent.pfx, ca.crt).</summary>
+    public string EnrollmentDir { get; set; } = @"C:\ProgramData\RemoteAgent";
+
+    /// <summary>A kliens-cert PFX útja (mTLS). Beléptetés után az enrollment.json tölti.</summary>
+    public string ClientCertPfxPath { get; set; } = string.Empty;
+
     public CommandChannelOptions CommandChannel { get; set; } = new();
     public TunnelOptions Tunnel { get; set; } = new();
     public TelemetryOptions Telemetry { get; set; } = new();
