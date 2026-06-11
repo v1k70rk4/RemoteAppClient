@@ -4,14 +4,13 @@ using System.Text;
 namespace RemoteAgent.Vnc;
 
 /// <summary>
-/// A VNC-jelszó kódolása a TightVNC registry "Password" mezőjéhez. Ez a klasszikus
-/// VNC formátum: a (max 8 karakteres) jelszó DES-ECB titkosítása a jól ismert fix
-/// kulccsal, amelynek minden bájtja bit-tükrözött. Ez INTEROP, nem biztonsági cél —
-/// a tényleges védelmet az SSH-tunnel + a loopback-only adja.
+/// A VNC-jelszó kódolása a klasszikus VNC fix-kulcsos DES formátumban. Ezt használja
+/// a TightVNC registry "Password" mezője ÉS a viewer .vnc fájljának "password" mezője.
+/// Megosztott a kliens (provisioning) és az admin-client (auto-connect) közt.
+/// INTEROP, nem biztonsági cél — a védelmet az SSH-tunnel + loopback-only adja.
 /// </summary>
 public static class VncPassword
 {
-    // A klasszikus VNC fix kulcs.
     private static readonly byte[] FixedKey = [23, 82, 107, 6, 35, 78, 88, 7];
 
     public static byte[] Encrypt(string password)

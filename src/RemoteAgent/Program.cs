@@ -45,7 +45,7 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     var baseUrl = rec.ServerUrl.TrimEnd('/');
     opt.CommandChannel.Url = baseUrl.Replace("https://", "wss://").Replace("http://", "ws://") + "/agent";
     opt.Telemetry.IngestUrl = baseUrl + "/api/telemetry";
-    opt.ClientCertPfxPath = Path.Combine(opt.EnrollmentDir, "agent.pfx");
+    opt.ClientCertPfxPath = Path.Combine(opt.EnrollmentDir, "agent.pfx.dat");
     if (!string.IsNullOrWhiteSpace(rec.CommandSigningPublicKey))
         opt.CommandChannel.CommandSigningPublicKey = rec.CommandSigningPublicKey;
 
@@ -71,6 +71,7 @@ builder.Services.AddSingleton<SystemInfoCollector>();
 builder.Services.AddHostedService<CommandChannelService>();
 builder.Services.AddHostedService<TunnelOrchestratorService>();
 builder.Services.AddHostedService<TelemetryService>();
+builder.Services.AddHostedService<VncProvisioningService>();
 
 var host = builder.Build();
 host.Run();

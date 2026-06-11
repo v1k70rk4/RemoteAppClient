@@ -43,11 +43,26 @@ public static class CertHelper
         return X509CertificateLoader.LoadPkcs12FromFile(path, password, X509KeyStorageFlags.PersistKeySet);
     }
 
-    /// <summary>PFX-fájlból tölt, ha van útvonal; különben a store-ból ujjlenyomat alapján.</summary>
-    public static X509Certificate2 ResolveClientCertificate(string? pfxPath, string? thumbprint) =>
-        !string.IsNullOrWhiteSpace(pfxPath)
-            ? LoadClientCertificateFromPfx(pfxPath)
-            : LoadClientCertificate(thumbprint ?? string.Empty);
+    /// <summary>DPAPI-védett PFX (.dat) betöltése: visszafejt, majd betölti.</summary>
+    public static X509Certificate2 LoadClientCertificateFromProtectedPfx(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            throw new InvalidOperationException($"A DPAPI-védett PFX nem található: '{path}'.");
+
+        var pfxBytes = Dpapi.Unprotect(File.ReadAllBytes(path));
+        return X509CertificateLoader.LoadPkcs12(pfxBytes, password: null, X509KeyStorageFlags.PersistKeySet);
+    }
+
+    /// <summary>PFX-ből tölt (a .dat DPAPI-védett); ha nincs útvonal, a store-ból ujjlenyomat alapján.</summary>
+    public static X509Certificate2 ResolveClientCertificate(string? pfxPath, string? thumbprint)
+    {
+        if (!string.IsNullOrWhiteSpace(pfxPath))
+            return pfxPath.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)
+                ? LoadClientCertificateFromProtectedPfx(pfxPath)
+                : LoadClientCertificateFromPfx(pfxPath);
+
+        return LoadClientCertificate(thumbprint ?? string.Empty);
+    }
 
     /// <summary>
     /// Visszaad egy callbacket, ami CSAK akkor fogadja el a szervert, ha annak

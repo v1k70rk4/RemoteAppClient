@@ -53,4 +53,8 @@ public static class CommandTypes
 [JsonSerializable(typeof(Enrollment.EnrollRequest))]
 [JsonSerializable(typeof(Enrollment.EnrollResponse))]
 [JsonSerializable(typeof(Enrollment.EnrollError))]
+[JsonSerializable(typeof(Enrollment.VncSecretReport))]
+[JsonSerializable(typeof(Admin.DeviceInfo))]
+[JsonSerializable(typeof(Admin.OpenTunnelResult))]
+[JsonSerializable(typeof(System.Collections.Generic.List<Admin.DeviceInfo>))]
 public sealed partial class AgentJsonContext : JsonSerializerContext;

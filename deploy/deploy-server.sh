@@ -54,6 +54,12 @@ EOF
   echo "[deploy] bástya-env írva (Host='${BASTION_HOST:-<üres>}')."
 fi
 
+# 3d) DB-titok-titkosító kulcs (32 bájt) — a vnc_secret nyugalmi titkosításához
+if ! sudo test -f "$ENV_DIR/secret.key"; then
+  sudo openssl rand -out "$ENV_DIR/secret.key" 32
+  echo "[deploy] secret.key generálva."
+fi
+
 # 4) jogosultságok: a config csak a service-useré
 # (a chmod-ot root-oldalon, find-dal — a glob a hívó shellben nem fejthető ki, ha a mappa 700)
 sudo chown -R "$SVC_USER:$SVC_USER" "$APP_DIR" "$ENV_DIR"

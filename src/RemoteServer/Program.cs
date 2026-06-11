@@ -1,12 +1,14 @@
 using System.Net.WebSockets;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using RemoteAgent.Admin;
 using RemoteAgent.Commands;
 using RemoteAgent.Enrollment;
 using RemoteAgent.Telemetry;
 using RemoteServer.Configuration;
 using RemoteServer.Data;
 using RemoteServer.Hub;
+using RemoteServer.Security;
 using RemoteServer.Services;
 using RemoteServer.Signing;
 using RemoteServer.Telemetry;
@@ -26,6 +28,7 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 builder.Services.AddSingleton<CommandSigner>();
 builder.Services.AddSingleton<CertificateAuthority>();
 builder.Services.AddSingleton<SshCertificateAuthority>();
+builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddScoped<ITelemetrySink, DbTelemetrySink>();
 builder.Services.AddScoped<CommandService>();
@@ -101,19 +104,63 @@ app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink) =>
     return Results.NoContent();
 });
 
-// === Admin trigger (ideiglenes; később auth+2FA mögé) ===
-// A parancs a sorba kerül és kézbesül, ha a gép online; offline-nál vár.
-app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
-    string deviceId, int remotePort, CommandService commands, CancellationToken ct) =>
+// === A gép jelenti a VNC-jelszavát (mTLS) → devices.vnc_secret ===
+app.MapPost("/api/vnc-secret", async (HttpContext ctx, AppDbContext db, SecretProtector protector) =>
 {
-    var cmd = await commands.EnqueueAsync(
-        deviceId, CommandTypes.OpenTunnel, new CommandData { RemotePort = remotePort }, createdBy: null, ct);
-    return cmd is null
-        ? Results.NotFound(new { deviceId, known = false })
-        : Results.Ok(new { deviceId, remotePort, status = cmd.Status.ToString() });
+    var deviceId = ResolveDeviceId(ctx);
+    if (deviceId is null) return Results.Unauthorized();
+
+    VncSecretReport? report;
+    try
+    {
+        report = await JsonSerializer.DeserializeAsync(
+            ctx.Request.Body, AgentJsonContext.Default.VncSecretReport, ctx.RequestAborted);
+    }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (report is null || string.IsNullOrEmpty(report.Secret)) return Results.BadRequest();
+
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ctx.RequestAborted);
+    if (device is null) return Results.NotFound();
+
+    device.VncSecret = protector.Protect(report.Secret); // nyugalmi titkosítás
+    device.VncSecretUpdatedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ctx.RequestAborted);
+    return Results.NoContent();
+});
+
+// === Admin (ideiglenes; localhost-only az nginxen át — a client SSH-tunnelen éri el) ===
+
+// Eszközlista a DB-ből (online a registryből, + a VNC-jelszó a client autoconnecthez).
+app.MapGet("/admin/devices", async (AppDbContext db, AgentConnectionRegistry registry, SecretProtector protector, CancellationToken ct) =>
+{
+    var devices = await db.Devices.OrderBy(d => d.Hostname).ToListAsync(ct);
+    var list = devices.Select(d => new DeviceInfo
+    {
+        DeviceId = d.DeviceId,
+        Hostname = d.Hostname,
+        Status = d.Status.ToString(),
+        Online = registry.IsConnected(d.DeviceId),
+        LastSeenAt = d.LastSeenAt,
+        VncSecret = protector.TryUnprotect(d.VncSecret), // visszafejtve az adminnak
+    }).ToList();
+    return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);
 });
 
 app.MapGet("/admin/devices/online", (AgentConnectionRegistry registry) => Results.Ok(registry.ConnectedDevices));
+
+// Tunnel nyitása: ha nincs megadva port, a szerver oszt egyet és visszaadja.
+app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
+    string deviceId, int? remotePort, CommandService commands, CancellationToken ct) =>
+{
+    var port = remotePort is > 0 ? remotePort.Value : Random.Shared.Next(20000, 40000);
+    var cmd = await commands.EnqueueAsync(
+        deviceId, CommandTypes.OpenTunnel, new CommandData { RemotePort = port }, createdBy: null, ct);
+    return cmd is null
+        ? Results.NotFound()
+        : Results.Json(
+            new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, Status = cmd.Status.ToString() },
+            AgentJsonContext.Default.OpenTunnelResult);
+});
 
 // === Beléptetés ===
 // A gép CSR-t + tokent küld; siker esetén aláírt cert + CA jön vissza.

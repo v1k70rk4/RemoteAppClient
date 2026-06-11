@@ -70,3 +70,10 @@ public sealed class EnrollError
     [JsonPropertyName("code")]
     public string Code { get; set; } = string.Empty;
 }
+
+/// <summary>A gép jelenti a (gépenként egyedi) VNC-jelszavát a szervernek, hogy az admin tudjon csatlakozni.</summary>
+public sealed class VncSecretReport
+{
+    [JsonPropertyName("secret")]
+    public string Secret { get; set; } = string.Empty;
+}

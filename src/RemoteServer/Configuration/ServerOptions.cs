@@ -20,6 +20,9 @@ public sealed class ServerOptions
     /// <summary>A kiadott kliens-certek érvényessége napokban.</summary>
     public int ClientCertValidityDays { get; set; } = 825;
 
+    /// <summary>A DB-beli titkok (pl. vnc_secret) nyugalmi titkosításához használt 32 bájtos kulcs útja.</summary>
+    public string SecretKeyPath { get; set; } = "/etc/remoteserver/secret.key";
+
     /// <summary>A bástya (reverse SSH tunnel) elérési adatai. Az enroll válaszába kerül.</summary>
     public BastionOptions Bastion { get; set; } = new();
 }

@@ -5,6 +5,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using RemoteAgent.Commands;
 using RemoteAgent.Resources;
+using RemoteAgent.Security;
 
 namespace RemoteAgent.Enrollment;
 
@@ -85,7 +86,10 @@ public static class EnrollCommand
         using var leaf = X509Certificate2.CreateFromPem(resp.Certificate);
         using var withKey = leaf.CopyWithPrivateKey(key);
 
-        File.WriteAllBytes(Path.Combine(outDir, "agent.pfx"), withKey.Export(X509ContentType.Pfx));
+        // A PFX-et DPAPI-val titkosítva mentjük (géphez kötve, lemásolva használhatatlan).
+        File.WriteAllBytes(
+            Path.Combine(outDir, "agent.pfx.dat"),
+            Dpapi.Protect(withKey.Export(X509ContentType.Pfx)));
         File.WriteAllText(Path.Combine(outDir, "ca.crt"), resp.CaCertificate);
 
         // Az SSH-cert a privát kulcs mellé (OpenSSH a <kulcs>-cert.pub-ot is használja).
