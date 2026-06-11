@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Text.Json;
 using RemoteAgent.Commands;
 using RemoteAgent.Resources;
@@ -154,26 +156,28 @@ public static class EnrollCommand
         return File.Exists(sys) ? sys : "ssh-keygen";
     }
 
-    /// <summary>A privát kulcs ACL-jét leszűkíti a futtató fiókra (a Windows ssh különben elutasítja).</summary>
+    /// <summary>
+    /// A privát kulcs jogainak beállítása úgy, hogy a Windows ssh.exe elfogadja MIND a
+    /// SYSTEM service, MIND az admin-konzol alatt: tulajdonos = Rendszergazdák, öröklés ki,
+    /// és PONTOSAN {SYSTEM, Rendszergazdák} kap jogot. Konkrét user-ACE-t (pl. a beléptető
+    /// rviktor) az ssh a SYSTEM service alatt "idegennek" vesz → "too open" → kulcs eldobva.
+    /// .NET FileSecurity (nem icacls), így nincs nyelvfüggés és maradék ACE.
+    /// </summary>
     private static void TightenAcl(string path)
     {
         try
         {
-            var user = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
-            var psi = new ProcessStartInfo("icacls")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            psi.ArgumentList.Add(path);
-            psi.ArgumentList.Add("/inheritance:r");
-            psi.ArgumentList.Add("/grant:r");
-            psi.ArgumentList.Add($"{user}:F");
-            using var proc = Process.Start(psi)!;
-            proc.WaitForExit();
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+
+            var sec = new FileSecurity();
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false); // öröklés ki, semmi átvétel
+            sec.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.SetOwner(admins);
+            new FileInfo(path).SetAccessControl(sec);
         }
-        catch { /* best effort */ }
+        catch { /* best effort — sikertelennél az ssh "too open"-t adhat SYSTEM alatt */ }
     }
 
     private static (string? Token, string? Server, string Hostname, string OutDir) ParseArgs(string[] args)

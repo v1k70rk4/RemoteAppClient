@@ -17,10 +17,19 @@ if (args is ["enroll", ..])
 if (args is ["provision-vnc", ..])
     return await RemoteAgent.Vnc.VncProvisioner.RunAsync(args[1..]);
 
+// Service telepítése/eltávolítása (admin kell).
+if (args is ["install-service", ..]) return await RemoteAgent.ServiceControl.InstallAsync();
+if (args is ["uninstall-service", ..]) return await RemoteAgent.ServiceControl.UninstallAsync();
+
 var builder = Host.CreateApplicationBuilder(args);
 
 // Windows service-ként fut (SYSTEM alatt). Konzolból is indul (debug).
 builder.Services.AddWindowsService(o => o.ServiceName = "RemoteAgent");
+
+// Egy háttérszolgáltatás hibája NE állítsa le az egész agentet (pl. hiányzó cert
+// beléptetés előtt) — a szolgáltatások maguk kezelik/újrapróbálják.
+builder.Services.Configure<HostOptions>(o =>
+    o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 
 // Logolás: konzol + Windows EventLog (SYSTEM service-nél ez a látható napló).
 builder.Logging.AddEventLog(o => o.SourceName = "RemoteAgent");

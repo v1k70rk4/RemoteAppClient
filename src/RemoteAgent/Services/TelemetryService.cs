@@ -29,13 +29,14 @@ public sealed class TelemetryService(
             return;
         }
 
-        using var http = BuildClient();
         var interval = TimeSpan.FromSeconds(_opt.IntervalSeconds);
+        HttpClient? http = null; // lustán épül; cert-hiba esetén újraépül (pl. enrollment után)
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                http ??= BuildClient(); // itt dobhat, ha a cert még nincs — elkapjuk, nem áll le a host
                 var payload = collector.Collect();
                 using var resp = await http.PostAsJsonAsync(
                     _opt.IngestUrl, payload, AgentJsonContext.Default.TelemetryPayload, stoppingToken);
@@ -52,11 +53,15 @@ public sealed class TelemetryService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Telemetria küldése sikertelen.");
+                http?.Dispose();
+                http = null; // a következő ciklusban újraépül (pl. ha közben megtörtént a beléptetés)
             }
 
             try { await Task.Delay(interval, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
+
+        http?.Dispose();
     }
 
     private HttpClient BuildClient()

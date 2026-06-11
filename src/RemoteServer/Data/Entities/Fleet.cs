@@ -35,6 +35,15 @@ public sealed class Device
     /// <summary>Gép-szintű override a csoport ConsentRequired-jéhez (null = örökli a csoportét).</summary>
     public bool? ConsentRequired { get; set; }
 
+    /// <summary>Mehet-e erre a gépre frissítés. False = befagyasztva (pl. teszt/karantén).</summary>
+    public bool UpdateAllowed { get; set; } = true;
+
+    /// <summary>Engedélyezett-e az unattended hozzáférés (null = örökli a csoportét).</summary>
+    public bool? UnattendedAllowed { get; set; }
+
+    /// <summary>A gép stabil, egyedi bástya-portja a reverse tunnelhez (enrollkor kiosztva).</summary>
+    public int? TunnelPort { get; set; }
+
     /// <summary>Az agent mTLS kliens-certjének ujjlenyomata.</summary>
     public string? CertThumbprint { get; set; }
 
@@ -51,6 +60,8 @@ public sealed class Device
     public DateTimeOffset? LastSeenAt { get; set; }
 
     public DateTimeOffset EnrolledAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Admin-megjegyzés (használó neve stb.), TITKOSÍTVA tárolva (érzékeny lehet).</summary>
     public string? Note { get; set; }
 }
 

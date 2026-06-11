@@ -133,7 +133,7 @@ app.MapPost("/api/vnc-secret", async (HttpContext ctx, AppDbContext db, SecretPr
 // Eszközlista a DB-ből (online a registryből, + a VNC-jelszó a client autoconnecthez).
 app.MapGet("/admin/devices", async (AppDbContext db, AgentConnectionRegistry registry, SecretProtector protector, CancellationToken ct) =>
 {
-    var devices = await db.Devices.OrderBy(d => d.Hostname).ToListAsync(ct);
+    var devices = await db.Devices.Include(d => d.Group).OrderBy(d => d.Hostname).ToListAsync(ct);
     var list = devices.Select(d => new DeviceInfo
     {
         DeviceId = d.DeviceId,
@@ -141,18 +141,77 @@ app.MapGet("/admin/devices", async (AppDbContext db, AgentConnectionRegistry reg
         Status = d.Status.ToString(),
         Online = registry.IsConnected(d.DeviceId),
         LastSeenAt = d.LastSeenAt,
-        VncSecret = protector.TryUnprotect(d.VncSecret), // visszafejtve az adminnak
+        VncSecret = protector.TryUnprotect(d.VncSecret),
+        GroupId = d.GroupId,
+        GroupName = d.Group?.Name,
+        UpdateAllowed = d.UpdateAllowed,
+        UnattendedAllowed = d.UnattendedAllowed,
+        ConsentRequired = d.ConsentRequired,
+        Note = protector.TryUnprotect(d.Note),
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);
 });
 
+// Eszköz admin-mezőinek módosítása (csoport, flagek, megjegyzés). A null mezők változatlanok.
+app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx, AppDbContext db, SecretProtector protector) =>
+{
+    DeviceUpdate? upd;
+    try { upd = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.DeviceUpdate, ctx.RequestAborted); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (upd is null) return Results.BadRequest();
+
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ctx.RequestAborted);
+    if (device is null) return Results.NotFound();
+
+    if (upd.GroupId is not null) device.GroupId = upd.GroupId == Guid.Empty ? null : upd.GroupId;
+    if (upd.UpdateAllowed is not null) device.UpdateAllowed = upd.UpdateAllowed.Value;
+    if (upd.UnattendedAllowed is not null) device.UnattendedAllowed = upd.UnattendedAllowed;
+    if (upd.ConsentRequired is not null) device.ConsentRequired = upd.ConsentRequired;
+    if (upd.Note is not null) device.Note = upd.Note.Length == 0 ? null : protector.Protect(upd.Note);
+    if (upd.Status is not null && Enum.TryParse<DeviceStatus>(upd.Status, ignoreCase: true, out var st)) device.Status = st;
+
+    await db.SaveChangesAsync(ctx.RequestAborted);
+    return Results.NoContent();
+});
+
+// Csoportok listája + létrehozása.
+app.MapGet("/admin/groups", async (AppDbContext db, CancellationToken ct) =>
+{
+    var groups = await db.DeviceGroups.OrderBy(g => g.Name).ToListAsync(ct);
+    var list = groups.Select(g => new GroupInfo
+    {
+        Id = g.Id, Name = g.Name, ConsentRequired = g.ConsentRequired, UnattendedAllowed = g.UnattendedAllowed,
+    }).ToList();
+    return Results.Json(list, AgentJsonContext.Default.ListGroupInfo);
+});
+
+app.MapPost("/admin/groups", async (HttpContext ctx, AppDbContext db) =>
+{
+    GroupInfo? g;
+    try { g = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.GroupInfo, ctx.RequestAborted); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (g is null || string.IsNullOrWhiteSpace(g.Name)) return Results.BadRequest();
+
+    var group = new RemoteServer.Data.Entities.DeviceGroup
+    {
+        Name = g.Name, ConsentRequired = g.ConsentRequired, UnattendedAllowed = g.UnattendedAllowed,
+    };
+    db.DeviceGroups.Add(group);
+    await db.SaveChangesAsync(ctx.RequestAborted);
+    return Results.Json(new GroupInfo { Id = group.Id, Name = group.Name, ConsentRequired = group.ConsentRequired, UnattendedAllowed = group.UnattendedAllowed }, AgentJsonContext.Default.GroupInfo);
+});
+
 app.MapGet("/admin/devices/online", (AgentConnectionRegistry registry) => Results.Ok(registry.ConnectedDevices));
 
-// Tunnel nyitása: ha nincs megadva port, a szerver oszt egyet és visszaadja.
+// Tunnel nyitása: a gép STABIL portját használja (enrollkor kiosztva); felülírható a query-ből.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
-    string deviceId, int? remotePort, CommandService commands, CancellationToken ct) =>
+    string deviceId, int? remotePort, AppDbContext db, CommandService commands, CancellationToken ct) =>
 {
-    var port = remotePort is > 0 ? remotePort.Value : Random.Shared.Next(20000, 40000);
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+
+    var port = remotePort is > 0 ? remotePort.Value
+             : device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback régi (port nélküli) géphez
     var cmd = await commands.EnqueueAsync(
         deviceId, CommandTypes.OpenTunnel, new CommandData { RemotePort = port }, createdBy: null, ct);
     return cmd is null

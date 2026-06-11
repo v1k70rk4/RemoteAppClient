@@ -60,6 +60,17 @@ public sealed class EnrollmentService(
         // Az SSH-kulcs aláírása a bástya-CA-val (best effort; tunnelhez kell).
         var sshCert = await sshCa.SignAsync(req.SshPublicKey, deviceId, ct);
 
+        // Stabil, egyedi bástya-port kiosztása a tartományból (a legalacsonyabb szabad).
+        var usedPorts = (await db.Devices
+            .Where(d => d.TunnelPort != null)
+            .Select(d => d.TunnelPort!.Value)
+            .ToListAsync(ct)).ToHashSet();
+        int? tunnelPort = null;
+        for (int p = _bastion.TunnelPortMin; p < _bastion.TunnelPortMax; p++)
+            if (!usedPorts.Contains(p)) { tunnelPort = p; break; }
+        if (tunnelPort is null)
+            return new Result(null, "no_free_port");
+
         var device = new Device
         {
             DeviceId = deviceId,
@@ -68,6 +79,7 @@ public sealed class EnrollmentService(
             Status = DeviceStatus.Approved,
             CertThumbprint = thumbprint,
             SshPublicKey = req.SshPublicKey,
+            TunnelPort = tunnelPort,
             EnrolledAt = DateTimeOffset.UtcNow,
         };
         db.Devices.Add(device);

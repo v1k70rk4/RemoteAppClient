@@ -65,19 +65,27 @@ public static class VncProvisioner
     /// <summary>Registry-hardening + a service újraindítása, hogy életbe lépjen.</summary>
     public static void ApplyHardening(string password)
     {
-        using (var key = Registry.LocalMachine.CreateSubKey(ServerKey, writable: true)
-                         ?? throw new UnauthorizedAccessException(ServerKey))
-        {
-            key.SetValue("RfbPort", 5900, RegistryValueKind.DWord);
-            key.SetValue("AllowLoopback", 1, RegistryValueKind.DWord);
-            key.SetValue("LoopbackOnly", 1, RegistryValueKind.DWord);          // csak 127.0.0.1
-            key.SetValue("AcceptHttpConnections", 0, RegistryValueKind.DWord); // 5800-as web/Java port ki
-            key.SetValue("UseVncAuthentication", 1, RegistryValueKind.DWord);
-            key.SetValue("Password", VncPassword.Encrypt(password), RegistryValueKind.Binary);
-        }
+        var encrypted = VncPassword.Encrypt(password);
+        // MINDKÉT registry-nézetbe írunk: a 64-bites tvnserver a sima kulcsot, a 32-bites
+        // (pl. Program Files (x86) alatti) a WOW6432Node-ot olvassa.
+        WriteServerConfig(RegistryView.Registry64, encrypted);
+        WriteServerConfig(RegistryView.Registry32, encrypted);
 
         // A futó szerver csak újraindításkor olvassa újra a configot.
         RestartService(ServiceName);
+    }
+
+    private static void WriteServerConfig(RegistryView view, byte[] encryptedPassword)
+    {
+        using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+        using var key = baseKey.CreateSubKey(ServerKey, writable: true)
+                        ?? throw new UnauthorizedAccessException(ServerKey);
+        key.SetValue("RfbPort", 5900, RegistryValueKind.DWord);
+        key.SetValue("AllowLoopback", 1, RegistryValueKind.DWord);
+        key.SetValue("LoopbackOnly", 1, RegistryValueKind.DWord);          // csak 127.0.0.1
+        key.SetValue("AcceptHttpConnections", 0, RegistryValueKind.DWord); // 5800-as web/Java port ki
+        key.SetValue("UseVncAuthentication", 1, RegistryValueKind.DWord);
+        key.SetValue("Password", encryptedPassword, RegistryValueKind.Binary);
     }
 
     // 'net' szinkron (megvárja a leállást/indulást) — az 'sc stop; sc start' versenyhelyzetet okoz.

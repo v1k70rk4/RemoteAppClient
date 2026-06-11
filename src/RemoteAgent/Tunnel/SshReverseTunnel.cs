@@ -65,10 +65,12 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         psi.ArgumentList.Add($"{options.BastionUser}@{options.BastionHost}");
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+        // Az ssh csak hibát/figyelmeztetést ír a stderr-re (nincs -v) — Warning szinten
+        // logoljuk, hogy a SYSTEM service EventLogjában is látszódjon a tunnel-hiba oka.
         proc.ErrorDataReceived += (_, e) =>
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
-                logger.LogDebug("ssh: {Line}", e.Data);
+                logger.LogWarning("ssh: {Line}", e.Data);
         };
 
         logger.LogInformation(

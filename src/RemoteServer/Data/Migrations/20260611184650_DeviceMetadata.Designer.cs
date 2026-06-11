@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RemoteServer.Data;
 
@@ -11,9 +12,11 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260611184650_DeviceMetadata")]
+    partial class DeviceMetadata
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -146,9 +149,6 @@ namespace RemoteServer.Data.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<int?>("TunnelPort")
-                        .HasColumnType("int");
-
                     b.Property<bool?>("UnattendedAllowed")
                         .HasColumnType("tinyint(1)");
 
@@ -169,9 +169,6 @@ namespace RemoteServer.Data.Migrations
                     b.HasIndex("GroupId");
 
                     b.HasIndex("Status");
-
-                    b.HasIndex("TunnelPort")
-                        .IsUnique();
 
                     b.ToTable("Devices");
                 });

@@ -39,6 +39,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             e.HasIndex(x => x.DeviceId).IsUnique();
             e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.TunnelPort).IsUnique(); // egyedi bástya-port (NULL többször is lehet)
             e.HasOne(x => x.Group).WithMany(g => g.Devices).HasForeignKey(x => x.GroupId)
                 .OnDelete(DeleteBehavior.SetNull);
         });

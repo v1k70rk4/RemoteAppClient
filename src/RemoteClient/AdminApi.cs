@@ -19,5 +19,15 @@ public sealed class AdminApi(string baseUrl) : IDisposable
         return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct);
     }
 
+    public async Task<List<GroupInfo>> GetGroupsAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync("/admin/groups", AgentJsonContext.Default.ListGroupInfo, ct) ?? [];
+
+    public async Task UpdateDeviceAsync(string deviceId, DeviceUpdate upd, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(upd, AgentJsonContext.Default.DeviceUpdate);
+        using var resp = await _http.PutAsync($"/admin/devices/{deviceId}", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public void Dispose() => _http.Dispose();
 }

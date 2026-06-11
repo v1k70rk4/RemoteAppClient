@@ -45,4 +45,8 @@ public sealed class BastionOptions
 
     /// <summary>A kiadott SSH-certek érvényessége napokban.</summary>
     public int SshCertValidityDays { get; set; } = 825;
+
+    /// <summary>A gépenkénti stabil tunnel-portok tartománya (inkluzív min, exkluzív max).</summary>
+    public int TunnelPortMin { get; set; } = 50000;
+    public int TunnelPortMax { get; set; } = 60000;
 }

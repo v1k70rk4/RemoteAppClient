@@ -23,6 +23,64 @@ public sealed class DeviceInfo
     /// <summary>A gép VNC-jelszava (a client a viewer .vnc fájljához használja).</summary>
     [JsonPropertyName("vncSecret")]
     public string? VncSecret { get; set; }
+
+    [JsonPropertyName("groupId")]
+    public Guid? GroupId { get; set; }
+
+    [JsonPropertyName("groupName")]
+    public string? GroupName { get; set; }
+
+    [JsonPropertyName("updateAllowed")]
+    public bool UpdateAllowed { get; set; }
+
+    [JsonPropertyName("unattendedAllowed")]
+    public bool? UnattendedAllowed { get; set; }
+
+    [JsonPropertyName("consentRequired")]
+    public bool? ConsentRequired { get; set; }
+
+    /// <summary>Admin-megjegyzés (visszafejtve).</summary>
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+}
+
+/// <summary>Egy eszköz admin-mezőinek módosítása (PUT). A null mezők változatlanok maradnak.</summary>
+public sealed class DeviceUpdate
+{
+    [JsonPropertyName("groupId")]
+    public Guid? GroupId { get; set; }
+
+    [JsonPropertyName("status")]
+    public string? Status { get; set; }
+
+    [JsonPropertyName("updateAllowed")]
+    public bool? UpdateAllowed { get; set; }
+
+    [JsonPropertyName("unattendedAllowed")]
+    public bool? UnattendedAllowed { get; set; }
+
+    [JsonPropertyName("consentRequired")]
+    public bool? ConsentRequired { get; set; }
+
+    /// <summary>Megjegyzés (a szerver TITKOSÍTVA tárolja).</summary>
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+}
+
+/// <summary>Eszközcsoport az admin-listához.</summary>
+public sealed class GroupInfo
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("consentRequired")]
+    public bool ConsentRequired { get; set; }
+
+    [JsonPropertyName("unattendedAllowed")]
+    public bool UnattendedAllowed { get; set; }
 }
 
 /// <summary>Az open-tunnel eredménye: a szerver által kiosztott bástya-port.</summary>

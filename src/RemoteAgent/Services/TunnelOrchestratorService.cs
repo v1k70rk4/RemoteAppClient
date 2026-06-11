@@ -67,7 +67,12 @@ public sealed class TunnelOrchestratorService(
             return;
         }
 
-        _tunnel ??= new SshReverseTunnel(_opt, loggerFactory.CreateLogger<SshReverseTunnel>());
+        // Minden open-tunnel friss portra jöhet (a szerver random portot oszt), ezért a
+        // meglévő tunnelt lezárjuk és újat nyitunk — különben a régi port "beragadna".
+        if (_tunnel is not null)
+            await _tunnel.StopAsync();
+
+        _tunnel = new SshReverseTunnel(_opt, loggerFactory.CreateLogger<SshReverseTunnel>());
         await _tunnel.StartAsync(remotePort, ct);
         state.Set(_tunnel.IsRunning);
         _lastActivity = DateTimeOffset.UtcNow;
