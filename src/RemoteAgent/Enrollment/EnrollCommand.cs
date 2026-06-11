@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -32,9 +33,16 @@ public static class EnrollCommand
         }
 
         Console.WriteLine(Strings.EnrollGeneratingKeys);
+        Directory.CreateDirectory(outDir);
+
+        // mTLS kulcs + CSR.
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var csrRequest = new CertificateRequest("CN=enroll", key, HashAlgorithmName.SHA256);
         string csrPem = csrRequest.CreateSigningRequestPem();
+
+        // SSH kulcspár a bástya-tunnelhez (ssh-keygen — a privát kulcs a gépen marad).
+        var sshKeyPath = Path.Combine(outDir, "id_ed25519");
+        string sshPublicKey = GenerateSshKey(sshKeyPath);
 
         Console.WriteLine(Strings.EnrollContactingServer);
         EnrollResponse? resp;
@@ -43,7 +51,7 @@ public static class EnrollCommand
             using var http = new HttpClient();
             using var r = await http.PostAsJsonAsync(
                 $"{server.TrimEnd('/')}/enroll",
-                new EnrollRequest { Token = token, Csr = csrPem, Hostname = hostname },
+                new EnrollRequest { Token = token, Csr = csrPem, Hostname = hostname, SshPublicKey = sshPublicKey },
                 AgentJsonContext.Default.EnrollRequest);
 
             if (!r.IsSuccessStatusCode)
@@ -77,9 +85,12 @@ public static class EnrollCommand
         using var leaf = X509Certificate2.CreateFromPem(resp.Certificate);
         using var withKey = leaf.CopyWithPrivateKey(key);
 
-        Directory.CreateDirectory(outDir);
         File.WriteAllBytes(Path.Combine(outDir, "agent.pfx"), withKey.Export(X509ContentType.Pfx));
         File.WriteAllText(Path.Combine(outDir, "ca.crt"), resp.CaCertificate);
+
+        // Az SSH-cert a privát kulcs mellé (OpenSSH a <kulcs>-cert.pub-ot is használja).
+        if (!string.IsNullOrWhiteSpace(resp.SshCertificate))
+            File.WriteAllText(sshKeyPath + "-cert.pub", resp.SshCertificate.Trim() + "\n");
 
         using var caCert = X509Certificate2.CreateFromPem(resp.CaCertificate);
         var record = new EnrollmentRecord
@@ -89,6 +100,10 @@ public static class EnrollCommand
             CaPinSha256 = Convert.ToHexString(SHA256.HashData(caCert.GetRawCertData())),
             CommandSigningPublicKey = resp.CommandSigningPublicKey,
             ServerUrl = server,
+            BastionHost = resp.BastionHost,
+            BastionPort = resp.BastionPort,
+            BastionUser = resp.BastionUser,
+            BastionHostKey = resp.BastionHostKey,
             EnrolledAtUtc = DateTimeOffset.UtcNow,
         };
         File.WriteAllText(
@@ -100,6 +115,61 @@ public static class EnrollCommand
         Console.WriteLine($"  thumbprint: {withKey.Thumbprint}");
         Console.WriteLine($"  output:     {outDir}");
         return 0;
+    }
+
+    /// <summary>SSH ed25519 kulcspár generálása ssh-keygennel; visszaadja a publikus kulcsot.</summary>
+    private static string GenerateSshKey(string keyPath)
+    {
+        foreach (var p in new[] { keyPath, keyPath + ".pub", keyPath + "-cert.pub" })
+            if (File.Exists(p)) File.Delete(p);
+
+        var psi = new ProcessStartInfo(ResolveSshKeygen())
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add("-t"); psi.ArgumentList.Add("ed25519");
+        psi.ArgumentList.Add("-f"); psi.ArgumentList.Add(keyPath);
+        psi.ArgumentList.Add("-N"); psi.ArgumentList.Add("");
+        psi.ArgumentList.Add("-q");
+        psi.ArgumentList.Add("-C"); psi.ArgumentList.Add("remoteagent");
+
+        using var proc = Process.Start(psi)!;
+        proc.WaitForExit();
+        if (proc.ExitCode != 0 || !File.Exists(keyPath + ".pub"))
+            throw new InvalidOperationException("ssh-keygen sikertelen (SSH kulcs generálás).");
+
+        TightenAcl(keyPath);
+        return File.ReadAllText(keyPath + ".pub").Trim();
+    }
+
+    private static string ResolveSshKeygen()
+    {
+        var sys = Path.Combine(Environment.SystemDirectory, "OpenSSH", "ssh-keygen.exe");
+        return File.Exists(sys) ? sys : "ssh-keygen";
+    }
+
+    /// <summary>A privát kulcs ACL-jét leszűkíti a futtató fiókra (a Windows ssh különben elutasítja).</summary>
+    private static void TightenAcl(string path)
+    {
+        try
+        {
+            var user = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var psi = new ProcessStartInfo("icacls")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            psi.ArgumentList.Add(path);
+            psi.ArgumentList.Add("/inheritance:r");
+            psi.ArgumentList.Add("/grant:r");
+            psi.ArgumentList.Add($"{user}:F");
+            using var proc = Process.Start(psi)!;
+            proc.WaitForExit();
+        }
+        catch { /* best effort */ }
     }
 
     private static (string? Token, string? Server, string Hostname, string OutDir) ParseArgs(string[] args)

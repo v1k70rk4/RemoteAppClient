@@ -43,6 +43,17 @@ fi
 echo "[deploy] >>> CA fingerprint (az agent ezt pinneli a szerver-TLS-hez később):"
 sudo openssl x509 -in "$ENV_DIR/ca.crt" -noout -fingerprint -sha256
 
+# 3c) bástya-konfig env (a Host a BASTION_HOST env-ből; a host-kulcs a boxról).
+# Az enroll válaszába kerül; gépspecifikus, ezért NEM a repóból.
+if [ -f /etc/ssh/ssh_host_ed25519_key.pub ]; then
+  BKEY="$(sudo awk '{print $1, $2}' /etc/ssh/ssh_host_ed25519_key.pub)"
+  sudo tee "$ENV_DIR/bastion.env" >/dev/null <<EOF
+Server__Bastion__Host=${BASTION_HOST:-}
+Server__Bastion__HostKey=${BKEY}
+EOF
+  echo "[deploy] bástya-env írva (Host='${BASTION_HOST:-<üres>}')."
+fi
+
 # 4) jogosultságok: a config csak a service-useré
 # (a chmod-ot root-oldalon, find-dal — a glob a hívó shellben nem fejthető ki, ha a mappa 700)
 sudo chown -R "$SVC_USER:$SVC_USER" "$APP_DIR" "$ENV_DIR"
@@ -61,6 +72,7 @@ Type=simple
 User=${SVC_USER}
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_DIR}/db.env
+EnvironmentFile=-${ENV_DIR}/bastion.env
 Environment=ASPNETCORE_URLS=http://127.0.0.1:5000
 ExecStart=${APP_DIR}/RemoteServer
 Restart=on-failure

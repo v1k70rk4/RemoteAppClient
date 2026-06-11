@@ -19,8 +19,12 @@ public sealed class EnrollmentService(
     AppDbContext db,
     CertificateAuthority ca,
     CommandSigner signer,
+    SshCertificateAuthority sshCa,
+    Microsoft.Extensions.Options.IOptions<Configuration.ServerOptions> serverOptions,
     ILogger<EnrollmentService> logger)
 {
+    private readonly Configuration.BastionOptions _bastion = serverOptions.Value.Bastion;
+
     public sealed record Result(EnrollResponse? Response, string? ErrorCode);
 
     public async Task<Result> EnrollWithTokenAsync(EnrollRequest req, CancellationToken ct)
@@ -53,6 +57,9 @@ public sealed class EnrollmentService(
             return new Result(null, "bad_csr");
         }
 
+        // Az SSH-kulcs aláírása a bástya-CA-val (best effort; tunnelhez kell).
+        var sshCert = await sshCa.SignAsync(req.SshPublicKey, deviceId, ct);
+
         var device = new Device
         {
             DeviceId = deviceId,
@@ -60,6 +67,7 @@ public sealed class EnrollmentService(
             GroupId = token.GroupId,
             Status = DeviceStatus.Approved,
             CertThumbprint = thumbprint,
+            SshPublicKey = req.SshPublicKey,
             EnrolledAt = DateTimeOffset.UtcNow,
         };
         db.Devices.Add(device);
@@ -85,6 +93,11 @@ public sealed class EnrollmentService(
             Certificate = certPem,
             CaCertificate = ca.CaCertificatePem,
             CommandSigningPublicKey = signer.PublicKeySpkiBase64,
+            SshCertificate = sshCert ?? string.Empty,
+            BastionHost = _bastion.Host,
+            BastionPort = _bastion.Port,
+            BastionUser = _bastion.User,
+            BastionHostKey = _bastion.HostKey,
         }, null);
     }
 

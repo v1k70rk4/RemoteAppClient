@@ -25,6 +25,7 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 
 builder.Services.AddSingleton<CommandSigner>();
 builder.Services.AddSingleton<CertificateAuthority>();
+builder.Services.AddSingleton<SshCertificateAuthority>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddScoped<ITelemetrySink, DbTelemetrySink>();
 builder.Services.AddScoped<CommandService>();

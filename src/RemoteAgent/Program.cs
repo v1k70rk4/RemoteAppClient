@@ -48,6 +48,17 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     opt.ClientCertPfxPath = Path.Combine(opt.EnrollmentDir, "agent.pfx");
     if (!string.IsNullOrWhiteSpace(rec.CommandSigningPublicKey))
         opt.CommandChannel.CommandSigningPublicKey = rec.CommandSigningPublicKey;
+
+    // Bástya-tunnel konfig az enrollmentből.
+    if (!string.IsNullOrWhiteSpace(rec.BastionHost))
+    {
+        opt.Tunnel.BastionHost = rec.BastionHost;
+        opt.Tunnel.BastionPort = rec.BastionPort;
+        opt.Tunnel.BastionUser = rec.BastionUser;
+        opt.Tunnel.BastionHostKey = rec.BastionHostKey;
+        opt.Tunnel.PrivateKeyPath = Path.Combine(opt.EnrollmentDir, "id_ed25519");
+        opt.Tunnel.CertificatePath = Path.Combine(opt.EnrollmentDir, "id_ed25519-cert.pub");
+    }
 });
 
 // Megosztott állapot és infrastruktúra.

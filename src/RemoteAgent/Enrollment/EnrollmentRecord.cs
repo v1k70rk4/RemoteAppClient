@@ -25,6 +25,19 @@ public sealed class EnrollmentRecord
     [JsonPropertyName("serverUrl")]
     public string ServerUrl { get; set; } = string.Empty;
 
+    // Bástya-elérés a reverse tunnelhez (enrollkor a szervertől).
+    [JsonPropertyName("bastionHost")]
+    public string BastionHost { get; set; } = string.Empty;
+
+    [JsonPropertyName("bastionPort")]
+    public int BastionPort { get; set; }
+
+    [JsonPropertyName("bastionUser")]
+    public string BastionUser { get; set; } = string.Empty;
+
+    [JsonPropertyName("bastionHostKey")]
+    public string BastionHostKey { get; set; } = string.Empty;
+
     [JsonPropertyName("enrolledAtUtc")]
     public DateTimeOffset EnrolledAtUtc { get; set; }
 }

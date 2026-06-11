@@ -55,6 +55,9 @@ public sealed class TunnelOptions
     /// <summary>Az agent SSH privát kulcsa (OpenSSH formátum, csak SYSTEM-nek olvasható).</summary>
     public string PrivateKeyPath { get; set; } = string.Empty;
 
+    /// <summary>Az agent SSH-certje (a bástya-CA aláírta). Üres = sima kulcs-alapú auth.</summary>
+    public string CertificatePath { get; set; } = string.Empty;
+
     /// <summary>A bástya host-kulcsa pinnelve (known_hosts sor). Enélkül nem épül tunnel.</summary>
     public string BastionHostKey { get; set; } = string.Empty;
 

@@ -40,11 +40,17 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         // -R remote:localhost:local — a reverse forward.
         psi.ArgumentList.Add("-N");
         psi.ArgumentList.Add("-R");
-        psi.ArgumentList.Add($"{remotePort}:localhost:{options.LocalForwardPort}");
+        // 127.0.0.1 (nem 'localhost') — a Windows ssh a localhostot ::1-re oldhatja,
+        // de a VNC tipikusan csak IPv4 loopbacken figyel.
+        psi.ArgumentList.Add($"{remotePort}:127.0.0.1:{options.LocalForwardPort}");
 
         // Csak a megadott kulccsal, jelszós/interaktív próba nélkül.
         psi.ArgumentList.Add("-i");
         psi.ArgumentList.Add(options.PrivateKeyPath);
+
+        // A CA által aláírt SSH-cert (a bástya TrustedUserCAKeys-szel bízik benne).
+        if (!string.IsNullOrWhiteSpace(options.CertificatePath))
+            AddOption(psi, $"CertificateFile=\"{options.CertificatePath}\"");
 
         AddOption(psi, "IdentitiesOnly=yes");
         AddOption(psi, "BatchMode=yes");                       // semmilyen prompt
@@ -107,8 +113,12 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         // A pinnelt host-kulcsot egy ideiglenes, csak ehhez a sessionhöz tartozó
         // known_hosts fájlba írjuk. Tartalma: "<host> <kulcs>".
         var path = Path.Combine(Path.GetTempPath(), $"ra_known_hosts_{Guid.NewGuid():N}");
-        var line = $"[{options.BastionHost}]:{options.BastionPort} {options.BastionHostKey}";
-        File.WriteAllText(path, line + "\n");
+        // A 22-es (alapértelmezett) portnál az ssh a sima hostnevet keresi a known_hosts-ban;
+        // a [host]:port forma csak nem-alapértelmezett portnál érvényes.
+        var hostEntry = options.BastionPort == 22
+            ? options.BastionHost
+            : $"[{options.BastionHost}]:{options.BastionPort}";
+        File.WriteAllText(path, $"{hostEntry} {options.BastionHostKey}\n");
         return path;
     }
 
