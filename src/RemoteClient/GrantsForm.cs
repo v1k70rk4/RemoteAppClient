@@ -21,7 +21,7 @@ public sealed class GrantsForm : MaterialForm
     {
         _api = api; _userId = userId;
         ThemeManager.Skin.AddFormToManage(this);
-        Text = $"Grantok — {username}";
+        Text = $"Jogosultságok — {username}";
         Sizable = false;
         Width = 580; Height = 520;
         StartPosition = FormStartPosition.CenterParent;
