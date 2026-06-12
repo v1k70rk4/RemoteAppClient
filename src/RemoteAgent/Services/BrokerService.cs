@@ -14,9 +14,13 @@ namespace RemoteAgent.Services;
 /// Konzol-bróker: helyi named pipe, amin a kliens forward-tunneleket kér. Az agent a GÉP
 /// enrollment-kulcsával nyit <c>ssh -L</c>-t a bástyához (admin API vagy egy cél-gép VNC
 /// bástya-portja), és visszaadja a helyi loopback-portot. Így a kliensnek NINCS saját
-/// SSH-kulcsa — a gép identitása a belépő, és csak BELÉPTETETT gépről indul a konzol.
-/// A pipe-hoz a hitelesített helyi userek férnek; a tényleges jogosultságot a szerver-login
-/// + a grantok döntik el. Csak az admin API (5000) és a tunnel-tartomány forwardolható.
+/// SSH-kulcsa — a gép identitása a belépő, és csak BELÉPTETETT gépen (ahol fut az agent)
+/// működik a konzol.
+///
+/// EGY-kapcsolatos modell: mindig PONTOSAN egy figyelő instance van; egy kliens-session
+/// alatt foglalt, a kliens bontásakor (akár force-kill) felszabadul és új figyelő jön.
+/// Egy gépen jellemzően egy konzol fut. A forwardok a kapcsolat élettartamáig élnek.
+/// A pipe-hoz hitelesített helyi userek férnek; a jogosultságot a szerver-login + grantok döntik el.
 /// </summary>
 public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory lf, ILogger<BrokerService> logger) : BackgroundService
 {
@@ -29,25 +33,29 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        logger.LogWarning("Konzol-bróker indul (pipe: {Pipe}).", PipeName);
+
         while (!stoppingToken.IsCancellationRequested)
         {
-            NamedPipeServerStream? server = null;
-            try
-            {
-                server = CreatePipe();
-                await server.WaitForConnectionAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) { server?.Dispose(); break; }
+            NamedPipeServerStream pipe;
+            try { pipe = CreatePipe(); }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Bróker pipe hiba.");
-                server?.Dispose();
-                try { await Task.Delay(1000, stoppingToken); } catch { break; }
+                logger.LogWarning(ex, "Bróker pipe létrehozása sikertelen — újrapróba 2s múlva.");
+                try { await Task.Delay(2000, stoppingToken); } catch { break; }
                 continue;
             }
 
-            // Külön taskon kezeljük a kapcsolatot, hogy közben új klienst is fogadhassunk.
-            _ = HandleConnectionAsync(server, stoppingToken);
+            try
+            {
+                await pipe.WaitForConnectionAsync(stoppingToken);
+                logger.LogWarning("Bróker: kliens csatlakozott.");
+                await HandleConnectionAsync(pipe, stoppingToken);
+                logger.LogWarning("Bróker: kliens lecsatlakozott, forwardok lebontva.");
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex) { logger.LogWarning(ex, "Bróker kapcsolat hiba."); }
+            finally { try { await pipe.DisposeAsync(); } catch { /* best effort */ } }
         }
     }
 
@@ -57,10 +65,10 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
         try
         {
             using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
-            await using var writer = new StreamWriter(pipe, Encoding.UTF8, 1024, leaveOpen: true) { AutoFlush = true };
+            var writer = new StreamWriter(pipe, Encoding.UTF8, 1024, leaveOpen: true) { AutoFlush = true };
 
             string? line;
-            while ((line = await reader.ReadLineAsync(ct)) is not null)
+            while (pipe.IsConnected && (line = await reader.ReadLineAsync(ct)) is not null)
             {
                 var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 2 && parts[0] == "FORWARD" && int.TryParse(parts[1], out var remotePort) && IsAllowed(remotePort))
@@ -71,11 +79,11 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
                         await fwd.StartAsync(remotePort, ct);
                         forwards.Add(fwd);
                         await writer.WriteLineAsync($"OK {fwd.LocalPort}");
-                        logger.LogInformation("Bróker forward: {Remote} -> helyi {Local}", remotePort, fwd.LocalPort);
+                        logger.LogWarning("Bróker forward OK: bástya {Remote} -> helyi {Local}.", remotePort, fwd.LocalPort);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "Bróker forward sikertelen ({Port}).", remotePort);
+                        logger.LogWarning(ex, "Bróker forward SIKERTELEN ({Port}) — lásd az ssh -L sorokat.", remotePort);
                         await writer.WriteLineAsync("ERR forward_failed");
                     }
                 }
@@ -85,12 +93,12 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
                 }
             }
         }
-        catch (Exception ex) { logger.LogDebug(ex, "Bróker kapcsolat lezárult."); }
+        catch (IOException) { /* a kliens bontotta — normális */ }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { logger.LogDebug(ex, "Bróker handler hiba."); }
         finally
         {
-            // A kapcsolat bontásakor minden forwardot lebontunk (a session vége).
             foreach (var f in forwards) await f.StopAsync();
-            try { pipe.Dispose(); } catch { /* best effort */ }
         }
     }
 
@@ -108,8 +116,9 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl, AccessControlType.Allow));
 
+        // Egyetlen instance (maxNumberOfServerInstances: 1) — egy konzol-session egyszerre.
         return NamedPipeServerStreamAcl.Create(
-            PipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
+            PipeName, PipeDirection.InOut, maxNumberOfServerInstances: 1,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous, inBufferSize: 0, outBufferSize: 0, sec);
     }
 }

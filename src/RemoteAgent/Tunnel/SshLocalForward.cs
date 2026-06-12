@@ -61,10 +61,33 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         proc.BeginErrorReadLine();
         _process = proc;
 
-        // Kis idő a forward felállására (ExitOnForwardFailure miatt: ha hibázik, kilép).
-        await Task.Delay(700, ct);
+        // Megvárjuk, míg az ssh felépül és bindeli a helyi portot (vagy kilép, ha a
+        // forward nem jött létre — ExitOnForwardFailure=yes). A helyi portot pollozzuk:
+        // amint elfogad kapcsolatot, kész; siker esetén gyorsan visszatér.
+        var deadline = DateTime.UtcNow.AddSeconds(8);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (proc.HasExited)
+                throw new InvalidOperationException("Az ssh -L forward nem jött létre (lásd az 'ssh -L:' sorokat a logban).");
+            if (PortAccepts(LocalPort))
+                return;
+            await Task.Delay(150, ct);
+        }
         if (proc.HasExited)
-            throw new InvalidOperationException("Az ssh -L forward nem jött létre (lásd a logot).");
+            throw new InvalidOperationException("Az ssh -L forward nem jött létre (timeout).");
+        // Időtúllépés, de az ssh él — feltételezzük, hogy kész (a kliens úgyis újrapróbál).
+    }
+
+    private static bool PortAccepts(int port)
+    {
+        try
+        {
+            using var s = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            var ar = s.BeginConnect(IPAddress.Loopback, port, null, null);
+            if (ar.AsyncWaitHandle.WaitOne(200) && s.Connected) { s.EndConnect(ar); return true; }
+            return false;
+        }
+        catch { return false; }
     }
 
     public async Task StopAsync()
