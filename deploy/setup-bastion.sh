@@ -30,16 +30,20 @@ sudo cp "$CA_KEY.pub" "$SSHD_CA_PUB"
 sudo chown root:root "$SSHD_CA_PUB"
 sudo chmod 644 "$SSHD_CA_PUB"
 
-# 3) sshd Match blokk az agent userre — csak reverse forward, semmi más
+# 3) sshd Match blokk az agent userre.
+#    -R (reverse tunnel, cél gép VNC-je) ÉS -L (konzol-bróker: admin API + cél-port)
+#    is kell. A -L célja a bástya LOOPBACKja (PermitOpen 127.0.0.1:*) — kifelé nem mehet.
+#    A loopback szolgáltatások jelszóval védettek (mariadb), a tunnel-portok VNC-jelszóval
+#    + szerver-oldali grant-ellenőrzéssel, így a loopback-* elfogadható kockázat.
 sudo tee /etc/ssh/sshd_config.d/agent-bastion.conf >/dev/null <<CONF
 Match User ${AGENT_USER}
     TrustedUserCAKeys ${SSHD_CA_PUB}
     GatewayPorts no
-    AllowTcpForwarding remote
+    AllowTcpForwarding all
     PermitTTY no
     X11Forwarding no
     AllowAgentForwarding no
-    PermitOpen none
+    PermitOpen 127.0.0.1:*
     ForceCommand /usr/sbin/nologin
 CONF
 sudo sshd -t

@@ -92,6 +92,7 @@ builder.Services.AddHostedService<TelemetryService>();
 builder.Services.AddHostedService<VncProvisioningService>();
 builder.Services.AddHostedService<HeartbeatService>();
 builder.Services.AddHostedService<HelperUpdateWatcher>();
+builder.Services.AddHostedService<BrokerService>();
 
 // Token nélküli ön-telepítés: ha nincs enrollment, de van bootstrap.dat, beléptet MOST —
 // a host felépülése (és a PostConfigure enrollment.json-olvasása) ELŐTT.

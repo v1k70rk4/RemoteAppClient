@@ -10,9 +10,8 @@ namespace RemoteClient;
 public sealed class MainForm : Form
 {
     private readonly ClientConfig _cfg;
-    private SshForward? _adminForward;
+    private BrokerClient? _broker;
     private AdminApi? _api;
-    private readonly List<SshForward> _vncForwards = [];
 
     private readonly ListView _list = new();
     private readonly Button _refreshBtn = new();
@@ -103,22 +102,25 @@ public sealed class MainForm : Form
 
     private async Task InitAsync()
     {
-        if (!_cfg.IsComplete)
-        {
-            _cfg.Save(); // sablon kiírása
-            MessageBox.Show(
-                $"Töltsd ki a beállításokat (SSH host/user/kulcs):\n{ClientConfig.Path}\n\nUtána indítsd újra.",
-                "Beállítás szükséges", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            SetStatus("Hiányzó beállítás — lásd config.json.");
-            return;
-        }
-
         try
         {
-            SetStatus("Admin-alagút építése a boxra…");
-            _adminForward = new SshForward(_cfg, _cfg.AdminApiPort);
-            _api = new AdminApi($"http://127.0.0.1:{_adminForward.LocalPort}");
-            await Task.Delay(1500); // az ssh -L felállása
+            // A konzol CSAK beléptetett gépen működik: a helyi agent brókerén át éri el a
+            // szervert (a gép SSH-kulcsával). Nincs agent → nincs konzol.
+            SetStatus("Helyi agent keresése…");
+            _broker = BrokerClient.TryConnect();
+            if (_broker is null)
+            {
+                MessageBox.Show(
+                    "Ezen a gépen nem fut a RemoteAgent (offline), ezért a konzol nem használható.\n\n" +
+                    "Telepítsd (újra) az agentet, majd indítsd újra a klienst.",
+                    "Nincs agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                SetStatus("Offline — nincs helyi agent. Telepítsd újra.");
+                return;
+            }
+
+            SetStatus("Admin-csatorna a helyi agenten át…");
+            var adminPort = await _broker.ForwardAsync(_cfg.AdminApiPort);
+            _api = new AdminApi($"http://127.0.0.1:{adminPort}");
 
             SetStatus("Bejelentkezés…");
             using (var login = new LoginForm(_api))
@@ -243,12 +245,11 @@ public sealed class MainForm : Form
             var result = await _api.OpenTunnelAsync(d.DeviceId);
             if (result is null) { SetStatus("A tunnel-kérés sikertelen."); return; }
 
-            SetStatus("Bástya-port elérése…");
-            var vnc = new SshForward(_cfg, result.RemotePort);
-            _vncForwards.Add(vnc);
-            await Task.Delay(2500); // a reverse tunnel + az ssh -L felállása
+            SetStatus("Bástya-port elérése a helyi agenten át…");
+            await Task.Delay(1500); // a cél gép reverse tunnelje felálljon
+            var localPort = await _broker!.ForwardAsync(result.RemotePort);
 
-            LaunchViewer(vnc.LocalPort, d.VncSecret!, vnc);
+            LaunchViewer(localPort, d.VncSecret!);
             SetStatus($"VNC indítva: {d.Hostname}");
         }
         catch (Exception ex)
@@ -319,26 +320,14 @@ public sealed class MainForm : Form
         }
     }
 
-    private void LaunchViewer(int localPort, string password, SshForward forward)
+    private void LaunchViewer(int localPort, string password)
     {
-        var psi = new ProcessStartInfo(_cfg.ViewerExe)
-        {
-            UseShellExecute = false,
-        };
+        var psi = new ProcessStartInfo(_cfg.ViewerExe) { UseShellExecute = false };
         psi.ArgumentList.Add("-host=127.0.0.1");
         psi.ArgumentList.Add($"-port={localPort}");
         psi.ArgumentList.Add($"-password={password}");
-
-        var viewer = Process.Start(psi);
-        if (viewer is not null)
-        {
-            viewer.EnableRaisingEvents = true;
-            viewer.Exited += (_, _) =>
-            {
-                forward.Dispose();
-                _vncForwards.Remove(forward);
-            };
-        }
+        // A forwardot a bróker tartja a session végéig; a viewer kilépésekor nem kell bontani.
+        Process.Start(psi);
     }
 
     private static async Task<T> RetryAsync<T>(Func<Task<T>> action, int attempts = 4)
@@ -357,8 +346,7 @@ public sealed class MainForm : Form
     private void Cleanup()
     {
         try { _api?.LogoutAsync().Wait(TimeSpan.FromSeconds(2)); } catch { /* best effort: session visszavonás */ }
-        foreach (var f in _vncForwards.ToArray()) f.Dispose();
-        _adminForward?.Dispose();
+        _broker?.Dispose(); // a kapcsolat bontásával az agent lebontja az összes forwardot
         _api?.Dispose();
     }
 }
