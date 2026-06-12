@@ -5,11 +5,57 @@ using RemoteAgent.Commands;
 
 namespace RemoteClient;
 
+/// <summary>Bejelentkezési hiba a szerver hibakódjával (invalid_credentials / totp_required / totp_invalid / …).</summary>
+public sealed class AuthException(string code) : Exception(code)
+{
+    public string Code { get; } = code;
+}
+
 /// <summary>A szerver admin API-ja, az SSH-forwardolt localhost porton keresztül.</summary>
 public sealed class AdminApi(string baseUrl) : IDisposable
 {
     // 10 perc: a nagy exe-feltöltés / MSI-gyártás belefér (a sima lekérdezések így is gyorsak).
     private readonly HttpClient _http = new() { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromMinutes(10) };
+
+    /// <summary>A session-token beállítása minden további híváshoz (Bearer).</summary>
+    public void SetToken(string? token) =>
+        _http.DefaultRequestHeaders.Authorization =
+            string.IsNullOrWhiteSpace(token) ? null : new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+    /// <summary>Bejelentkezés. Sikertelennél AuthException-t dob a szerver hibakódjával.</summary>
+    public async Task<LoginResponse> LoginAsync(string username, string password, string? totp, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(
+            new LoginRequest { Username = username, Password = password, Totp = totp }, AgentJsonContext.Default.LoginRequest);
+        using var resp = await _http.PostAsync("/auth/login", content, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string code = $"http_{(int)resp.StatusCode}";
+            try { var e = await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.AuthError, ct); if (!string.IsNullOrEmpty(e?.Error)) code = e.Error; }
+            catch { /* nem JSON */ }
+            throw new AuthException(code);
+        }
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.LoginResponse, ct))!;
+    }
+
+    public async Task ChangePasswordAsync(string newPassword, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new ChangePasswordRequest { NewPassword = newPassword }, AgentJsonContext.Default.ChangePasswordRequest);
+        using var resp = await _http.PostAsync("/auth/change-password", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task ConfirmTotpAsync(string code, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new TotpConfirmRequest { Code = code }, AgentJsonContext.Default.TotpConfirmRequest);
+        using var resp = await _http.PostAsync("/auth/totp/confirm", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task LogoutAsync(CancellationToken ct = default)
+    {
+        try { using var resp = await _http.PostAsync("/auth/logout", content: null, ct); } catch { /* best effort */ }
+    }
 
     public async Task<List<DeviceInfo>> GetDevicesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/devices", AgentJsonContext.Default.ListDeviceInfo, ct) ?? [];

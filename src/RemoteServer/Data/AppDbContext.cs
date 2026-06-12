@@ -8,6 +8,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<UserGrant> UserGrants => Set<UserGrant>();
+    public DbSet<UserSession> UserSessions => Set<UserSession>();
     public DbSet<DeviceGroup> DeviceGroups => Set<DeviceGroup>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<DeviceTelemetry> DeviceTelemetry => Set<DeviceTelemetry>();
@@ -34,6 +36,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasKey(x => new { x.UserId, x.RoleId });
             e.HasOne(x => x.User).WithMany(u => u.UserRoles).HasForeignKey(x => x.UserId);
             e.HasOne(x => x.Role).WithMany(r => r.UserRoles).HasForeignKey(x => x.RoleId);
+        });
+
+        b.Entity<UserGrant>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.HasOne(x => x.User).WithMany(u => u.Grants).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<UserSession>(e =>
+        {
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<Device>(e =>

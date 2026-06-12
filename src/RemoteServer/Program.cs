@@ -40,11 +40,141 @@ builder.Services.AddScoped<ITelemetrySink, DbTelemetrySink>();
 builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<EnrollmentService>();
 builder.Services.AddSingleton<MsiBuilder>();
+builder.Services.AddScoped<AuthService>();
 
 var app = builder.Build();
 app.UseWebSockets();
 
+// === Session-auth az /admin-ra: érvényes Bearer-token kell (a transportot a gép SSH-tunnelje adja).
+// A /auth/* végpontok publikusak (a tunnelen át), és maguk validálnak. Amíg a user setupja
+// (jelszócsere / TOTP-enroll) nincs kész, a konzol-végpontok 403-at adnak. ===
+app.Use(async (ctx, next) =>
+{
+    if (!ctx.Request.Path.StartsWithSegments("/admin")) { await next(); return; }
+
+    var auth = ctx.RequestServices.GetRequiredService<AuthService>();
+    var token = BearerToken(ctx);
+    var v = await auth.ValidateAsync(token, ctx.RequestAborted);
+    if (v is null)
+    {
+        ctx.Response.StatusCode = 401;
+        await ctx.Response.WriteAsJsonAsync(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError);
+        return;
+    }
+    if (v.Value.User.MustChangePassword || !v.Value.User.TotpConfirmed)
+    {
+        ctx.Response.StatusCode = 403;
+        await ctx.Response.WriteAsJsonAsync(new AuthError { Error = "setup_incomplete" }, AgentJsonContext.Default.AuthError);
+        return;
+    }
+    ctx.Items["user"] = v.Value.User;
+    await next();
+});
+
 app.MapGet("/", () => "RemoteServer up.");
+
+// === Bejelentkezés / 2FA (a gép SSH-tunneljén át érhető el; maguk validálnak) ===
+app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, CancellationToken ct) =>
+{
+    LoginRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.LoginRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest();
+
+    var user = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+        .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
+    if (user is null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
+        return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    // Ha már be van állítva a TOTP, kötelező a kód.
+    if (user.TotpConfirmed)
+    {
+        var secret = protector.TryUnprotect(user.TotpSecret);
+        if (secret is null || !TotpService.Verify(secret, req.Totp ?? ""))
+            return Results.Json(new AuthError { Error = string.IsNullOrWhiteSpace(req.Totp) ? "totp_required" : "totp_invalid" },
+                AgentJsonContext.Default.AuthError, statusCode: 401);
+    }
+
+    var token = await auth.CreateSessionAsync(user, ct);
+    user.LastLoginAt = DateTimeOffset.UtcNow;
+
+    var resp = new LoginResponse
+    {
+        Token = token,
+        Role = AuthService.RoleOf(user),
+        MustChangePassword = user.MustChangePassword,
+        TotpEnrollRequired = !user.TotpConfirmed,
+    };
+
+    // Első belépés / nincs még TOTP: generálunk titkot az enrollhoz (titkosítva tároljuk, még nem confirmed).
+    if (!user.TotpConfirmed)
+    {
+        var secret = TotpService.GenerateSecret();
+        user.TotpSecret = protector.Protect(secret);
+        resp.TotpSecret = secret;
+        resp.TotpUri = TotpService.BuildUri(secret, user.Username, "RemoteAppClient");
+    }
+
+    await db.SaveChangesAsync(ct);
+    return Results.Json(resp, AgentJsonContext.Default.LoginResponse);
+});
+
+// A setup-lépések (mid-setup user is hívhatja, ezért itt validálunk, nem az /admin gate-en).
+app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    var v = await auth.ValidateAsync(BearerToken(ctx), ct);
+    if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    ChangePasswordRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.ChangePasswordRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || (req.NewPassword?.Length ?? 0) < 10)
+        return Results.Json(new AuthError { Error = "weak_password" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+
+    var user = await db.Users.FirstAsync(u => u.Id == v.Value.User.Id, ct);
+    user.PasswordHash = PasswordHasher.Hash(req.NewPassword!);
+    user.MustChangePassword = false;
+    user.PasswordChangedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+app.MapPost("/auth/totp/confirm", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, CancellationToken ct) =>
+{
+    var v = await auth.ValidateAsync(BearerToken(ctx), ct);
+    if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    TotpConfirmRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.TotpConfirmRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+
+    var user = await db.Users.FirstAsync(u => u.Id == v.Value.User.Id, ct);
+    var secret = protector.TryUnprotect(user.TotpSecret);
+    if (secret is null || req is null || !TotpService.Verify(secret, req.Code))
+        return Results.Json(new AuthError { Error = "totp_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+
+    user.TotpConfirmed = true;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+app.MapPost("/auth/logout", async (HttpContext ctx, AuthService auth, CancellationToken ct) =>
+{
+    await auth.RevokeAsync(BearerToken(ctx), ct);
+    return Results.NoContent();
+});
+
+app.MapGet("/auth/me", async (HttpContext ctx, AuthService auth, CancellationToken ct) =>
+{
+    var v = await auth.ValidateAsync(BearerToken(ctx), ct);
+    if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+    var u = v.Value.User;
+    return Results.Json(new MeResponse
+    {
+        Username = u.Username, Role = AuthService.RoleOf(u),
+        MustChangePassword = u.MustChangePassword, TotpConfirmed = u.TotpConfirmed,
+    }, AgentJsonContext.Default.MeResponse);
+});
 
 // === Agent WSS parancscsatorna ===
 // Az agent ide tartja a kimenő kapcsolatot; a szerver ezen push-ol aláírt parancsot.
@@ -506,7 +636,34 @@ app.MapGet("/admin/msi/{fileName}", (string fileName, IOptions<ServerOptions> op
     return File.Exists(path) ? Results.File(path, "application/x-msi", safe) : Results.NotFound();
 });
 
+// === Bootstrap: szerepek (admin/viewer) + első admin user (ideiglenes jelszó a szerver-logba) ===
+using (var scope = app.Services.CreateScope())
+{
+    var sdb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    foreach (var rn in new[] { "admin", "viewer" })
+        if (!await sdb.Roles.AnyAsync(r => r.Name == rn)) sdb.Roles.Add(new Role { Name = rn });
+    await sdb.SaveChangesAsync();
+
+    if (!await sdb.Users.AnyAsync())
+    {
+        var temp = Convert.ToBase64String(RandomNumberGenerator.GetBytes(9)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var admin = new User { Username = "admin", PasswordHash = PasswordHasher.Hash(temp), MustChangePassword = true };
+        sdb.Users.Add(admin);
+        await sdb.SaveChangesAsync();
+        sdb.UserRoles.Add(new UserRole { UserId = admin.Id, RoleId = (await sdb.Roles.FirstAsync(r => r.Name == "admin")).Id });
+        await sdb.SaveChangesAsync();
+        app.Logger.LogWarning("BOOTSTRAP admin létrehozva — felhasználónév: admin, IDEIGLENES jelszó: {Temp} (első belépéskor cserélni kell)", temp);
+    }
+}
+
 app.Run();
+
+// A Bearer session-token kiolvasása az Authorization fejlécből.
+static string? BearerToken(HttpContext ctx)
+{
+    var h = ctx.Request.Headers.Authorization.ToString();
+    return h.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? h["Bearer ".Length..].Trim() : null;
+}
 
 // A device-azonosító feloldása. Éles üzemben az nginx validálja a kliens-certet
 // (mTLS) és a CN-t headerben adja át; a backend csak localhostról (nginx) érhető el,

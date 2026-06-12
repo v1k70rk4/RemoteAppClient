@@ -101,6 +101,18 @@ public sealed class MainForm : Form
             _adminForward = new SshForward(_cfg, _cfg.AdminApiPort);
             _api = new AdminApi($"http://127.0.0.1:{_adminForward.LocalPort}");
             await Task.Delay(1500); // az ssh -L felállása
+
+            SetStatus("Bejelentkezés…");
+            using (var login = new LoginForm(_api))
+            {
+                if (login.ShowDialog(this) != DialogResult.OK)
+                {
+                    SetStatus("Bejelentkezés megszakítva.");
+                    BeginInvoke(Close);
+                    return;
+                }
+            }
+
             await RefreshAsync();
         }
         catch (Exception ex)
@@ -292,6 +304,7 @@ public sealed class MainForm : Form
 
     private void Cleanup()
     {
+        try { _api?.LogoutAsync().Wait(TimeSpan.FromSeconds(2)); } catch { /* best effort: session visszavonás */ }
         foreach (var f in _vncForwards.ToArray()) f.Dispose();
         _adminForward?.Dispose();
         _api?.Dispose();

@@ -198,5 +198,44 @@ CREATE INDEX `IX_ReleasePackages_Channel_Component_UploadedAt` ON `ReleasePackag
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260612113210_ReleaseChannels', '9.0.0');
 
+ALTER TABLE `Users` ADD `LastLoginAt` datetime(6) NULL;
+
+ALTER TABLE `Users` ADD `MustChangePassword` tinyint(1) NOT NULL DEFAULT FALSE;
+
+ALTER TABLE `Users` ADD `PasswordChangedAt` datetime(6) NULL;
+
+ALTER TABLE `Users` ADD `TotpConfirmed` tinyint(1) NOT NULL DEFAULT FALSE;
+
+CREATE TABLE `UserGrants` (
+    `Id` char(36) COLLATE ascii_general_ci NOT NULL,
+    `UserId` char(36) COLLATE ascii_general_ci NOT NULL,
+    `GroupId` char(36) COLLATE ascii_general_ci NULL,
+    `DeviceId` char(36) COLLATE ascii_general_ci NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    CONSTRAINT `PK_UserGrants` PRIMARY KEY (`Id`),
+    CONSTRAINT `FK_UserGrants_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE `UserSessions` (
+    `Id` char(36) COLLATE ascii_general_ci NOT NULL,
+    `UserId` char(36) COLLATE ascii_general_ci NOT NULL,
+    `TokenHash` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    `ExpiresAt` datetime(6) NOT NULL,
+    `RevokedAt` datetime(6) NULL,
+    `LastSeenAt` datetime(6) NOT NULL,
+    CONSTRAINT `PK_UserSessions` PRIMARY KEY (`Id`),
+    CONSTRAINT `FK_UserSessions_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
+) CHARACTER SET=utf8mb4;
+
+CREATE INDEX `IX_UserGrants_UserId` ON `UserGrants` (`UserId`);
+
+CREATE UNIQUE INDEX `IX_UserSessions_TokenHash` ON `UserSessions` (`TokenHash`);
+
+CREATE INDEX `IX_UserSessions_UserId` ON `UserSessions` (`UserId`);
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260612133606_UserAuth', '9.0.0');
+
 COMMIT;
 

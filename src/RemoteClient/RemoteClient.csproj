@@ -14,4 +14,9 @@
     <ProjectReference Include="..\RemoteAgent.Contracts\RemoteAgent.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- TOTP QR-kód rajzolása (PngByteQRCode — nem kell System.Drawing a generáláshoz). -->
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+
 </Project>
