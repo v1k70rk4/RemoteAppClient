@@ -435,7 +435,7 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
     var version = ctx.Request.Query["version"].ToString();
     if (string.IsNullOrWhiteSpace(version)) return Results.BadRequest(new { error = "version_required" });
     if (channel is not ("rtm" or "beta")) return Results.BadRequest(new { error = "bad_channel" });
-    if (component is not ("agent" or "updater")) return Results.BadRequest(new { error = "bad_component" });
+    if (component is not ("agent" or "updater" or "client")) return Results.BadRequest(new { error = "bad_component" });
 
     // Belső, ütközésmentes fájlnév: {component}-{channel}-{version}.exe
     var safeVer = version.Replace('/', '_').Replace('\\', '_');
