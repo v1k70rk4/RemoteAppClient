@@ -24,6 +24,7 @@ public sealed class MainForm : Form
     private readonly Button _usersBtn = new();
     private readonly Label _status = new();
     private string _role = "operator";
+    private bool _started;
 
     public MainForm()
     {
@@ -96,7 +97,9 @@ public sealed class MainForm : Form
 
         Controls.AddRange([_list, _refreshBtn, _connectBtn, _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _usersBtn, _vncLockBtn, _status]);
 
-        Load += async (_, _) => await InitAsync();
+        // Shown (NEM Load): a főablak előbb LÁTSZÓDJON, csak utána fusson a bróker+login,
+        // különben a modális login a még meg nem jelent főablak előtt jön → háttérfolyamat.
+        Shown += async (_, _) => { if (!_started) { _started = true; await InitAsync(); } };
         FormClosing += (_, _) => Cleanup();
     }
 
@@ -107,7 +110,7 @@ public sealed class MainForm : Form
             // A konzol CSAK beléptetett gépen működik: a helyi agent brókerén át éri el a
             // szervert (a gép SSH-kulcsával). Nincs agent → nincs konzol.
             SetStatus("Helyi agent keresése…");
-            _broker = BrokerClient.TryConnect();
+            _broker = await BrokerClient.TryConnectAsync();
             if (_broker is null)
             {
                 MessageBox.Show(

@@ -26,13 +26,13 @@ public sealed class BrokerClient : IDisposable
         _writer = new StreamWriter(pipe, Encoding.UTF8, 1024, leaveOpen: true) { AutoFlush = true };
     }
 
-    /// <summary>Csatlakozás a helyi brókerhez; null, ha nincs/nem fut az agent.</summary>
-    public static BrokerClient? TryConnect(int timeoutMs = 3000)
+    /// <summary>Csatlakozás a helyi brókerhez (NEM blokkolja a UI-t); null, ha nincs/nem fut az agent.</summary>
+    public static async Task<BrokerClient?> TryConnectAsync(int timeoutMs = 3000)
     {
         try
         {
             var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-            pipe.Connect(timeoutMs);
+            await pipe.ConnectAsync(timeoutMs);
             return new BrokerClient(pipe);
         }
         catch { return null; }
