@@ -71,6 +71,7 @@ public sealed class MainForm : MaterialForm
         ThemeManager.Init(_cfg.DarkTheme);
 
         Text = "RemoteAppClient";
+        try { if (Environment.ProcessPath is { } exe) Icon = Icon.ExtractAssociatedIcon(exe); } catch { /* ikon nélkül is megy */ }
         Width = 1040; Height = 640;
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(900, 560);

@@ -9,6 +9,7 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RootNamespace>RemoteClient</RootNamespace>
     <AssemblyName>RemoteClient</AssemblyName>
+    <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
