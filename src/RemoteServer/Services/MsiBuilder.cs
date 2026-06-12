@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security;
 using System.Text;
 using Microsoft.Extensions.Options;
@@ -84,11 +85,13 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
 
     private string GenerateWxs(string agentExe, string? updaterExe, string bootstrapPath, string? iconPath, string version, string label)
     {
-        var name = $"RemoteAppClient Agent ({label})";
+        // FONTOS: a Windows Installer NEM nyitja meg az UTF-8 (65001) codepage-ű MSI-t (1620-as hiba),
+        // ezért 1252-t használunk, és a megjelenő nevet ASCII-ra hajtjuk (ékezet nélkül) — így biztos kompatibilis.
+        var name = AsciiFold($"RemoteAppClient Agent ({label})");
         var sb = new StringBuilder();
         sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
         sb.AppendLine("""<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">""");
-        sb.AppendLine($"""  <Product Name="{X(name)}" Id="*" UpgradeCode="{UpgradeCode}" Language="1033" Codepage="65001" Version="{version}" Manufacturer="RemoteAppClient">""");
+        sb.AppendLine($"""  <Product Name="{X(name)}" Id="*" UpgradeCode="{UpgradeCode}" Language="1033" Codepage="1252" Version="{version}" Manufacturer="RemoteAppClient">""");
         sb.AppendLine("""    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Description="RemoteAppClient agent" />""");
         sb.AppendLine("""    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />""");
         sb.AppendLine("""    <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />""");
@@ -162,6 +165,19 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             }
         }
         catch (Exception ex) { logger.LogWarning(ex, "MSI aláírás hiba (kihagyva)."); }
+    }
+
+    /// <summary>Ékezetek/nem-ASCII eltávolítása (a Windows-kompatibilis MSI string-poolhoz).</summary>
+    private static string AsciiFold(string s)
+    {
+        var norm = s.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(norm.Length);
+        foreach (var c in norm)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark) continue;
+            sb.Append(c <= 0x7F ? c : '_');
+        }
+        return sb.ToString();
     }
 
     private static async Task<(int code, string output)> RunAsync(string file, string[] args, CancellationToken ct)
