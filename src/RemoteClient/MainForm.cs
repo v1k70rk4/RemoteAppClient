@@ -107,10 +107,20 @@ public sealed class MainForm : MaterialForm
         {
             var adminPort = await _broker.ForwardAsync(_cfg.AdminApiPort);
             _api = new AdminApi($"http://127.0.0.1:{adminPort}");
-            var online = await _api.PingAsync();
+
+            // A bróker ssh -L tunnele pár másodperccel a port lefoglalása UTÁN épül fel
+            // (hideg SSH-handshake). Ne ijesszünk azonnal „nem válaszol"-lal: ~15 mp-ig pingelünk.
+            _onlineLbl.Text = "● Kapcsolódás…"; _onlineLbl.ForeColor = Color.Goldenrod;
+            SetLoginStatus("Kapcsolódás a szerverhez…");
+            bool online = false;
+            for (int i = 0; i < 15 && !online; i++)
+            {
+                online = await _api.PingAsync();
+                if (!online) await Task.Delay(1000);
+            }
             _onlineLbl.Text = online ? "● Online" : "● Offline";
             _onlineLbl.ForeColor = online ? Color.MediumSeaGreen : Color.IndianRed;
-            SetLoginStatus(online ? "" : "A szerver nem válaszol.");
+            SetLoginStatus(online ? "" : "A szerver nem válaszol — próbálj belépni, a tunnel lehet, hogy most épül.");
         }
         catch (Exception ex)
         {

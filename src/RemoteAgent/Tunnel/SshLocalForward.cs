@@ -64,7 +64,9 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         // Megvárjuk, míg az ssh felépül és bindeli a helyi portot (vagy kilép, ha a
         // forward nem jött létre — ExitOnForwardFailure=yes). A helyi portot pollozzuk:
         // amint elfogad kapcsolatot, kész; siker esetén gyorsan visszatér.
-        var deadline = DateTime.UtcNow.AddSeconds(8);
+        // Hideg SSH-handshake lassú hálózaton több másodperc is lehet — várjuk meg, míg a
+        // helyi port tényleg elfogad, ne adjunk vissza halott portot a brókernek.
+        var deadline = DateTime.UtcNow.AddSeconds(20);
         while (DateTime.UtcNow < deadline)
         {
             if (proc.HasExited)
