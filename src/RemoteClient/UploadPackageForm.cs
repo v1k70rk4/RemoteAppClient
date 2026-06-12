@@ -13,6 +13,7 @@ public sealed class UploadPackageForm : MaterialForm
     private readonly AdminApi _api;
     private readonly MaterialComboBox _channel = new() { Hint = "Csatorna" };
     private readonly MaterialComboBox _override = new() { Hint = "Komponens" };
+    private readonly MaterialTextBox2 _verInput = new() { Hint = "Verzió", Width = 120 };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
 
@@ -30,8 +31,9 @@ public sealed class UploadPackageForm : MaterialForm
         _channel.Width = 120; _channel.Margin = new Padding(4, 0, 12, 0);
         _channel.Items.AddRange(["rtm", "beta"]); _channel.SelectedIndex = 1;
         _override.Width = 150; _override.Margin = new Padding(4, 0, 12, 0);
-        _override.Items.AddRange(["(auto)", "agent", "updater", "client"]); _override.SelectedIndex = 0;
+        _override.Items.AddRange(["(auto)", "agent", "updater", "client", "vnc"]); _override.SelectedIndex = 0;
         _override.SelectedIndexChanged += (_, _) => ReapplyComponent();
+        _verInput.Margin = new Padding(4, 0, 4, 0);
 
         var addBtn = new MaterialButton { Text = "Fájlok hozzáadása…", AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
         addBtn.Click += (_, _) => AddFiles();
@@ -39,9 +41,11 @@ public sealed class UploadPackageForm : MaterialForm
         rmBtn.Click += (_, _) => { foreach (ListViewItem it in _list.SelectedItems) it.Remove(); };
         var clrBtn = new MaterialButton { Text = "Ürítés", AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         clrBtn.Click += (_, _) => _list.Items.Clear();
+        var setVerBtn = new MaterialButton { Text = "Verzió a kijelöltre", AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        setVerBtn.Click += (_, _) => ApplyVersion();
 
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(16, 12, 16, 6) };
-        toolbar.Controls.AddRange([_channel, _override, addBtn, rmBtn, clrBtn]);
+        toolbar.Controls.AddRange([_channel, _override, addBtn, rmBtn, clrBtn, _verInput, setVerBtn]);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill; _list.BorderStyle = BorderStyle.None;
         _list.Columns.Add("Fájl", 300);
@@ -69,7 +73,7 @@ public sealed class UploadPackageForm : MaterialForm
 
     private void AddFiles()
     {
-        using var d = new OpenFileDialog { Filter = "Exe|*.exe", Multiselect = true };
+        using var d = new OpenFileDialog { Filter = "Telepítő (exe/msi)|*.exe;*.msi|Minden fájl|*.*", Multiselect = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         foreach (var path in d.FileNames)
         {
@@ -95,10 +99,25 @@ public sealed class UploadPackageForm : MaterialForm
         }
     }
 
+    /// <summary>A kézzel megadott verzió érvényesítése a kijelölt sorokra (MSI-nél nem olvasható auto).</summary>
+    private void ApplyVersion()
+    {
+        var v = _verInput.Text.Trim();
+        if (v.Length == 0) { _status.Text = "Írj be egy verziót (pl. 2.8.81.0)."; return; }
+        foreach (ListViewItem it in _list.SelectedItems)
+        {
+            if (it.Tag is not Pkg p) continue;
+            it.Tag = p with { Version = v };
+            it.SubItems[2].Text = v;
+        }
+    }
+
     private string ComponentFor(string path)
     {
         if (_override.SelectedItem is string o && o != "(auto)") return o;
+        var ext = Path.GetExtension(path).ToLowerInvariant();
         var n = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
+        if (ext == ".msi" || n.Contains("tightvnc") || n.Contains("vnc")) return "vnc";
         if (n.Contains("updater")) return "updater";
         if (n.Contains("client")) return "client";
         return "agent";

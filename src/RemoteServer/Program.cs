@@ -435,11 +435,12 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
     var version = ctx.Request.Query["version"].ToString();
     if (string.IsNullOrWhiteSpace(version)) return Results.BadRequest(new { error = "version_required" });
     if (channel is not ("rtm" or "beta")) return Results.BadRequest(new { error = "bad_channel" });
-    if (component is not ("agent" or "updater" or "client")) return Results.BadRequest(new { error = "bad_component" });
+    if (component is not ("agent" or "updater" or "client" or "vnc")) return Results.BadRequest(new { error = "bad_component" });
 
-    // Belső, ütközésmentes fájlnév: {component}-{channel}-{version}.exe
+    // Belső, ütközésmentes fájlnév: {component}-{channel}-{version}.{ext}. A vnc MSI-ként jön.
+    var ext = component == "vnc" ? "msi" : "exe";
     var safeVer = version.Replace('/', '_').Replace('\\', '_');
-    var fileName = $"{component}-{channel}-{safeVer}.exe";
+    var fileName = $"{component}-{channel}-{safeVer}.{ext}";
 
     var dir = opt.Value.PackagesDir;
     Directory.CreateDirectory(dir);
@@ -508,7 +509,7 @@ app.MapPost("/admin/channels/{channel}/rollout", async (
     foreach (var d in devices)
     {
         // Már a cél-verzión van? (laza egyezés: a riportolt "2.0.0.0" kezdődik a "2.0.0"-val)
-        var reported = comp == "updater" ? d.HelperVersion : d.AgentVersion;
+        var reported = comp switch { "updater" => d.HelperVersion, "vnc" => d.VncVersion, _ => d.AgentVersion };
         if (reported is not null && reported.StartsWith(pkg.Version, StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
 
         var data = new CommandData

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,6 +27,13 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(sha256))
         {
             logger.LogWarning("Update parancs URL/hash nélkül, kihagyva.");
+            return;
+        }
+
+        // A "vnc" csomag MSI — nem exe-csere, hanem msiexec helyben (a futó exét nem érinti).
+        if (string.Equals(target, "vnc", StringComparison.OrdinalIgnoreCase))
+        {
+            await ApplyVncMsiAsync(version, url, sha256, ct);
             return;
         }
 
@@ -78,6 +86,52 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             logger.LogWarning(ex, "Update sikertelen.");
             TryDelete(tmp);
         }
+    }
+
+    /// <summary>
+    /// TightVNC (vnc) frissítés: letölti az MSI-t, ELLENŐRZI a SHA-256-ot, majd helyben telepíti
+    /// (msiexec /i … ADDLOCAL=Server — ahogy a provisioner is). In-place upgrade, a beállítások maradnak.
+    /// </summary>
+    private async Task ApplyVncMsiAsync(string? version, string url, string sha256, CancellationToken ct)
+    {
+        Directory.CreateDirectory(_dir);
+        var msi = Path.Combine(_dir, "vnc-update.msi");
+        try
+        {
+            var resolved = ResolveUrl(url);
+            logger.LogInformation("TightVNC frissítés letöltése: {Version} ({Url})", version, resolved);
+
+            using (var http = BuildClient())
+            using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
+            {
+                resp.EnsureSuccessStatusCode();
+                await using var fs = File.Create(msi);
+                await resp.Content.CopyToAsync(fs, ct);
+            }
+
+            var expected = sha256.Replace(":", "").Trim();
+            var actual = Convert.ToHexString(await ComputeSha256Async(msi, ct));
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogError("TightVNC update hash NEM egyezik (várt {Expected}, kapott {Actual}) — eldobva.", expected, actual);
+                TryDelete(msi);
+                return;
+            }
+
+            var psi = new ProcessStartInfo("msiexec", $"/i \"{msi}\" /quiet /norestart ADDLOCAL=Server")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var proc = Process.Start(psi)!;
+            await proc.WaitForExitAsync(ct);
+            if (proc.ExitCode is 0 or 3010) // 3010 = siker, újraindítás javasolt
+                logger.LogInformation("TightVNC frissítve ({Version}).", version);
+            else
+                logger.LogWarning("TightVNC msiexec hibakód: {Code}", proc.ExitCode);
+        }
+        catch (Exception ex) { logger.LogWarning(ex, "TightVNC frissítés sikertelen."); }
+        finally { TryDelete(msi); }
     }
 
     /// <summary>A Helper/Updater exe útvonala: az agent exe mellett van (a telepítés így rakja le).</summary>
