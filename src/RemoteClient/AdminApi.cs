@@ -143,5 +143,53 @@ public sealed class AdminApi(string baseUrl) : IDisposable
         await resp.Content.CopyToAsync(fs, ct);
     }
 
+    // === User-kezelés (admin) ===
+    public async Task<List<UserInfo>> GetUsersAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync("/admin/users", AgentJsonContext.Default.ListUserInfo, ct) ?? [];
+
+    public async Task<CreateUserResponse> CreateUserAsync(string username, string? email, string role, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new CreateUserRequest { Username = username, Email = email, Role = role }, AgentJsonContext.Default.CreateUserRequest);
+        using var resp = await _http.PostAsync("/admin/users", content, ct);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.CreateUserResponse, ct))!;
+    }
+
+    public async Task UpdateUserAsync(Guid id, string? role, bool? isActive, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new UserUpdate { Role = role, IsActive = isActive }, AgentJsonContext.Default.UserUpdate);
+        using var resp = await _http.PutAsync($"/admin/users/{id}", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<CreateUserResponse> ResetPasswordAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/users/{id}/reset-password", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.CreateUserResponse, ct))!;
+    }
+
+    public async Task RevokeSessionsAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/users/{id}/revoke-sessions", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<List<GrantInfo>> GetGrantsAsync(Guid id, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync($"/admin/users/{id}/grants", AgentJsonContext.Default.ListGrantInfo, ct) ?? [];
+
+    public async Task AddGrantAsync(Guid id, Guid? groupId, string? deviceId, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new GrantRequest { GroupId = groupId, DeviceId = deviceId }, AgentJsonContext.Default.GrantRequest);
+        using var resp = await _http.PostAsync($"/admin/users/{id}/grants", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task RemoveGrantAsync(Guid userId, Guid grantId, CancellationToken ct = default)
+    {
+        using var resp = await _http.DeleteAsync($"/admin/users/{userId}/grants/{grantId}", ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public void Dispose() => _http.Dispose();
 }

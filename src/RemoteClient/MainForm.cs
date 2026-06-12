@@ -22,6 +22,7 @@ public sealed class MainForm : Form
     private readonly Button _bootstrapBtn = new();
     private readonly Button _channelsBtn = new();
     private readonly Button _vncLockBtn = new();
+    private readonly Button _usersBtn = new();
     private readonly Label _status = new();
     private string _role = "operator";
 
@@ -31,7 +32,7 @@ public sealed class MainForm : Form
 
         Text = "RemoteAppClient — admin konzol";
         Width = 980;
-        Height = 460;
+        Height = 510;
         StartPosition = FormStartPosition.CenterScreen;
 
         _list.View = View.Details;
@@ -53,38 +54,48 @@ public sealed class MainForm : Form
         _list.ShowItemToolTips = true; // a supervisor utolsó incidense tooltipben
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
 
+        // 1. sor — mindenkinek (operator is): frissítés + csatlakozás.
         _refreshBtn.Text = "Frissítés";
-        _refreshBtn.SetBounds(12, 350, 110, 32);
+        _refreshBtn.SetBounds(12, 348, 110, 32);
         _refreshBtn.Click += async (_, _) => await RefreshAsync();
 
         _connectBtn.Text = "Csatlakozás (VNC)";
-        _connectBtn.SetBounds(132, 350, 160, 32);
+        _connectBtn.SetBounds(132, 348, 160, 32);
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
 
+        // 1. sor — admin: szerkesztés + jóváhagyás (login után jelenik meg).
         _editBtn.Text = "Szerkesztés…";
-        _editBtn.SetBounds(302, 350, 110, 32);
+        _editBtn.SetBounds(302, 348, 110, 32);
         _editBtn.Click += async (_, _) => await EditSelectedAsync();
 
         _approveBtn.Text = "Jóváhagyás";
-        _approveBtn.SetBounds(422, 350, 110, 32);
+        _approveBtn.SetBounds(422, 348, 110, 32);
         _approveBtn.Click += async (_, _) => await ApproveSelectedAsync();
 
+        // 2. sor — admin.
         _bootstrapBtn.Text = "Bootstrap blob…";
-        _bootstrapBtn.SetBounds(542, 350, 130, 32);
+        _bootstrapBtn.SetBounds(12, 386, 130, 32);
         _bootstrapBtn.Click += async (_, _) => await GenerateBootstrapAsync();
 
         _channelsBtn.Text = "Csatornák…";
-        _channelsBtn.SetBounds(682, 350, 110, 32);
+        _channelsBtn.SetBounds(152, 386, 110, 32);
         _channelsBtn.Click += (_, _) => { if (_api is not null) new ChannelsForm(_api).ShowDialog(this); };
 
-        _vncLockBtn.SetBounds(802, 350, 160, 32);
-        _vncLockBtn.Visible = false; // csak admin login után
+        _usersBtn.Text = "Felhasználók…";
+        _usersBtn.SetBounds(272, 386, 130, 32);
+        _usersBtn.Click += (_, _) => { if (_api is not null) new UsersForm(_api).ShowDialog(this); };
+
+        _vncLockBtn.SetBounds(412, 386, 170, 32);
         _vncLockBtn.Click += (_, _) => ToggleLocalVncLock();
 
-        _status.SetBounds(12, 392, 940, 30);
+        // Az admin-gombok login után, csak adminnak láthatók.
+        foreach (var b in new[] { _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _usersBtn, _vncLockBtn })
+            b.Visible = false;
+
+        _status.SetBounds(12, 428, 940, 30);
         _status.Text = "Indulás…";
 
-        Controls.AddRange([_list, _refreshBtn, _connectBtn, _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _vncLockBtn, _status]);
+        Controls.AddRange([_list, _refreshBtn, _connectBtn, _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _usersBtn, _vncLockBtn, _status]);
 
         Load += async (_, _) => await InitAsync();
         FormClosing += (_, _) => Cleanup();
@@ -121,8 +132,13 @@ public sealed class MainForm : Form
                 _role = login.Role;
             }
 
-            // Csak adminnak: a HELYI gép VNC-zárolása (emelt joggal).
-            if (_role == "admin") { _vncLockBtn.Visible = true; UpdateVncLockBtn(); }
+            // Admin-gombok csak adminnak (operator csak listáz + csatlakozik).
+            if (_role == "admin")
+            {
+                foreach (var b in new[] { _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _usersBtn, _vncLockBtn })
+                    b.Visible = true;
+                UpdateVncLockBtn();
+            }
 
             await RefreshAsync();
         }
