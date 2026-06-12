@@ -35,8 +35,10 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var bootstrapPath = Path.Combine(work, "bootstrap.dat");
             await File.WriteAllTextAsync(bootstrapPath, bootstrapBlob, ct);
 
+            var iconPath = await TryWriteIconAsync(work, ct); // null, ha nincs beágyazott ikon
+
             var wxsPath = Path.Combine(work, "product.wxs");
-            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, bootstrapPath, SanitizeVersion(version), label), ct);
+            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, bootstrapPath, iconPath, SanitizeVersion(version), label), ct);
 
             var fileName = $"RemoteAppClient-{Sanitize(label)}-{SanitizeVersion(version)}.msi";
             var outPath = Path.Combine(_opt.PackagesDir, fileName);
@@ -65,7 +67,22 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         }
     }
 
-    private string GenerateWxs(string agentExe, string? updaterExe, string bootstrapPath, string version, string label)
+    /// <summary>A beágyazott app.ico kiírása a munkamappába (ARP-ikonhoz). Null, ha nincs erőforrás.</summary>
+    private static async Task<string?> TryWriteIconAsync(string work, CancellationToken ct)
+    {
+        try
+        {
+            await using var res = typeof(MsiBuilder).Assembly.GetManifestResourceStream("RemoteServer.app.ico");
+            if (res is null) return null;
+            var path = Path.Combine(work, "app.ico");
+            await using var fs = File.Create(path);
+            await res.CopyToAsync(fs, ct);
+            return path;
+        }
+        catch { return null; }
+    }
+
+    private string GenerateWxs(string agentExe, string? updaterExe, string bootstrapPath, string? iconPath, string version, string label)
     {
         var name = $"RemoteAppClient Agent ({label})";
         var sb = new StringBuilder();
@@ -103,6 +120,13 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         if (!string.IsNullOrWhiteSpace(updaterExe)) sb.AppendLine("""      <ComponentRef Id="C.Updater" />""");
         sb.AppendLine("""      <ComponentRef Id="C.Bootstrap" />""");
         sb.AppendLine("""    </Feature>""");
+
+        // Add/Remove Programs ikon (ha van beágyazott app.ico).
+        if (!string.IsNullOrWhiteSpace(iconPath))
+        {
+            sb.AppendLine($"""    <Icon Id="AppIcon.ico" SourceFile="{X(iconPath)}" />""");
+            sb.AppendLine("""    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />""");
+        }
 
         // A service-telepítést a maga az agent végzi (mindkét service + SCM-recovery), nem az MSI deklaratívan.
         sb.AppendLine("""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service" Execute="deferred" Impersonate="no" Return="check" />""");
