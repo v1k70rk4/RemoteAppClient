@@ -24,6 +24,7 @@ public sealed class UsersForm : Form
         _list.Columns.Add("Jelszócsere", 90);
         _list.Columns.Add("TOTP", 55);
         _list.Columns.Add("Utolsó belépés", 150);
+        Controls.Add(_list);
 
         Btn("Új user…", 12, NewUserAsync);
         Btn("Szerep váltás", 132, ToggleRoleAsync);
@@ -75,9 +76,7 @@ public sealed class UsersForm : Form
         try
         {
             var r = await _api.CreateUserAsync(f.Username, f.Email, f.Role);
-            MessageBox.Show(
-                $"Létrehozva: {r.Username}\n\nIDEIGLENES jelszó:\n{r.TempPassword}\n\nAdd át a felhasználónak. Első belépéskor jelszót cserél és TOTP-t állít be.",
-                "Új felhasználó", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using (var dlg = new CredentialDialog("Új felhasználó", r.Username, r.TempPassword)) dlg.ShowDialog(this);
             await RefreshAsync();
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
@@ -106,7 +105,7 @@ public sealed class UsersForm : Form
         try
         {
             var r = await _api.ResetPasswordAsync(u.Id);
-            MessageBox.Show($"{r.Username} új IDEIGLENES jelszava:\n{r.TempPassword}\n\nElső belépéskor cserélni kell.", "Jelszó reset", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using (var dlg = new CredentialDialog("Jelszó reset", r.Username, r.TempPassword)) dlg.ShowDialog(this);
             await RefreshAsync();
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
