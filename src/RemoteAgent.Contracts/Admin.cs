@@ -143,6 +143,43 @@ public sealed class GroupInfo
     public bool UnattendedAllowed { get; set; }
 }
 
+/// <summary>Egy beléptető-/bootstrap-token (blob) az admin-listához: felhasználtság, lejárat, állapot.</summary>
+public sealed class BootstrapTokenInfo
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; set; }
+
+    [JsonPropertyName("groupId")]
+    public Guid? GroupId { get; set; }
+
+    [JsonPropertyName("groupName")]
+    public string? GroupName { get; set; }
+
+    [JsonPropertyName("maxUses")]
+    public int MaxUses { get; set; }
+
+    [JsonPropertyName("useCount")]
+    public int UseCount { get; set; }
+
+    [JsonPropertyName("autoApprove")]
+    public bool AutoApprove { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; set; }
+
+    [JsonPropertyName("expiresAt")]
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    [JsonPropertyName("revokedAt")]
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    [JsonPropertyName("lastUsedAt")]
+    public DateTimeOffset? LastUsedAt { get; set; }
+
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+}
+
 /// <summary>Update-parancs indítása: a csomag verziója, URL-je, SHA-256 hash-e.</summary>
 public sealed class UpdateRequest
 {

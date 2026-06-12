@@ -93,9 +93,11 @@ public static class CommandTypes
 [JsonSerializable(typeof(Admin.UserUpdate))]
 [JsonSerializable(typeof(Admin.GrantInfo))]
 [JsonSerializable(typeof(Admin.GrantRequest))]
+[JsonSerializable(typeof(Admin.BootstrapTokenInfo))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.UserInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.GrantInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.DeviceInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.GroupInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.ChannelPackageInfo>))]
+[JsonSerializable(typeof(System.Collections.Generic.List<Admin.BootstrapTokenInfo>))]
 public sealed partial class AgentJsonContext : JsonSerializerContext;

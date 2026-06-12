@@ -36,6 +36,8 @@ public sealed class EnrollmentService(
         var token = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
         if (token is null)
             return new Result(null, "invalid_token");
+        if (token.RevokedAt is not null)
+            return new Result(null, "token_revoked");
         if (token.ExpiresAt is { } exp && exp < DateTimeOffset.UtcNow)
             return new Result(null, "token_expired");
         if (token.UseCount >= token.MaxUses)

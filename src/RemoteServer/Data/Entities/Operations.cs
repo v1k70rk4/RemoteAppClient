@@ -28,6 +28,9 @@ public sealed class EnrollmentToken
     public DateTimeOffset? UsedAt { get; set; }
     public Guid? UsedByDeviceId { get; set; }
 
+    /// <summary>Visszavonva (admin) — ekkor a token már nem használható beléptetésre.</summary>
+    public DateTimeOffset? RevokedAt { get; set; }
+
     public string? Note { get; set; }
 }
 

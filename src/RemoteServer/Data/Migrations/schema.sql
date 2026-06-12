@@ -242,5 +242,10 @@ ALTER TABLE `Devices` ADD `VncLocked` tinyint(1) NOT NULL DEFAULT FALSE;
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260612150051_DeviceVncLocked', '9.0.0');
 
+ALTER TABLE `EnrollmentTokens` ADD `RevokedAt` datetime(6) NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260612194720_EnrollmentTokenRevoke', '9.0.0');
+
 COMMIT;
 

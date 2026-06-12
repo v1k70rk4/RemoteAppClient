@@ -375,6 +375,34 @@ app.MapPost("/admin/groups", async (HttpContext ctx, AppDbContext db) =>
     return Results.Json(new GroupInfo { Id = group.Id, Name = group.Name, ConsentRequired = group.ConsentRequired, UnattendedAllowed = group.UnattendedAllowed }, AgentJsonContext.Default.GroupInfo);
 });
 
+app.MapPut("/admin/groups/{id:guid}", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    GroupInfo? upd;
+    try { upd = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.GroupInfo, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (upd is null || string.IsNullOrWhiteSpace(upd.Name)) return Results.BadRequest();
+
+    var group = await db.DeviceGroups.FirstOrDefaultAsync(g => g.Id == id, ct);
+    if (group is null) return Results.NotFound();
+    group.Name = upd.Name.Trim();
+    group.ConsentRequired = upd.ConsentRequired;
+    group.UnattendedAllowed = upd.UnattendedAllowed;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+app.MapDelete("/admin/groups/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+{
+    var group = await db.DeviceGroups.FirstOrDefaultAsync(g => g.Id == id, ct);
+    if (group is null) return Results.NotFound();
+    // A csoportban lévő gépek csoport nélkülivé válnak (nem töröljük őket).
+    var devices = await db.Devices.Where(d => d.GroupId == id).ToListAsync(ct);
+    foreach (var d in devices) d.GroupId = null;
+    db.DeviceGroups.Remove(group);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
 app.MapGet("/admin/devices/online", (AgentConnectionRegistry registry) => Results.Ok(registry.ConnectedDevices));
 
 // Update-parancs: csak ha a gépen engedélyezett a frissítés (UpdateAllowed).
@@ -616,6 +644,38 @@ app.MapPost("/admin/bootstrap", async (
     var raw = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = raw });
     return Results.Ok(new { blob, url = url.TrimEnd('/'), token = raw, groupId, maxUses = maxUses ?? 100000, expiresInHours });
+});
+
+// === Bootstrap/beléptető tokenek (blob-ok) listája + visszavonás/törlés ===
+app.MapGet("/admin/tokens-list", async (AppDbContext db, CancellationToken ct) =>
+{
+    var groups = await db.DeviceGroups.ToDictionaryAsync(g => g.Id, g => g.Name, ct);
+    var tokens = await db.EnrollmentTokens.OrderByDescending(t => t.CreatedAt).Take(500).ToListAsync(ct);
+    var list = tokens.Select(t => new BootstrapTokenInfo
+    {
+        Id = t.Id, GroupId = t.GroupId, GroupName = t.GroupId is { } g && groups.TryGetValue(g, out var n) ? n : null,
+        MaxUses = t.MaxUses, UseCount = t.UseCount, AutoApprove = t.AutoApprove,
+        CreatedAt = t.CreatedAt, ExpiresAt = t.ExpiresAt, RevokedAt = t.RevokedAt, LastUsedAt = t.UsedAt, Note = t.Note,
+    }).ToList();
+    return Results.Json(list, AgentJsonContext.Default.ListBootstrapTokenInfo);
+});
+
+app.MapPost("/admin/tokens-list/{id:guid}/revoke", async (Guid id, AppDbContext db, CancellationToken ct) =>
+{
+    var token = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
+    if (token is null) return Results.NotFound();
+    token.RevokedAt ??= DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+app.MapDelete("/admin/tokens-list/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+{
+    var token = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
+    if (token is null) return Results.NotFound();
+    db.EnrollmentTokens.Remove(token);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
 });
 
 // === MSI-gyártás: egy csoporthoz, egy csatorna aktuális exéiből (wixl) ===
