@@ -57,6 +57,13 @@ public sealed class AdminApi(string baseUrl) : IDisposable
         try { using var resp = await _http.PostAsync("/auth/logout", content: null, ct); } catch { /* best effort */ }
     }
 
+    /// <summary>Gyors health-ping a szerverre (a „/" végpont „RemoteServer up."-ot ad).</summary>
+    public async Task<bool> PingAsync(CancellationToken ct = default)
+    {
+        try { using var r = await _http.GetAsync("/", ct); return r.IsSuccessStatusCode; }
+        catch { return false; }
+    }
+
     public async Task<List<DeviceInfo>> GetDevicesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/devices", AgentJsonContext.Default.ListDeviceInfo, ct) ?? [];
 

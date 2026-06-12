@@ -19,6 +19,9 @@ public sealed class ClientConfig
     /// <summary>A szerver admin API portja a boxon (Kestrel, localhost).</summary>
     public int AdminApiPort { get; set; } = 5000;
 
+    /// <summary>Sötét téma (MaterialSkin). False = világos.</summary>
+    public bool DarkTheme { get; set; } = true;
+
     public bool IsComplete =>
         !string.IsNullOrWhiteSpace(SshHost) &&
         !string.IsNullOrWhiteSpace(SshUser) &&
