@@ -27,7 +27,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OutDir = 'C:\RAC',
+    [string]$OutDir = 'C:\RAC\build',
     [string]$Configuration = 'Release'
 )
 
