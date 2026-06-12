@@ -39,6 +39,7 @@ builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddScoped<ITelemetrySink, DbTelemetrySink>();
 builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<EnrollmentService>();
+builder.Services.AddSingleton<MsiBuilder>();
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -448,6 +449,61 @@ app.MapPost("/admin/bootstrap", async (
     var raw = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = raw });
     return Results.Ok(new { blob, url = url.TrimEnd('/'), token = raw, groupId, maxUses = maxUses ?? 100000, expiresInHours });
+});
+
+// === MSI-gyártás: egy csoporthoz, egy csatorna aktuális exéiből (wixl) ===
+// Lerakja az agent+updater exét + a group bootstrap.dat-ját, és install-service-szel telepít.
+app.MapPost("/admin/msi", async (
+    string? group, string? channel, AppDbContext db, EnrollmentService enroll,
+    MsiBuilder msi, IOptions<ServerOptions> opt, CancellationToken ct) =>
+{
+    var ch = string.IsNullOrWhiteSpace(channel) ? "rtm" : channel.Trim().ToLowerInvariant();
+
+    Guid? groupId = Guid.TryParse(group, out var g) ? g : null;
+    string label = "all";
+    if (groupId is not null)
+    {
+        var grp = await db.DeviceGroups.FirstOrDefaultAsync(x => x.Id == groupId.Value, ct);
+        if (grp is null) return Results.NotFound(new { error = "group_not_found" });
+        label = grp.Name;
+    }
+
+    var url = opt.Value.PublicUrl;
+    if (string.IsNullOrWhiteSpace(url)) return Results.BadRequest(new { error = "no_server_url" });
+
+    var agentPkg = await db.ReleasePackages.Where(p => p.Channel == ch && p.Component == "agent")
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+    if (agentPkg is null) return Results.NotFound(new { error = "no_agent_package" });
+    var updaterPkg = await db.ReleasePackages.Where(p => p.Channel == ch && p.Component == "updater")
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+
+    var agentExe = Path.Combine(opt.Value.PackagesDir, agentPkg.FileName);
+    if (!File.Exists(agentExe)) return Results.NotFound(new { error = "agent_file_missing" });
+    var updaterExe = updaterPkg is null ? null : Path.Combine(opt.Value.PackagesDir, updaterPkg.FileName);
+    if (updaterExe is not null && !File.Exists(updaterExe)) updaterExe = null;
+
+    // Csoport-bootstrap: AutoApprove=false site-token → a telepített gép Pending lesz.
+    var token = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
+    var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = token });
+
+    var res = await msi.BuildAsync(agentExe, updaterExe, blob, agentPkg.Version, label, ct);
+    if (!res.Ok) return Results.Problem(res.Error ?? "msi_failed");
+
+    return Results.Ok(new
+    {
+        fileName = res.FileName,
+        url = $"/admin/msi/{res.FileName}",
+        channel = ch, group = label, version = agentPkg.Version,
+        includesUpdater = updaterExe is not null,
+    });
+});
+
+// MSI letöltése (admin/localhost — a kliens SSH-tunnelen éri el).
+app.MapGet("/admin/msi/{fileName}", (string fileName, IOptions<ServerOptions> opt) =>
+{
+    var safe = Path.GetFileName(fileName);
+    var path = Path.Combine(opt.Value.PackagesDir, safe);
+    return File.Exists(path) ? Results.File(path, "application/x-msi", safe) : Results.NotFound();
 });
 
 app.Run();

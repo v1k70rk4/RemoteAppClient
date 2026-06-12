@@ -29,8 +29,23 @@ public sealed class ServerOptions
     /// <summary>A szerver publikus bázis-URL-je (pl. https://c2.pelda.hu) — a bootstrap blobba kerül.</summary>
     public string PublicUrl { get; set; } = string.Empty;
 
+    /// <summary>Az MSI Authenticode-aláírása (opcionális — üres CertPath = nincs aláírás, csak teszt/hobbi).</summary>
+    public MsiSigningOptions MsiSigning { get; set; } = new();
+
     /// <summary>A bástya (reverse SSH tunnel) elérési adatai. Az enroll válaszába kerül.</summary>
     public BastionOptions Bastion { get; set; } = new();
+}
+
+/// <summary>
+/// MSI Authenticode-aláírás (osslsigncode-dal, Linuxon). Üres CertPath = kihagyva
+/// (aláíratlan MSI — SmartScreen figyelmeztet, de Intune-push/silent telepítésnél nem zavar).
+/// </summary>
+public sealed class MsiSigningOptions
+{
+    /// <summary>A code-signing tanúsítvány (PFX) útja. Üres = nincs aláírás.</summary>
+    public string CertPath { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string TimestampUrl { get; set; } = "http://timestamp.digicert.com";
 }
 
 /// <summary>A bástya konfigja. A Host/HostKey gépspecifikus → env/appsettings a boxon, NEM a repóból.</summary>

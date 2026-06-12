@@ -17,7 +17,7 @@ public sealed class ChannelsForm : Form
     {
         _api = api;
         Text = "Release csatornák";
-        Width = 560; Height = 380;
+        Width = 560; Height = 430;
         StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = false; MaximizeBox = false;
 
@@ -39,10 +39,23 @@ public sealed class ChannelsForm : Form
         var promote = new Button { Text = "Promote BETA→RTM", Bounds = new Rectangle(268, 236, 170, 32) };
         promote.Click += async (_, _) => await PromoteAsync();
 
-        _status.SetBounds(12, 278, 530, 46);
+        var upload = new Button { Text = "Exe feltöltés…", Bounds = new Rectangle(12, 276, 140, 32) };
+        upload.Click += async (_, _) =>
+        {
+            using var f = new UploadPackageForm(_api);
+            if (f.ShowDialog(this) == DialogResult.OK) await RefreshAsync();
+        };
+        var msi = new Button { Text = "MSI gyártás…", Bounds = new Rectangle(160, 276, 140, 32) };
+        msi.Click += async (_, _) =>
+        {
+            try { var groups = await _api.GetGroupsAsync(); using var f = new MsiForm(_api, groups); f.ShowDialog(this); }
+            catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+        };
+
+        _status.SetBounds(12, 318, 530, 60);
         _status.Text = "…";
 
-        Controls.AddRange([_list, _component, rolloutRtm, rolloutBeta, promote, _status]);
+        Controls.AddRange([_list, _component, rolloutRtm, rolloutBeta, promote, upload, msi, _status]);
         Load += async (_, _) => await RefreshAsync();
     }
 
