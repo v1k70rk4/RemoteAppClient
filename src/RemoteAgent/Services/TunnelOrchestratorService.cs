@@ -66,6 +66,14 @@ public sealed class TunnelOrchestratorService(
 
     private async Task OpenTunnelAsync(int remotePort, CancellationToken ct)
     {
+        // HELYI VNC-zár: ha a gépet helyileg letiltották, NEM nyitunk tunnelt, és naplózzuk a próbálkozást.
+        if (RemoteAgent.Vnc.VncLock.IsLocked())
+        {
+            RemoteAgent.Vnc.VncLock.Log("Távoli elérés (tunnel) ELUTASÍTVA: a gép VNC-je helyileg le van tiltva.");
+            logger.LogWarning("open-tunnel elutasítva — a gép VNC-je helyileg le van tiltva.");
+            return;
+        }
+
         if (remotePort <= 0)
         {
             logger.LogWarning("open-tunnel érvénytelen távoli porttal ({Port}), kihagyva.", remotePort);

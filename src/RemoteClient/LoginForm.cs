@@ -38,6 +38,9 @@ public sealed class LoginForm : Form
 
     private LoginResponse? _login;
 
+    /// <summary>A bejelentkezett user szerepe (admin/operator) — siker után érvényes.</summary>
+    public string Role { get; private set; } = "operator";
+
     public LoginForm(AdminApi api)
     {
         _api = api;
@@ -85,6 +88,7 @@ public sealed class LoginForm : Form
             _loginBtn.Enabled = false;
             _login = await _api.LoginAsync(_user.Text.Trim(), _pass.Text, string.IsNullOrWhiteSpace(_totp.Text) ? null : _totp.Text.Trim());
             _api.SetToken(_login.Token);
+            Role = _login.Role;
 
             if (!_login.MustChangePassword && !_login.TotpEnrollRequired)
             {

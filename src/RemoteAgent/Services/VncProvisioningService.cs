@@ -24,35 +24,54 @@ public sealed class VncProvisioningService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try
+        // HELYI VNC-zár: ha az admin letiltotta a gépet, NEM provisionálunk — sőt kényszerítjük
+        // a leállított+disabled állapotot. A zárat csak helyben lehet feloldani.
+        if (VncLock.IsLocked())
         {
-            var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
-            string? password = File.Exists(secretFile) ? File.ReadAllText(secretFile).Trim() : null;
-
-            if (string.IsNullOrEmpty(password))
-            {
-                password = VncProvisioner.GeneratePassword();
-                var msi = Path.Combine(AppContext.BaseDirectory, "vnc", "tightvnc.msi");
-                try
-                {
-                    await VncProvisioner.EnsureInstalledAsync(msi);
-                    VncProvisioner.ApplyHardening(password);
-                    File.WriteAllText(secretFile, password);
-                    logger.LogInformation("VNC provisionálva, gépenkénti jelszó beállítva.");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "VNC provisioning kihagyva (admin/SYSTEM jog kell).");
-                    return;
-                }
-            }
-
-            await ReportSecretAsync(password, stoppingToken);
+            VncLock.Enforce();
+            logger.LogWarning("A VNC helyileg le van tiltva — a provisioning kihagyva.");
         }
-        catch (OperationCanceledException) { /* leállás */ }
-        catch (Exception ex)
+        else
         {
-            logger.LogWarning(ex, "VNC-jelszó jelentése sikertelen.");
+            try
+            {
+                var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
+                string? password = File.Exists(secretFile) ? File.ReadAllText(secretFile).Trim() : null;
+
+                if (string.IsNullOrEmpty(password))
+                {
+                    password = VncProvisioner.GeneratePassword();
+                    var msi = Path.Combine(AppContext.BaseDirectory, "vnc", "tightvnc.msi");
+                    try
+                    {
+                        await VncProvisioner.EnsureInstalledAsync(msi);
+                        VncProvisioner.ApplyHardening(password);
+                        File.WriteAllText(secretFile, password);
+                        logger.LogInformation("VNC provisionálva, gépenkénti jelszó beállítva.");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "VNC provisioning kihagyva (admin/SYSTEM jog kell).");
+                        password = null;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(password))
+                    await ReportSecretAsync(password, stoppingToken);
+            }
+            catch (OperationCanceledException) { /* leállás */ }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "VNC-jelszó jelentése sikertelen.");
+            }
+        }
+
+        // Folyamatos zár-kényszerítés: ha közben letiltják (vagy valami visszaindítja a tvnservert).
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
+            catch (OperationCanceledException) { break; }
+            if (VncLock.IsLocked()) VncLock.Enforce();
         }
     }
 

@@ -36,6 +36,10 @@ public sealed class TelemetryPayload
     [JsonPropertyName("tunnelActive")]
     public bool TunnelActive { get; set; }
 
+    /// <summary>Helyileg letiltották-e a távoli elérést (VNC-zár) ezen a gépen.</summary>
+    [JsonPropertyName("vncLocked")]
+    public bool VncLocked { get; set; }
+
     // A Helper supervisor lokális állapota (supervisor.status), a megfigyelhetőséghez.
     [JsonPropertyName("agentRestarts")]
     public int AgentRestarts { get; set; }

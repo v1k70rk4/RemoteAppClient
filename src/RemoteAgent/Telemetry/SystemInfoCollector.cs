@@ -32,6 +32,7 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
             BootTimeUtc = DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64),
             CollectedAtUtc = DateTimeOffset.UtcNow,
             TunnelActive = tunnelState.IsActive,
+            VncLocked = Vnc.VncLock.IsLocked(),
         };
         ReadSupervisorStatus(p);
         return p;

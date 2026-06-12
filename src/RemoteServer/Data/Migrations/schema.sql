@@ -237,5 +237,10 @@ CREATE INDEX `IX_UserSessions_UserId` ON `UserSessions` (`UserId`);
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260612133606_UserAuth', '9.0.0');
 
+ALTER TABLE `Devices` ADD `VncLocked` tinyint(1) NOT NULL DEFAULT FALSE;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260612150051_DeviceVncLocked', '9.0.0');
+
 COMMIT;
 

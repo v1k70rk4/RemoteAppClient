@@ -319,6 +319,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         OsVersion = d.OsVersion,
         AgentRestarts = d.AgentRestarts,
         LastIncident = d.LastIncident,
+        VncLocked = d.VncLocked,
         Note = protector.TryUnprotect(d.Note),
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);

@@ -21,14 +21,16 @@ public sealed class MainForm : Form
     private readonly Button _approveBtn = new();
     private readonly Button _bootstrapBtn = new();
     private readonly Button _channelsBtn = new();
+    private readonly Button _vncLockBtn = new();
     private readonly Label _status = new();
+    private string _role = "operator";
 
     public MainForm()
     {
         _cfg = ClientConfig.Load();
 
         Text = "RemoteAppClient — admin konzol";
-        Width = 920;
+        Width = 980;
         Height = 460;
         StartPosition = FormStartPosition.CenterScreen;
 
@@ -43,6 +45,7 @@ public sealed class MainForm : Form
         _list.Columns.Add("Csoport", 110);
         _list.Columns.Add("Update", 60);
         _list.Columns.Add("Csat.", 55);
+        _list.Columns.Add("Zár", 45);
         _list.Columns.Add("Verzió A/H/V", 130);
         _list.Columns.Add("Restart", 55);
         _list.Columns.Add("Utoljára látva", 130);
@@ -74,10 +77,14 @@ public sealed class MainForm : Form
         _channelsBtn.SetBounds(682, 350, 110, 32);
         _channelsBtn.Click += (_, _) => { if (_api is not null) new ChannelsForm(_api).ShowDialog(this); };
 
-        _status.SetBounds(12, 392, 880, 30);
+        _vncLockBtn.SetBounds(802, 350, 160, 32);
+        _vncLockBtn.Visible = false; // csak admin login után
+        _vncLockBtn.Click += (_, _) => ToggleLocalVncLock();
+
+        _status.SetBounds(12, 392, 940, 30);
         _status.Text = "Indulás…";
 
-        Controls.AddRange([_list, _refreshBtn, _connectBtn, _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _status]);
+        Controls.AddRange([_list, _refreshBtn, _connectBtn, _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _vncLockBtn, _status]);
 
         Load += async (_, _) => await InitAsync();
         FormClosing += (_, _) => Cleanup();
@@ -111,7 +118,11 @@ public sealed class MainForm : Form
                     BeginInvoke(Close);
                     return;
                 }
+                _role = login.Role;
             }
+
+            // Csak adminnak: a HELYI gép VNC-zárolása (emelt joggal).
+            if (_role == "admin") { _vncLockBtn.Visible = true; UpdateVncLockBtn(); }
 
             await RefreshAsync();
         }
@@ -140,6 +151,7 @@ public sealed class MainForm : Form
                 item.SubItems.Add(d.GroupName ?? "—");
                 item.SubItems.Add(d.UpdateAllowed ? "igen" : "NEM");
                 item.SubItems.Add(string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
+                item.SubItems.Add(d.VncLocked ? "🔒" : "—");
                 item.SubItems.Add($"{Short(d.AgentVersion)}/{Short(d.HelperVersion)}/{Short(d.VncVersion)}");
                 item.SubItems.Add(d.AgentRestarts > 0 ? d.AgentRestarts.ToString() : "—");
                 item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
@@ -158,6 +170,30 @@ public sealed class MainForm : Form
 
     /// <summary>Rövid verzió-megjelenítés a listához (üres/null → „—").</summary>
     private static string Short(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+
+    private void UpdateVncLockBtn() =>
+        _vncLockBtn.Text = LocalVncLock.IsLocked() ? "Helyi zár FELOLDÁSA" : "Helyi gép zárolása";
+
+    /// <summary>A HELYI gép VNC-zárának ki/be kapcsolása (admin; emelt joggal, UAC).</summary>
+    private void ToggleLocalVncLock()
+    {
+        bool locked = LocalVncLock.IsLocked();
+        var q = locked
+            ? "Feloldod ezen a HELYI gépen a távoli elérést (VNC)?"
+            : "Letiltod ezen a HELYI gépen a távoli elérést (VNC)?\n\nUtána erre a gépre senki sem tud távolról belépni, amíg HELYBEN fel nem oldod.";
+        if (MessageBox.Show(q, "Helyi VNC-zár", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+
+        try
+        {
+            if (LocalVncLock.RunElevated(!locked))
+            {
+                SetStatus(locked ? "Helyi gép feloldva — távolról ismét elérhető." : "Helyi gép ZÁROLVA — távolról nem elérhető.");
+                UpdateVncLockBtn();
+            }
+            else SetStatus("A művelet nem fejeződött be (UAC megszakítva?).");
+        }
+        catch (Exception ex) { SetStatus("Helyi zár hiba: " + ex.Message); }
+    }
 
     private async Task ConnectSelectedAsync()
     {

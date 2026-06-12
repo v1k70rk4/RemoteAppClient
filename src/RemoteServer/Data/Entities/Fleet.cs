@@ -69,6 +69,9 @@ public sealed class Device
     public int AgentRestarts { get; set; }
     public string? LastIncident { get; set; }
 
+    /// <summary>A gépen HELYILEG letiltották-e a távoli elérést (VNC-zár). Csak megjelenítés — a kényszerítés lokális.</summary>
+    public bool VncLocked { get; set; }
+
     public DateTimeOffset EnrolledAt { get; set; } = DateTimeOffset.UtcNow;
 
     /// <summary>Admin-megjegyzés (használó neve stb.), TITKOSÍTVA tárolva (érzékeny lehet).</summary>

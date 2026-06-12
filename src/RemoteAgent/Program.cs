@@ -17,6 +17,10 @@ if (args is ["enroll", ..])
 if (args is ["provision-vnc", ..])
     return await RemoteAgent.Vnc.VncProvisioner.RunAsync(args[1..]);
 
+// Helyi VNC-zár (admin/SYSTEM kell): a távoli elérés letiltása/feloldása ezen a gépen.
+if (args is ["vnc-lock", ..]) return RemoteAgent.Vnc.VncLock.Lock();
+if (args is ["vnc-unlock", ..]) return RemoteAgent.Vnc.VncLock.Unlock();
+
 // Service telepítése/eltávolítása (admin kell).
 if (args is ["install-service", ..]) return await RemoteAgent.ServiceControl.InstallAsync();
 if (args is ["uninstall-service", ..]) return await RemoteAgent.ServiceControl.UninstallAsync();

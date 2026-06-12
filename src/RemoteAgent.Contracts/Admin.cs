@@ -66,6 +66,10 @@ public sealed class DeviceInfo
     [JsonPropertyName("lastIncident")]
     public string? LastIncident { get; set; }
 
+    /// <summary>A gépen HELYILEG letiltották-e a távoli elérést (VNC-zár).</summary>
+    [JsonPropertyName("vncLocked")]
+    public bool VncLocked { get; set; }
+
     /// <summary>Admin-megjegyzés (visszafejtve).</summary>
     [JsonPropertyName("note")]
     public string? Note { get; set; }
