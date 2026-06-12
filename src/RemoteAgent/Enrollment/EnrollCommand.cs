@@ -19,6 +19,9 @@ namespace RemoteAgent.Enrollment;
 /// </summary>
 public static class EnrollCommand
 {
+    /// <summary>A beléptetés eredménye (a CLI és a bootstrap self-enroll is ezt kapja).</summary>
+    public sealed record EnrollResult(bool Ok, string? DeviceId, string? Thumbprint, string? ErrorCode);
+
     public static async Task<int> RunAsync(string[] args)
     {
         var (token, server, hostname, outDir) = ParseArgs(args);
@@ -36,6 +39,30 @@ public static class EnrollCommand
         }
 
         Console.WriteLine(Strings.EnrollGeneratingKeys);
+        Console.WriteLine(Strings.EnrollContactingServer);
+
+        var res = await EnrollCoreAsync(token, server, hostname, outDir);
+        if (!res.Ok)
+        {
+            if (res.ErrorCode == "unreachable") Console.Error.WriteLine(Strings.EnrollServerUnreachable);
+            else Console.Error.WriteLine(Strings.EnrollFailed(res.ErrorCode ?? "unknown"));
+            return 1;
+        }
+
+        Console.WriteLine(Strings.EnrollSuccess);
+        Console.WriteLine($"  deviceId:   {res.DeviceId}");
+        Console.WriteLine($"  thumbprint: {res.Thumbprint}");
+        Console.WriteLine($"  output:     {outDir}");
+        return 0;
+    }
+
+    /// <summary>
+    /// A tényleges beléptetés (UI-mentes, újrahasználható): kulcs+CSR+SSH-kulcs generálás,
+    /// POST /enroll, a válasz (cert/CA/SSH-cert/enrollment.json) eltárolása. A CLI és a
+    /// bootstrap self-enroll is ezt hívja. A privát kulcs SOHA nem hagyja el a gépet.
+    /// </summary>
+    public static async Task<EnrollResult> EnrollCoreAsync(string token, string server, string hostname, string outDir)
+    {
         Directory.CreateDirectory(outDir);
 
         // mTLS kulcs + CSR.
@@ -47,7 +74,6 @@ public static class EnrollCommand
         var sshKeyPath = Path.Combine(outDir, "id_ed25519");
         string sshPublicKey = GenerateSshKey(sshKeyPath);
 
-        Console.WriteLine(Strings.EnrollContactingServer);
         EnrollResponse? resp;
         try
         {
@@ -66,23 +92,18 @@ public static class EnrollCommand
                     if (!string.IsNullOrEmpty(err?.Code)) code = err.Code;
                 }
                 catch { /* nem JSON hibatest */ }
-                Console.Error.WriteLine(Strings.EnrollFailed(code));
-                return 1;
+                return new EnrollResult(false, null, null, code);
             }
 
             resp = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.EnrollResponse);
         }
         catch (HttpRequestException)
         {
-            Console.Error.WriteLine(Strings.EnrollServerUnreachable);
-            return 1;
+            return new EnrollResult(false, null, null, "unreachable");
         }
 
         if (resp is null || string.IsNullOrEmpty(resp.Certificate))
-        {
-            Console.Error.WriteLine(Strings.EnrollFailed("empty_response"));
-            return 1;
-        }
+            return new EnrollResult(false, null, null, "empty_response");
 
         // A visszakapott cert + a helyi privát kulcs összefűzése, PFX-be mentés.
         using var leaf = X509Certificate2.CreateFromPem(resp.Certificate);
@@ -116,11 +137,7 @@ public static class EnrollCommand
             Path.Combine(outDir, "enrollment.json"),
             JsonSerializer.Serialize(record, AgentLocalJsonContext.Default.EnrollmentRecord));
 
-        Console.WriteLine(Strings.EnrollSuccess);
-        Console.WriteLine($"  deviceId:   {resp.DeviceId}");
-        Console.WriteLine($"  thumbprint: {withKey.Thumbprint}");
-        Console.WriteLine($"  output:     {outDir}");
-        return 0;
+        return new EnrollResult(true, resp.DeviceId, withKey.Thumbprint, null);
     }
 
     /// <summary>SSH ed25519 kulcspár generálása ssh-keygennel; visszaadja a publikus kulcsot.</summary>

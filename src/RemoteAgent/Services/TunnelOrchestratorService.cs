@@ -15,6 +15,7 @@ public sealed class TunnelOrchestratorService(
     IOptions<AgentOptions> options,
     CommandBus bus,
     TunnelState state,
+    RemoteAgent.Update.UpdateInstaller updateInstaller,
     ILoggerFactory loggerFactory,
     ILogger<TunnelOrchestratorService> logger) : BackgroundService
 {
@@ -53,8 +54,12 @@ public sealed class TunnelOrchestratorService(
             case CommandTypes.CloseTunnel:
                 await CloseTunnelAsync();
                 break;
+            case CommandTypes.Update:
+                await updateInstaller.ApplyAsync(
+                    cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
+                break;
             default:
-                logger.LogWarning("Ismeretlen tunnel parancs: {Type}", cmd.Type);
+                logger.LogWarning("Ismeretlen parancs: {Type}", cmd.Type);
                 break;
         }
     }

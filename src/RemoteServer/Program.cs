@@ -1,12 +1,15 @@
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using RemoteAgent.Admin;
 using RemoteAgent.Commands;
 using RemoteAgent.Enrollment;
 using RemoteAgent.Telemetry;
 using RemoteServer.Configuration;
 using RemoteServer.Data;
+using RemoteServer.Data.Entities;
 using RemoteServer.Hub;
 using RemoteServer.Security;
 using RemoteServer.Services;
@@ -14,6 +17,9 @@ using RemoteServer.Signing;
 using RemoteServer.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Az update-csomag (agent exe) ~70-100 MB — a Kestrel alap ~28 MB limitjét megemeljük.
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 512L * 1024 * 1024);
 
 builder.Services.Configure<ServerOptions>(builder.Configuration.GetSection(ServerOptions.SectionName));
 
@@ -145,8 +151,16 @@ app.MapGet("/admin/devices", async (AppDbContext db, AgentConnectionRegistry reg
         GroupId = d.GroupId,
         GroupName = d.Group?.Name,
         UpdateAllowed = d.UpdateAllowed,
+        Channel = d.Channel,
         UnattendedAllowed = d.UnattendedAllowed,
         ConsentRequired = d.ConsentRequired,
+        AgentVersion = d.AgentVersion,
+        HelperVersion = d.HelperVersion,
+        VncVersion = d.VncVersion,
+        ClientVersion = d.ClientVersion,
+        OsVersion = d.OsVersion,
+        AgentRestarts = d.AgentRestarts,
+        LastIncident = d.LastIncident,
         Note = protector.TryUnprotect(d.Note),
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);
@@ -165,6 +179,7 @@ app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx,
 
     if (upd.GroupId is not null) device.GroupId = upd.GroupId == Guid.Empty ? null : upd.GroupId;
     if (upd.UpdateAllowed is not null) device.UpdateAllowed = upd.UpdateAllowed.Value;
+    if (upd.Channel is not null && (upd.Channel is "rtm" or "beta")) device.Channel = upd.Channel;
     if (upd.UnattendedAllowed is not null) device.UnattendedAllowed = upd.UnattendedAllowed;
     if (upd.ConsentRequired is not null) device.ConsentRequired = upd.ConsentRequired;
     if (upd.Note is not null) device.Note = upd.Note.Length == 0 ? null : protector.Protect(upd.Note);
@@ -202,6 +217,175 @@ app.MapPost("/admin/groups", async (HttpContext ctx, AppDbContext db) =>
 });
 
 app.MapGet("/admin/devices/online", (AgentConnectionRegistry registry) => Results.Ok(registry.ConnectedDevices));
+
+// Update-parancs: csak ha a gépen engedélyezett a frissítés (UpdateAllowed).
+app.MapPost("/admin/devices/{deviceId}/update", async (
+    string deviceId, HttpContext ctx, AppDbContext db, CommandService commands, CancellationToken ct) =>
+{
+    UpdateRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.UpdateRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Url) || string.IsNullOrWhiteSpace(req.Sha256))
+        return Results.BadRequest();
+
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    if (!device.UpdateAllowed)
+        return Results.Conflict(new { error = "update_not_allowed" });
+
+    var data = new CommandData { UpdateVersion = req.Version, UpdateUrl = req.Url, UpdateSha256 = req.Sha256, UpdateTarget = req.Target };
+    var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Update, data, createdBy: null, ct);
+    return cmd is null ? Results.NotFound() : Results.Ok(new { deviceId, version = req.Version, target = req.Target ?? "agent", status = cmd.Status.ToString() });
+});
+
+// Update-csomag feltöltése EGY CSATORNÁRA: a body a nyers exe; query: channel (rtm/beta),
+// component (agent/updater), version. A szerver eltárolja, SHA-256-ot számol, és felveszi
+// egy ReleasePackage sorba — onnantól ez a (csatorna, komponens) AKTUÁLIS csomagja.
+app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions<ServerOptions> opt) =>
+{
+    var channel = Norm(ctx.Request.Query["channel"], "rtm");
+    var component = Norm(ctx.Request.Query["component"], "agent");
+    var version = ctx.Request.Query["version"].ToString();
+    if (string.IsNullOrWhiteSpace(version)) return Results.BadRequest(new { error = "version_required" });
+    if (channel is not ("rtm" or "beta")) return Results.BadRequest(new { error = "bad_channel" });
+    if (component is not ("agent" or "updater")) return Results.BadRequest(new { error = "bad_component" });
+
+    // Belső, ütközésmentes fájlnév: {component}-{channel}-{version}.exe
+    var safeVer = version.Replace('/', '_').Replace('\\', '_');
+    var fileName = $"{component}-{channel}-{safeVer}.exe";
+
+    var dir = opt.Value.PackagesDir;
+    Directory.CreateDirectory(dir);
+    var path = Path.Combine(dir, Path.GetFileName(fileName));
+
+    await using (var fs = File.Create(path))
+        await ctx.Request.Body.CopyToAsync(fs, ctx.RequestAborted);
+
+    string sha;
+    long size;
+    await using (var read = File.OpenRead(path))
+    {
+        size = read.Length;
+        sha = Convert.ToHexString(await SHA256.HashDataAsync(read, ctx.RequestAborted));
+    }
+
+    db.ReleasePackages.Add(new ReleasePackage
+    {
+        Channel = channel, Component = component, Version = version,
+        FileName = fileName, Sha256 = sha, SizeBytes = size,
+    });
+    await db.SaveChangesAsync(ctx.RequestAborted);
+
+    return Results.Ok(new { channel, component, version, fileName, url = $"/api/updates/{fileName}", sha256 = sha });
+
+    static string Norm(Microsoft.Extensions.Primitives.StringValues v, string dflt)
+    {
+        var s = v.ToString();
+        return string.IsNullOrWhiteSpace(s) ? dflt : s.Trim().ToLowerInvariant();
+    }
+});
+
+// Csatornák aktuális csomagjai (komponensenként) — a kliens csatorna-nézetéhez.
+app.MapGet("/admin/channels", async (AppDbContext db, CancellationToken ct) =>
+{
+    var all = await db.ReleasePackages.ToListAsync(ct);
+    var current = all
+        .GroupBy(p => new { p.Channel, p.Component })
+        .Select(g => g.OrderByDescending(p => p.UploadedAt).First())
+        .Select(p => new ChannelPackageInfo
+        {
+            Channel = p.Channel, Component = p.Component, Version = p.Version,
+            FileName = p.FileName, Sha256 = p.Sha256, Url = $"/api/updates/{p.FileName}", UploadedAt = p.UploadedAt,
+        })
+        .OrderBy(p => p.Channel).ThenBy(p => p.Component)
+        .ToList();
+    return Results.Json(current, AgentJsonContext.Default.ListChannelPackageInfo);
+});
+
+// Rollout: egy csatorna AKTUÁLIS csomagját kiadja minden ott lévő, frissíthető, jóváhagyott gépnek.
+app.MapPost("/admin/channels/{channel}/rollout", async (
+    string channel, string? component, AppDbContext db, CommandService commands, CancellationToken ct) =>
+{
+    channel = channel.Trim().ToLowerInvariant();
+    var comp = string.IsNullOrWhiteSpace(component) ? "agent" : component.Trim().ToLowerInvariant();
+
+    var pkg = await db.ReleasePackages.Where(p => p.Channel == channel && p.Component == comp)
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+    if (pkg is null) return Results.NotFound(new { error = "no_current_package" });
+
+    var devices = await db.Devices
+        .Where(d => d.Channel == channel && d.UpdateAllowed && d.Status == DeviceStatus.Approved)
+        .ToListAsync(ct);
+
+    int sent = 0, skipped = 0;
+    foreach (var d in devices)
+    {
+        // Már a cél-verzión van? (laza egyezés: a riportolt "2.0.0.0" kezdődik a "2.0.0"-val)
+        var reported = comp == "updater" ? d.HelperVersion : d.AgentVersion;
+        if (reported is not null && reported.StartsWith(pkg.Version, StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
+
+        var data = new CommandData
+        {
+            UpdateVersion = pkg.Version, UpdateUrl = $"/api/updates/{pkg.FileName}",
+            UpdateSha256 = pkg.Sha256, UpdateTarget = comp,
+        };
+        var cmd = await commands.EnqueueAsync(d.DeviceId, CommandTypes.Update, data, createdBy: null, ct);
+        if (cmd is not null) sent++;
+    }
+    return Results.Ok(new { channel, component = comp, version = pkg.Version, devices = devices.Count, sent, skipped });
+});
+
+// Promótálás: egy csatorna aktuális csomagját a cél-csatorna aktuálisává teszi (UGYANAZ a fájl, nincs újra-feltöltés).
+app.MapPost("/admin/channels/{channel}/promote", async (
+    string channel, string? component, string? to, AppDbContext db, CancellationToken ct) =>
+{
+    var from = channel.Trim().ToLowerInvariant();
+    var comp = string.IsNullOrWhiteSpace(component) ? "agent" : component.Trim().ToLowerInvariant();
+    var toChannel = string.IsNullOrWhiteSpace(to) ? "rtm" : to.Trim().ToLowerInvariant();
+    if (toChannel is not ("rtm" or "beta")) return Results.BadRequest(new { error = "bad_channel" });
+
+    var pkg = await db.ReleasePackages.Where(p => p.Channel == from && p.Component == comp)
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+    if (pkg is null) return Results.NotFound(new { error = "no_current_package" });
+
+    db.ReleasePackages.Add(new ReleasePackage
+    {
+        Channel = toChannel, Component = comp, Version = pkg.Version,
+        FileName = pkg.FileName, Sha256 = pkg.Sha256, SizeBytes = pkg.SizeBytes,
+    });
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { promoted = pkg.Version, component = comp, from, to = toChannel, fileName = pkg.FileName });
+});
+
+// Egy gép frissítése a SAJÁT csatornája aktuális csomagjára (per-device, csatorna-tudatos).
+app.MapPost("/admin/devices/{deviceId}/update-channel", async (
+    string deviceId, string? component, AppDbContext db, CommandService commands, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    if (!device.UpdateAllowed) return Results.Conflict(new { error = "update_not_allowed" });
+
+    var comp = string.IsNullOrWhiteSpace(component) ? "agent" : component.Trim().ToLowerInvariant();
+    var pkg = await db.ReleasePackages.Where(p => p.Channel == device.Channel && p.Component == comp)
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+    if (pkg is null) return Results.NotFound(new { error = "no_current_package" });
+
+    var data = new CommandData
+    {
+        UpdateVersion = pkg.Version, UpdateUrl = $"/api/updates/{pkg.FileName}",
+        UpdateSha256 = pkg.Sha256, UpdateTarget = comp,
+    };
+    var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Update, data, createdBy: null, ct);
+    return cmd is null ? Results.NotFound() : Results.Ok(new { deviceId, channel = device.Channel, version = pkg.Version, status = cmd.Status.ToString() });
+});
+
+// Update-csomag kiszolgálása (mTLS mögött az /api/ blokkban — csak beléptetett agentek).
+app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> opt) =>
+{
+    var safe = Path.GetFileName(fileName);
+    var path = Path.Combine(opt.Value.PackagesDir, safe);
+    return File.Exists(path) ? Results.File(path, "application/octet-stream", safe) : Results.NotFound();
+});
 
 // Tunnel nyitása: a gép STABIL portját használja (enrollkor kiosztva); felülírható a query-ből.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
@@ -249,6 +433,21 @@ app.MapPost("/admin/tokens", async (EnrollmentService enroll, int? maxUses, int?
 {
     var raw = await enroll.CreateTokenAsync(maxUses ?? 1, expiresInHours, groupId: null, note: null, ct);
     return Results.Ok(new { token = raw, maxUses = maxUses ?? 1, expiresInHours });
+});
+
+// === Bootstrap blob: token nélküli ön-telepítéshez (site-token + szerver-URL egy stringben) ===
+// A létrejövő token AutoApprove=false → a vele beléptetett gép Pending-be kerül (jóváhagyásra vár).
+app.MapPost("/admin/bootstrap", async (
+    EnrollmentService enroll, IOptions<ServerOptions> opt,
+    string? serverUrl, Guid? groupId, int? maxUses, int? expiresInHours, CancellationToken ct) =>
+{
+    var url = !string.IsNullOrWhiteSpace(serverUrl) ? serverUrl : opt.Value.PublicUrl;
+    if (string.IsNullOrWhiteSpace(url))
+        return Results.BadRequest(new { error = "no_server_url", hint = "állítsd be a Server:PublicUrl-t vagy add meg: ?serverUrl=" });
+
+    var raw = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
+    var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = raw });
+    return Results.Ok(new { blob, url = url.TrimEnd('/'), token = raw, groupId, maxUses = maxUses ?? 100000, expiresInHours });
 });
 
 app.Run();

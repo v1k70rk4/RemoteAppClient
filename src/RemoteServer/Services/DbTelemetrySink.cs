@@ -30,6 +30,11 @@ public sealed class DbTelemetrySink(AppDbContext db) : ITelemetrySink
         device.Hostname = payload.Hostname;
         device.OsVersion = payload.OsVersion;
         device.AgentVersion = payload.AgentVersion;
+        device.HelperVersion = payload.HelperVersion;
+        device.VncVersion = payload.VncVersion;
+        device.ClientVersion = payload.ClientVersion;
+        device.AgentRestarts = payload.AgentRestarts;
+        device.LastIncident = payload.LastIncident;
         device.LastSeenAt = now;
 
         db.DeviceTelemetry.Add(new DeviceTelemetry

@@ -38,6 +38,9 @@ public sealed class Device
     /// <summary>Mehet-e erre a gépre frissítés. False = befagyasztva (pl. teszt/karantén).</summary>
     public bool UpdateAllowed { get; set; } = true;
 
+    /// <summary>Release-csatorna: "rtm" (alap) vagy "beta". A BETA-gépek a beta csatorna csomagjait kapják.</summary>
+    public string Channel { get; set; } = "rtm";
+
     /// <summary>Engedélyezett-e az unattended hozzáférés (null = örökli a csoportét).</summary>
     public bool? UnattendedAllowed { get; set; }
 
@@ -56,8 +59,15 @@ public sealed class Device
 
     // Denormalizált, gyors listázáshoz a legutóbbi telemetriából.
     public string? AgentVersion { get; set; }
+    public string? HelperVersion { get; set; }
+    public string? VncVersion { get; set; }
+    public string? ClientVersion { get; set; }
     public string? OsVersion { get; set; }
     public DateTimeOffset? LastSeenAt { get; set; }
+
+    /// <summary>A Helper supervisor által jelzett agent-újraindítások száma + utolsó incidens (megfigyelhetőség).</summary>
+    public int AgentRestarts { get; set; }
+    public string? LastIncident { get; set; }
 
     public DateTimeOffset EnrolledAt { get; set; } = DateTimeOffset.UtcNow;
 

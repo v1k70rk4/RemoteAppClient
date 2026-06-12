@@ -23,6 +23,12 @@ public sealed class ServerOptions
     /// <summary>A DB-beli titkok (pl. vnc_secret) nyugalmi titkosításához használt 32 bájtos kulcs útja.</summary>
     public string SecretKeyPath { get; set; } = "/etc/remoteserver/secret.key";
 
+    /// <summary>Az update-csomagok tárolási mappája (túléli a redeployt; az /api/updates innen szolgál ki).</summary>
+    public string PackagesDir { get; set; } = "/var/lib/remoteserver/packages";
+
+    /// <summary>A szerver publikus bázis-URL-je (pl. https://c2.pelda.hu) — a bootstrap blobba kerül.</summary>
+    public string PublicUrl { get; set; } = string.Empty;
+
     /// <summary>A bástya (reverse SSH tunnel) elérési adatai. Az enroll válaszába kerül.</summary>
     public BastionOptions Bastion { get; set; } = new();
 }

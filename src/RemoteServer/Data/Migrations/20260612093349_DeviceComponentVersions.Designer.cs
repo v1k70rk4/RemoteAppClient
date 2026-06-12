@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RemoteServer.Data;
 
@@ -11,9 +12,11 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260612093349_DeviceComponentVersions")]
+    partial class DeviceComponentVersions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -115,10 +118,6 @@ namespace RemoteServer.Data.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<string>("CertThumbprint")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
                         .HasColumnType("longtext");
 
                     b.Property<string>("ClientVersion")
@@ -248,9 +247,6 @@ namespace RemoteServer.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
 
-                    b.Property<bool>("AutoApprove")
-                        .HasColumnType("tinyint(1)");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -288,45 +284,6 @@ namespace RemoteServer.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("EnrollmentTokens");
-                });
-
-            modelBuilder.Entity("RemoteServer.Data.Entities.ReleasePackage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("Component")
-                        .IsRequired()
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Sha256")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset>("UploadedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Version")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Channel", "Component", "UploadedAt");
-
-                    b.ToTable("ReleasePackages");
                 });
 
             modelBuilder.Entity("RemoteServer.Data.Entities.RemoteSession", b =>

@@ -19,6 +19,12 @@ public sealed class EnrollmentToken
     public int MaxUses { get; set; } = 1;
     public int UseCount { get; set; }
 
+    /// <summary>
+    /// Igaz: a beléptetett gép azonnal Approved (admin által kiadott, egyszer-használatos token).
+    /// Hamis: a gép Pending-be kerül, jóváhagyásra vár (site/bootstrap token — önkiszolgáló telepítés).
+    /// </summary>
+    public bool AutoApprove { get; set; } = true;
+
     public DateTimeOffset? UsedAt { get; set; }
     public Guid? UsedByDeviceId { get; set; }
 
@@ -53,6 +59,28 @@ public sealed class Command
     // A kiadott aláírt parancs nonce-a és aláírása (audit + replay-nyomon követés).
     public string? Nonce { get; set; }
     public string? Signature { get; set; }
+}
+
+/// <summary>
+/// Egy kiadott csomag egy release-csatornán. Csatorna (rtm/beta) + komponens (agent/updater)
+/// + verzió. Az adott (csatorna, komponens) "aktuális" csomagja a legfrissebb UploadedAt.
+/// A fájl a PackagesDir-ben, az /api/updates/{FileName} szolgálja ki.
+/// </summary>
+public sealed class ReleasePackage
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>Release-csatorna: "rtm" (stabil) vagy "beta" (teszt-gyűrű).</summary>
+    public string Channel { get; set; } = "rtm";
+
+    /// <summary>Komponens: "agent" vagy "updater".</summary>
+    public string Component { get; set; } = "agent";
+
+    public string Version { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string Sha256 { get; set; } = string.Empty;
+    public long SizeBytes { get; set; }
+    public DateTimeOffset UploadedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 /// <summary>Egy távoli megtekintési session — ki, mikor, melyik gépet nézte (privacy-audit).</summary>
