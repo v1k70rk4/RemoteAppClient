@@ -46,15 +46,20 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialLabel _setupStatus = new();
 
     // Fő nézet
+    private readonly MaterialTabControl _tabs = new() { Dock = DockStyle.Fill };
+    private readonly MaterialTabSelector _tabSel = new() { Dock = DockStyle.Top, Height = 48 };
+    private readonly TabPage _devicesTab = new("Eszközök");
+    private readonly TabPage _adminTab = new("Adminisztráció");
+    private readonly MaterialLabel _mainServerLbl = new();
     private readonly ListView _list = new();
     private readonly MaterialButton _refreshBtn = new() { Text = "Frissítés" };
     private readonly MaterialButton _connectBtn = new() { Text = "Csatlakozás" };
     private readonly MaterialButton _editBtn = new() { Text = "Szerkesztés" };
     private readonly MaterialButton _approveBtn = new() { Text = "Jóváhagyás" };
-    private readonly MaterialButton _bootstrapBtn = new() { Text = "Bootstrap" };
-    private readonly MaterialButton _channelsBtn = new() { Text = "Csatornák" };
-    private readonly MaterialButton _usersBtn = new() { Text = "Felhasználók" };
-    private readonly MaterialButton _vncLockBtn = new() { Text = "Helyi zár" };
+    private readonly MaterialButton _bootstrapBtn = new() { Text = "Bootstrap készítése", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+    private readonly MaterialButton _channelsBtn = new() { Text = "Csatornák / Csomagok / MSI", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+    private readonly MaterialButton _usersBtn = new() { Text = "Felhasználók kezelése", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+    private readonly MaterialButton _vncLockBtn = new() { Text = "Helyi zár", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
     private readonly MaterialLabel _status = new();
     private readonly MaterialSwitch _themeSwitch = new() { Text = "Sötét" };
 
@@ -180,23 +185,48 @@ public sealed class MainForm : MaterialForm
 
     private void BuildMainView()
     {
-        var bar = new MaterialCard { Dock = DockStyle.Top, Height = 64 };
-        int x = 14;
-        void place(MaterialButton b, int w) { b.SetBounds(x, 12, w, 38); x += w + 8; }
-        place(_refreshBtn, 110); _refreshBtn.Click += async (_, _) => await RefreshAsync();
-        place(_connectBtn, 130); _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
-        place(_editBtn, 120); _editBtn.Click += async (_, _) => await EditSelectedAsync();
-        place(_approveBtn, 120); _approveBtn.Click += async (_, _) => await ApproveSelectedAsync();
-        place(_usersBtn, 130); _usersBtn.Click += (_, _) => { if (_api is not null) new UsersForm(_api).ShowDialog(this); };
-        place(_channelsBtn, 110); _channelsBtn.Click += (_, _) => { if (_api is not null) new ChannelsForm(_api).ShowDialog(this); };
-        place(_bootstrapBtn, 110); _bootstrapBtn.Click += async (_, _) => await GenerateBootstrapAsync();
-        place(_vncLockBtn, 150); _vncLockBtn.Click += (_, _) => ToggleLocalVncLock();
-        foreach (var b in new[] { _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _usersBtn, _vncLockBtn }) b.Visible = false;
-
+        // --- Fejléc: szerver-státusz balra, téma-kapcsoló jobbra ---
+        var header = new MaterialCard { Dock = DockStyle.Top, Height = 56 };
+        _mainServerLbl.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+        _mainServerLbl.AutoSize = true; _mainServerLbl.Location = new Point(16, 16);
         _themeSwitch.Checked = _cfg.DarkTheme;
+        _themeSwitch.AutoSize = true;
         _themeSwitch.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        _themeSwitch.Location = new Point(_mainView.Width - 110, 14);
+        _themeSwitch.Location = new Point(header.Width - 120, 12);
         _themeSwitch.CheckedChanged += (_, _) => ApplyTheme(_themeSwitch.Checked);
+        header.Resize += (_, _) => _themeSwitch.Location = new Point(header.Width - 120, 12);
+        header.Controls.Add(_mainServerLbl);
+        header.Controls.Add(_themeSwitch);
+        _themeSwitch.BringToFront();
+
+        BuildDevicesTab();
+        BuildAdminTab();
+
+        // A fülek a fejléc alatt: a tab-választó (sáv) + a tartalom.
+        _tabs.TabPages.Add(_devicesTab);
+        _tabSel.BaseTabControl = _tabs;
+
+        // Dokk-sorrend: a Fill-t adjuk hozzá először, a felső sávokat utána (a legutolsó kerül legfelülre).
+        _mainView.Controls.Add(_tabs);
+        _mainView.Controls.Add(_tabSel);
+        _mainView.Controls.Add(header);
+
+        ApplyTheme(_cfg.DarkTheme);
+    }
+
+    private void BuildDevicesTab()
+    {
+        // Eszköz-műveletek FlowLayout + AutoSize gombokkal (DPI-biztos, a szöveg sosem lóg ki).
+        var tools = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 56, Padding = new Padding(8, 9, 8, 0), WrapContents = false };
+        void add(MaterialButton b, EventHandler onClick)
+        {
+            b.AutoSize = true; b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; tools.Controls.Add(b);
+        }
+        add(_refreshBtn, async (_, _) => await RefreshAsync());
+        add(_connectBtn, async (_, _) => await ConnectSelectedAsync());
+        add(_editBtn, async (_, _) => await EditSelectedAsync());
+        add(_approveBtn, async (_, _) => await ApproveSelectedAsync());
+        foreach (var b in new[] { _editBtn, _approveBtn }) b.Visible = false;
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false; _list.Dock = DockStyle.Fill;
         _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
@@ -206,23 +236,47 @@ public sealed class MainForm : MaterialForm
         _list.Columns.Add("Utoljára látva", 130); _list.Columns.Add("deviceId", 170);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
 
-        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 40 };
+        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 40, Margin = new Padding(0) };
         _status.Dock = DockStyle.Fill; _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 0, 0);
         bottom.Controls.Add(_status);
-        bar.Controls.Add(_themeSwitch);
 
-        _mainView.Controls.AddRange([_list, bottom, bar]);
-        _mainView.Resize += (_, _) => _themeSwitch.Location = new Point(_mainView.Width - 110, 14);
-        ApplyTheme(_cfg.DarkTheme);
+        _devicesTab.Controls.Add(_list);
+        _devicesTab.Controls.Add(bottom);
+        _devicesTab.Controls.Add(tools);
+    }
+
+    private void BuildAdminTab()
+    {
+        // Ritka admin-feladatok: nagy, függőleges gomblista + a helyi zár.
+        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(28, 24, 0, 0) };
+        var hint = new MaterialLabel
+        {
+            Text = "Adminisztrációs funkciók", Font = new Font("Segoe UI", 13F, FontStyle.Bold),
+            AutoSize = true, Margin = new Padding(4, 0, 0, 14),
+        };
+        panel.Controls.Add(hint);
+        void add(MaterialButton b, EventHandler onClick)
+        {
+            b.AutoSize = true; b.MinimumSize = new Size(280, 40); b.Margin = new Padding(4, 4, 0, 8);
+            b.Click += onClick; panel.Controls.Add(b);
+        }
+        add(_usersBtn, (_, _) => { if (_api is not null) new UsersForm(_api).ShowDialog(this); });
+        add(_channelsBtn, (_, _) => { if (_api is not null) new ChannelsForm(_api).ShowDialog(this); });
+        add(_bootstrapBtn, async (_, _) => await GenerateBootstrapAsync());
+        add(_vncLockBtn, (_, _) => ToggleLocalVncLock());
+
+        _adminTab.Controls.Add(panel);
     }
 
     private void ApplyTheme(bool dark)
     {
         _cfg.DarkTheme = dark; try { _cfg.Save(); } catch { }
         ThemeManager.SetDark(dark);
-        // A sima ListView-t kézzel színezzük a témához.
-        _list.BackColor = dark ? Color.FromArgb(45, 45, 48) : Color.White;
-        _list.ForeColor = dark ? Color.Gainsboro : Color.Black;
+        // A sima ListView-t és a TabPage-hátteret kézzel színezzük a témához.
+        var back = dark ? Color.FromArgb(45, 45, 48) : Color.White;
+        var fore = dark ? Color.Gainsboro : Color.Black;
+        _list.BackColor = back; _list.ForeColor = fore;
+        foreach (TabPage tp in _tabs.TabPages) { tp.BackColor = back; tp.ForeColor = fore; }
         Invalidate(true);
     }
 
@@ -307,11 +361,14 @@ public sealed class MainForm : MaterialForm
 
     private async Task EnterMainAsync()
     {
+        _mainServerLbl.Text = "Szerver:  " + AgentInfo.ServerName();
         if (_role == "admin")
         {
-            foreach (var b in new[] { _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _usersBtn, _vncLockBtn }) b.Visible = true;
+            _editBtn.Visible = _approveBtn.Visible = true;
+            if (!_tabs.TabPages.Contains(_adminTab)) _tabs.TabPages.Add(_adminTab);
             UpdateVncLockBtn();
         }
+        ApplyTheme(_cfg.DarkTheme); // a (most már jelenlévő) admin-fül háttere is helyes legyen
         Show(_mainView);
         await RefreshAsync();
     }

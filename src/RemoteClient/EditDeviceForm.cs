@@ -1,16 +1,18 @@
+using System.Drawing;
+using MaterialSkin.Controls;
 using RemoteAgent.Admin;
 
 namespace RemoteClient;
 
 /// <summary>Egy eszköz admin-mezőinek szerkesztése: csoport, flagek, megjegyzés.</summary>
-public sealed class EditDeviceForm : Form
+public sealed class EditDeviceForm : MaterialForm
 {
-    private readonly ComboBox _group = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly CheckBox _update = new();
-    private readonly CheckBox _beta = new();
-    private readonly ComboBox _unattended = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly ComboBox _consent = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly TextBox _note = new() { Multiline = true };
+    private readonly MaterialComboBox _group = new();
+    private readonly MaterialSwitch _update = new();
+    private readonly MaterialSwitch _beta = new();
+    private readonly MaterialComboBox _unattended = new();
+    private readonly MaterialComboBox _consent = new();
+    private readonly MaterialMultiLineTextBox2 _note = new();
 
     public DeviceUpdate? Result { get; private set; }
 
@@ -18,64 +20,66 @@ public sealed class EditDeviceForm : Form
 
     public EditDeviceForm(DeviceInfo d, List<GroupInfo> groups)
     {
+        ThemeManager.Skin.AddFormToManage(this);
         Text = $"Eszköz: {(string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname)}";
-        Width = 430; Height = 420;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        Sizable = false;
+        Width = 460; Height = 540;
         StartPosition = FormStartPosition.CenterParent;
-        MaximizeBox = false; MinimizeBox = false;
 
-        int y = 18;
-        AddLabel("Csoport:", y);
-        _group.SetBounds(150, y, 250, 24);
+        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(18, 12, 18, 12) };
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
         _group.Items.Add(new GroupItem(null, "(nincs)"));
         foreach (var g in groups) _group.Items.Add(new GroupItem(g.Id, g.Name));
         _group.SelectedIndex = 0;
         for (int i = 0; i < _group.Items.Count; i++)
             if (_group.Items[i] is GroupItem gi && gi.Id == d.GroupId) { _group.SelectedIndex = i; break; }
-        Controls.Add(_group); y += 38;
 
-        AddLabel("Frissíthető:", y);
-        _update.SetBounds(150, y, 24, 24);
         _update.Checked = d.UpdateAllowed;
-        Controls.Add(_update); y += 38;
-
-        AddLabel("BETA csatorna:", y);
-        _beta.SetBounds(150, y, 24, 24);
         _beta.Checked = string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase);
-        Controls.Add(_beta); y += 38;
-
-        AddLabel("Unattended:", y);
-        SetupTri(_unattended, d.UnattendedAllowed, y); y += 38;
-
-        AddLabel("Hozzájárulás kell:", y);
-        SetupTri(_consent, d.ConsentRequired, y); y += 38;
-
-        AddLabel("Megjegyzés:", y);
-        _note.SetBounds(150, y, 250, 72);
+        SetupTri(_unattended, d.UnattendedAllowed);
+        SetupTri(_consent, d.ConsentRequired);
         _note.Text = d.Note ?? "";
-        Controls.Add(_note); y += 84;
+        _note.Dock = DockStyle.Fill; _note.Height = 90;
 
-        var ok = new Button { Text = "Mentés", DialogResult = DialogResult.OK };
-        ok.SetBounds(214, y, 88, 30);
+        Row(body, "Csoport", _group);
+        Row(body, "Frissíthető", _update);
+        Row(body, "BETA csatorna", _beta);
+        Row(body, "Unattended", _unattended);
+        Row(body, "Hozzájárulás kell", _consent);
+        Row(body, "Megjegyzés", _note);
+
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 56, Padding = new Padding(0, 8, 16, 8) };
+        var ok = new MaterialButton { Text = "Mentés", DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new MaterialButton { Text = "Mégse", DialogResult = DialogResult.Cancel, AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         ok.Click += (_, _) => BuildResult();
-        var cancel = new Button { Text = "Mégse", DialogResult = DialogResult.Cancel };
-        cancel.SetBounds(310, y, 88, 30);
-        Controls.AddRange([ok, cancel]);
+        buttons.Controls.AddRange([ok, cancel]);
+
+        Controls.Add(body);
+        Controls.Add(buttons);
         AcceptButton = ok; CancelButton = cancel;
     }
 
-    private void AddLabel(string text, int y) =>
-        Controls.Add(new Label { Text = text, AutoSize = false, Bounds = new Rectangle(16, y + 3, 128, 22) });
-
-    private void SetupTri(ComboBox combo, bool? value, int y)
+    private static void Row(TableLayoutPanel t, string label, Control control)
     {
-        combo.SetBounds(150, y, 120, 24);
-        combo.Items.AddRange(["örökli", "igen", "nem"]);
-        combo.SelectedIndex = value switch { null => 0, true => 1, false => 2 };
-        Controls.Add(combo);
+        int r = t.RowCount;
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var lbl = new MaterialLabel { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 12, 3, 3) };
+        if (control is not MaterialMultiLineTextBox2) control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        control.Margin = new Padding(3, 6, 3, 6);
+        t.Controls.Add(lbl, 0, r);
+        t.Controls.Add(control, 1, r);
+        t.RowCount = r + 1;
     }
 
-    private static bool? FromTri(ComboBox combo) => combo.SelectedIndex switch { 1 => true, 2 => false, _ => null };
+    private static void SetupTri(MaterialComboBox combo, bool? value)
+    {
+        combo.Items.AddRange(["örökli", "igen", "nem"]);
+        combo.SelectedIndex = value switch { null => 0, true => 1, false => 2 };
+    }
+
+    private static bool? FromTri(MaterialComboBox combo) => combo.SelectedIndex switch { 1 => true, 2 => false, _ => null };
 
     private void BuildResult()
     {

@@ -1,44 +1,52 @@
+using System.Drawing;
+using MaterialSkin.Controls;
 using RemoteAgent.Admin;
 
 namespace RemoteClient;
 
 /// <summary>MSI legyártása egy csoporthoz egy csatornából, majd letöltése helyi fájlba.</summary>
-public sealed class MsiForm : Form
+public sealed class MsiForm : MaterialForm
 {
     private readonly AdminApi _api;
-    private readonly ComboBox _group = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly ComboBox _channel = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly Label _status = new();
+    private readonly MaterialComboBox _group = new() { Hint = "Csoport" };
+    private readonly MaterialComboBox _channel = new() { Hint = "Csatorna" };
+    private readonly MaterialLabel _status = new();
 
     private sealed record GroupItem(Guid? Id, string Name) { public override string ToString() => Name; }
 
     public MsiForm(AdminApi api, List<GroupInfo> groups)
     {
         _api = api;
+        ThemeManager.Skin.AddFormToManage(this);
         Text = "MSI gyártás";
-        Width = 470; Height = 230;
-        FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
+        Sizable = false;
+        Width = 470; Height = 340;
         StartPosition = FormStartPosition.CenterParent;
 
-        AddLabel("Csoport:", 12, 18);
-        _group.SetBounds(100, 14, 250, 24);
+        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(20, 16, 20, 8) };
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+        _group.Dock = DockStyle.Fill; _group.Margin = new Padding(3, 6, 3, 6);
         _group.Items.Add(new GroupItem(null, "(nincs csoport)"));
         foreach (var g in groups) _group.Items.Add(new GroupItem(g.Id, g.Name));
         _group.SelectedIndex = 0;
 
-        AddLabel("Csatorna:", 12, 52);
-        _channel.SetBounds(100, 48, 120, 24); _channel.Items.AddRange(["rtm", "beta"]); _channel.SelectedIndex = 0;
+        _channel.Dock = DockStyle.Fill; _channel.Margin = new Padding(3, 6, 3, 6);
+        _channel.Items.AddRange(["rtm", "beta"]); _channel.SelectedIndex = 0;
 
-        var build = new Button { Text = "Gyártás és letöltés", Bounds = new Rectangle(100, 90, 170, 32) };
+        var build = new MaterialButton { Text = "Gyártás és letöltés", AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(3, 10, 3, 6) };
         build.Click += async (_, _) => await BuildAsync();
 
-        _status.SetBounds(12, 134, 440, 50);
+        _status.Dock = DockStyle.Fill; _status.AutoSize = false; _status.Height = 50; _status.Margin = new Padding(3, 8, 3, 6);
 
-        Controls.AddRange([_group, _channel, build, _status]);
+        foreach (var c in new Control[] { _group, _channel, build, _status })
+        {
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            body.Controls.Add(c);
+        }
+
+        Controls.Add(body);
     }
-
-    private void AddLabel(string t, int x, int y) =>
-        Controls.Add(new Label { Text = t, Bounds = new Rectangle(x, y + 3, 86, 22) });
 
     private async Task BuildAsync()
     {

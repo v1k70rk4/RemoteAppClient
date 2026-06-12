@@ -1,39 +1,48 @@
+using System.Drawing;
+using MaterialSkin.Controls;
+
 namespace RemoteClient;
 
 /// <summary>Egy frissen létrehozott/visszaállított hozzáférés megjelenítése: felhasználónév +
 /// ideiglenes jelszó, KIMÁSOLHATÓ (kijelölhető mezők + „Másolás" gomb), hogy továbbküldhető legyen.</summary>
-public sealed class CredentialDialog : Form
+public sealed class CredentialDialog : MaterialForm
 {
     public CredentialDialog(string title, string username, string password)
     {
+        ThemeManager.Skin.AddFormToManage(this);
         Text = title;
-        Width = 440; Height = 230;
-        FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
+        Sizable = false;
+        Width = 460; Height = 320;
         StartPosition = FormStartPosition.CenterParent;
 
-        Lbl("Felhasználó:", 18);
-        var user = new TextBox { ReadOnly = true, Text = username, Bounds = new Rectangle(150, 14, 250, 24) };
+        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(20, 16, 20, 8) };
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-        Lbl("Ideiglenes jelszó:", 52);
-        var pass = new TextBox { ReadOnly = true, Text = password, Bounds = new Rectangle(150, 48, 250, 24) };
-
-        var copy = new Button { Text = "Másolás (user + jelszó)", Bounds = new Rectangle(150, 86, 250, 30) };
+        var user = new MaterialTextBox2 { Hint = "Felhasználó", Text = username, ReadOnly = true, Dock = DockStyle.Fill, Margin = new Padding(3, 6, 3, 6) };
+        var pass = new MaterialTextBox2 { Hint = "Ideiglenes jelszó", Text = password, ReadOnly = true, Dock = DockStyle.Fill, Margin = new Padding(3, 6, 3, 6) };
+        var copy = new MaterialButton { Text = "Másolás (user + jelszó)", Dock = DockStyle.Fill, Margin = new Padding(3, 8, 3, 6), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         copy.Click += (_, _) =>
         {
             try { Clipboard.SetText($"Felhasználó: {username}\nIdeiglenes jelszó: {password}"); copy.Text = "Vágólapra másolva ✓"; }
             catch { copy.Text = "A vágólap most foglalt — próbáld újra"; }
         };
-
-        var info = new Label
+        var info = new MaterialLabel
         {
             Text = "Az első belépéskor jelszót cserél és TOTP-t (QR) állít be.",
-            Bounds = new Rectangle(16, 128, 400, 36), ForeColor = SystemColors.GrayText,
+            Dock = DockStyle.Fill, AutoSize = false, Height = 44, Margin = new Padding(3, 10, 3, 6),
         };
+        foreach (var c in new Control[] { user, pass, copy, info })
+        {
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            body.Controls.Add(c);
+        }
 
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Bounds = new Rectangle(312, 162, 88, 30) };
-        Controls.AddRange([user, pass, copy, info, ok]);
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 56, Padding = new Padding(0, 8, 16, 8) };
+        var ok = new MaterialButton { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
+        buttons.Controls.Add(ok);
+
+        Controls.Add(body);
+        Controls.Add(buttons);
         AcceptButton = ok;
     }
-
-    private void Lbl(string t, int y) => Controls.Add(new Label { Text = t, Bounds = new Rectangle(16, y + 3, 130, 22) });
 }

@@ -1,66 +1,85 @@
+using System.Drawing;
+using MaterialSkin.Controls;
 using RemoteAgent.Admin;
 
 namespace RemoteClient;
 
 /// <summary>
 /// Release-csatornák kezelése: az aktuális csomagok (rtm/beta × agent/updater),
-/// rollout egy gyűrűre, és BETA→RTM előléptetés. A feltöltés (exe) későbbi lépés (MSI-task).
+/// rollout egy gyűrűre, BETA→RTM előléptetés, exe-feltöltés és MSI-gyártás.
 /// </summary>
-public sealed class ChannelsForm : Form
+public sealed class ChannelsForm : MaterialForm
 {
     private readonly AdminApi _api;
     private readonly ListView _list = new();
-    private readonly ComboBox _component = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly Label _status = new();
+    private readonly MaterialComboBox _component = new() { Hint = "Komponens" };
+    private readonly MaterialLabel _status = new();
 
     public ChannelsForm(AdminApi api)
     {
         _api = api;
+        ThemeManager.Skin.AddFormToManage(this);
         Text = "Release csatornák";
-        Width = 560; Height = 430;
+        Sizable = false;
+        Width = 600; Height = 540;
         StartPosition = FormStartPosition.CenterParent;
-        MinimizeBox = false; MaximizeBox = false;
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Top; _list.Height = 190;
+        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill;
         _list.Columns.Add("Csatorna", 90);
-        _list.Columns.Add("Komponens", 90);
-        _list.Columns.Add("Verzió", 120);
-        _list.Columns.Add("Feltöltve", 150);
+        _list.Columns.Add("Komponens", 100);
+        _list.Columns.Add("Verzió", 130);
+        _list.Columns.Add("Feltöltve", 160);
+        ThemeManager.StyleList(_list);
 
-        AddLabel("Komponens:", 12, 202);
-        _component.SetBounds(92, 198, 120, 24);
+        _component.Width = 150;
         _component.Items.AddRange(["agent", "updater"]);
         _component.SelectedIndex = 0;
+        var compRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 58, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
+        compRow.Controls.Add(_component);
 
-        var rolloutRtm = new Button { Text = "Rollout RTM", Bounds = new Rectangle(12, 236, 120, 32) };
-        rolloutRtm.Click += async (_, _) => await RolloutAsync("rtm");
-        var rolloutBeta = new Button { Text = "Rollout BETA", Bounds = new Rectangle(140, 236, 120, 32) };
-        rolloutBeta.Click += async (_, _) => await RolloutAsync("beta");
-        var promote = new Button { Text = "Promote BETA→RTM", Bounds = new Rectangle(268, 236, 170, 32) };
-        promote.Click += async (_, _) => await PromoteAsync();
-
-        var upload = new Button { Text = "Exe feltöltés…", Bounds = new Rectangle(12, 276, 140, 32) };
-        upload.Click += async (_, _) =>
+        MaterialButton Mk(string text, bool outlined, EventHandler onClick)
         {
-            using var f = new UploadPackageForm(_api);
-            if (f.ShowDialog(this) == DialogResult.OK) await RefreshAsync();
-        };
-        var msi = new Button { Text = "MSI gyártás…", Bounds = new Rectangle(160, 276, 140, 32) };
-        msi.Click += async (_, _) =>
-        {
-            try { var groups = await _api.GetGroupsAsync(); using var f = new MsiForm(_api, groups); f.ShowDialog(this); }
-            catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
-        };
+            var b = new MaterialButton { Text = text, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
+            if (outlined) { b.Type = MaterialButton.MaterialButtonType.Outlined; b.HighEmphasis = false; }
+            b.Click += onClick;
+            return b;
+        }
+        var actionRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, Padding = new Padding(8, 4, 8, 0), WrapContents = false };
+        actionRow.Controls.AddRange([
+            Mk("Rollout RTM", false, async (_, _) => await RolloutAsync("rtm")),
+            Mk("Rollout BETA", false, async (_, _) => await RolloutAsync("beta")),
+            Mk("Promote BETA→RTM", true, async (_, _) => await PromoteAsync()),
+        ]);
 
-        _status.SetBounds(12, 318, 530, 60);
+        var pkgRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, Padding = new Padding(8, 4, 8, 0), WrapContents = false };
+        pkgRow.Controls.AddRange([
+            Mk("Exe feltöltés…", true, async (_, _) =>
+            {
+                using var f = new UploadPackageForm(_api);
+                if (f.ShowDialog(this) == DialogResult.OK) await RefreshAsync();
+            }),
+            Mk("MSI gyártás…", true, async (_, _) =>
+            {
+                try { var groups = await _api.GetGroupsAsync(); using var f = new MsiForm(_api, groups); f.ShowDialog(this); }
+                catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+            }),
+        ]);
+
+        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 40, Margin = new Padding(0) };
+        _status.Dock = DockStyle.Fill; _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 0, 0);
         _status.Text = "…";
+        bottom.Controls.Add(_status);
 
-        Controls.AddRange([_list, _component, rolloutRtm, rolloutBeta, promote, upload, msi, _status]);
+        // Dokk-sorrend: a Fill-t adjuk először, majd a Bottom-sorokat fentről lefelé (az elsőként
+        // hozzáadott Bottom kerül a lista alá, az utolsó a legalsó szélre).
+        Controls.Add(_list);
+        Controls.Add(compRow);
+        Controls.Add(actionRow);
+        Controls.Add(pkgRow);
+        Controls.Add(bottom);
+
         Load += async (_, _) => await RefreshAsync();
     }
-
-    private void AddLabel(string t, int x, int y) =>
-        Controls.Add(new Label { Text = t, Bounds = new Rectangle(x, y, 78, 22) });
 
     private string Comp => _component.SelectedItem?.ToString() ?? "agent";
 

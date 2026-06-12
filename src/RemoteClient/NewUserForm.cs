@@ -1,11 +1,14 @@
+using System.Drawing;
+using MaterialSkin.Controls;
+
 namespace RemoteClient;
 
 /// <summary>Új felhasználó adatai (a szerver ideiglenes jelszót generál hozzá).</summary>
-public sealed class NewUserForm : Form
+public sealed class NewUserForm : MaterialForm
 {
-    private readonly TextBox _username = new();
-    private readonly TextBox _email = new();
-    private readonly ComboBox _role = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly MaterialTextBox2 _username = new() { Hint = "Felhasználónév" };
+    private readonly MaterialTextBox2 _email = new() { Hint = "E-mail (opcionális)" };
+    private readonly MaterialComboBox _role = new() { Hint = "Szerep" };
 
     public string Username => _username.Text.Trim();
     public string? Email => string.IsNullOrWhiteSpace(_email.Text) ? null : _email.Text.Trim();
@@ -13,22 +16,30 @@ public sealed class NewUserForm : Form
 
     public NewUserForm()
     {
+        ThemeManager.Skin.AddFormToManage(this);
         Text = "Új felhasználó";
-        Width = 400; Height = 230;
-        FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
+        Sizable = false;
+        Width = 420; Height = 320;
         StartPosition = FormStartPosition.CenterParent;
 
-        Lbl("Felhasználónév:", 18); _username.SetBounds(140, 14, 220, 24);
-        Lbl("E-mail (opc.):", 52); _email.SetBounds(140, 48, 220, 24);
-        Lbl("Szerep:", 86); _role.SetBounds(140, 82, 160, 24);
+        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(20, 16, 20, 8) };
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        foreach (var c in new Control[] { _username, _email, _role })
+        {
+            c.Dock = DockStyle.Top; c.Margin = new Padding(3, 6, 3, 6);
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            body.Controls.Add(c);
+        }
         _role.Items.AddRange(["operator", "admin"]); _role.SelectedIndex = 0;
 
-        var ok = new Button { Text = "Létrehozás", DialogResult = DialogResult.OK, Bounds = new Rectangle(160, 130, 110, 30) };
-        var cancel = new Button { Text = "Mégse", DialogResult = DialogResult.Cancel, Bounds = new Rectangle(278, 130, 84, 30) };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 56, Padding = new Padding(0, 8, 16, 8) };
+        var ok = new MaterialButton { Text = "Létrehozás", DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new MaterialButton { Text = "Mégse", DialogResult = DialogResult.Cancel, AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         ok.Click += (_, _) => { if (Username.Length == 0) { DialogResult = DialogResult.None; MessageBox.Show("Adj meg felhasználónevet."); } };
-        Controls.AddRange([_username, _email, _role, ok, cancel]);
+        buttons.Controls.AddRange([ok, cancel]);
+
+        Controls.Add(body);
+        Controls.Add(buttons);
         AcceptButton = ok; CancelButton = cancel;
     }
-
-    private void Lbl(string t, int y) => Controls.Add(new Label { Text = t, Bounds = new Rectangle(16, y + 3, 120, 22) });
 }

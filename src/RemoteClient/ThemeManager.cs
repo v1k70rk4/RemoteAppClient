@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Windows.Forms;
 using MaterialSkin;
 
 namespace RemoteClient;
@@ -23,4 +25,12 @@ public static class ThemeManager
 
     public static void SetDark(bool dark) =>
         Skin.Theme = dark ? MaterialSkinManager.Themes.DARK : MaterialSkinManager.Themes.LIGHT;
+
+    /// <summary>Egy sima ListView háttér/szöveg színének igazítása az aktuális témához.</summary>
+    public static void StyleList(ListView list)
+    {
+        list.BorderStyle = BorderStyle.None;
+        list.BackColor = IsDark ? Color.FromArgb(45, 45, 48) : Color.White;
+        list.ForeColor = IsDark ? Color.Gainsboro : Color.Black;
+    }
 }

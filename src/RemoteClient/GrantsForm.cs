@@ -1,16 +1,18 @@
+using System.Drawing;
+using MaterialSkin.Controls;
 using RemoteAgent.Admin;
 
 namespace RemoteClient;
 
 /// <summary>Egy felhasználó grantjainak kezelése: csoport- vagy gép-szintű hozzáférés ad/elvesz.</summary>
-public sealed class GrantsForm : Form
+public sealed class GrantsForm : MaterialForm
 {
     private readonly AdminApi _api;
     private readonly Guid _userId;
     private readonly ListView _list = new();
-    private readonly ComboBox _groups = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly ComboBox _devices = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly Label _status = new();
+    private readonly MaterialComboBox _groups = new() { Hint = "Csoport" };
+    private readonly MaterialComboBox _devices = new() { Hint = "Gép" };
+    private readonly MaterialLabel _status = new();
 
     private sealed record GroupItem(Guid Id, string Name) { public override string ToString() => Name; }
     private sealed record DeviceItem(string DeviceId, string Name) { public override string ToString() => Name; }
@@ -18,35 +20,48 @@ public sealed class GrantsForm : Form
     public GrantsForm(AdminApi api, Guid userId, string username)
     {
         _api = api; _userId = userId;
+        ThemeManager.Skin.AddFormToManage(this);
         Text = $"Grantok — {username}";
-        Width = 560; Height = 420;
-        FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
+        Sizable = false;
+        Width = 580; Height = 520;
         StartPosition = FormStartPosition.CenterParent;
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Top; _list.Height = 200;
+        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill;
         _list.Columns.Add("Típus", 90);
-        _list.Columns.Add("Név / Gép", 420);
+        _list.Columns.Add("Név / Gép", 440);
+        ThemeManager.StyleList(_list);
 
-        var remove = new Button { Text = "Kijelölt elvétele", Bounds = new Rectangle(12, 210, 150, 30) };
+        var remove = new MaterialButton { Text = "Kijelölt elvétele", AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         remove.Click += async (_, _) => await RemoveSelectedAsync();
+        var removeRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(8, 8, 8, 0), WrapContents = false };
+        removeRow.Controls.Add(remove);
 
-        AddLabel("Csoport:", 12, 256);
-        _groups.SetBounds(90, 252, 250, 24);
-        var addGroup = new Button { Text = "Csoport +", Bounds = new Rectangle(350, 250, 110, 28) };
+        _groups.Width = 250;
+        var addGroup = new MaterialButton { Text = "Csoport +", AutoSize = true, Margin = new Padding(10, 4, 4, 0) };
         addGroup.Click += async (_, _) => await AddGroupAsync();
+        var groupRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
+        groupRow.Controls.AddRange([_groups, addGroup]);
 
-        AddLabel("Gép:", 12, 292);
-        _devices.SetBounds(90, 288, 250, 24);
-        var addDevice = new Button { Text = "Gép +", Bounds = new Rectangle(350, 286, 110, 28) };
+        _devices.Width = 250;
+        var addDevice = new MaterialButton { Text = "Gép +", AutoSize = true, Margin = new Padding(10, 4, 4, 0) };
         addDevice.Click += async (_, _) => await AddDeviceAsync();
+        var deviceRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
+        deviceRow.Controls.AddRange([_devices, addDevice]);
 
-        _status.SetBounds(12, 330, 530, 40);
+        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 40, Margin = new Padding(0) };
+        _status.Dock = DockStyle.Fill; _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 0, 0);
+        bottom.Controls.Add(_status);
 
-        Controls.AddRange([_list, remove, _groups, addGroup, _devices, addDevice, _status]);
+        // Dokk-sorrend: Fill először, majd a Bottom-sorok fentről lefelé (első Bottom = lista alá,
+        // utolsó = legalsó szél), végül a Top-sor (legfelülre, a lista fölé).
+        Controls.Add(_list);
+        Controls.Add(groupRow);
+        Controls.Add(deviceRow);
+        Controls.Add(bottom);
+        Controls.Add(removeRow);
+
         Load += async (_, _) => await InitAsync();
     }
-
-    private void AddLabel(string t, int x, int y) => Controls.Add(new Label { Text = t, Bounds = new Rectangle(x, y + 3, 76, 22) });
 
     private async Task InitAsync()
     {
