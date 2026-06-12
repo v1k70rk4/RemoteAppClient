@@ -18,6 +18,9 @@ public sealed class MainForm : Form
     private readonly Button _refreshBtn = new();
     private readonly Button _connectBtn = new();
     private readonly Button _editBtn = new();
+    private readonly Button _approveBtn = new();
+    private readonly Button _bootstrapBtn = new();
+    private readonly Button _channelsBtn = new();
     private readonly Label _status = new();
 
     public MainForm()
@@ -25,7 +28,7 @@ public sealed class MainForm : Form
         _cfg = ClientConfig.Load();
 
         Text = "RemoteAppClient — admin konzol";
-        Width = 760;
+        Width = 920;
         Height = 460;
         StartPosition = FormStartPosition.CenterScreen;
 
@@ -39,8 +42,12 @@ public sealed class MainForm : Form
         _list.Columns.Add("Online", 60);
         _list.Columns.Add("Csoport", 110);
         _list.Columns.Add("Update", 60);
+        _list.Columns.Add("Csat.", 55);
+        _list.Columns.Add("Verzió A/H/V", 130);
+        _list.Columns.Add("Restart", 55);
         _list.Columns.Add("Utoljára látva", 130);
         _list.Columns.Add("deviceId", 170);
+        _list.ShowItemToolTips = true; // a supervisor utolsó incidense tooltipben
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
 
         _refreshBtn.Text = "Frissítés";
@@ -52,13 +59,25 @@ public sealed class MainForm : Form
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
 
         _editBtn.Text = "Szerkesztés…";
-        _editBtn.SetBounds(302, 350, 130, 32);
+        _editBtn.SetBounds(302, 350, 110, 32);
         _editBtn.Click += async (_, _) => await EditSelectedAsync();
 
-        _status.SetBounds(12, 392, 720, 30);
+        _approveBtn.Text = "Jóváhagyás";
+        _approveBtn.SetBounds(422, 350, 110, 32);
+        _approveBtn.Click += async (_, _) => await ApproveSelectedAsync();
+
+        _bootstrapBtn.Text = "Bootstrap blob…";
+        _bootstrapBtn.SetBounds(542, 350, 130, 32);
+        _bootstrapBtn.Click += async (_, _) => await GenerateBootstrapAsync();
+
+        _channelsBtn.Text = "Csatornák…";
+        _channelsBtn.SetBounds(682, 350, 110, 32);
+        _channelsBtn.Click += (_, _) => { if (_api is not null) new ChannelsForm(_api).ShowDialog(this); };
+
+        _status.SetBounds(12, 392, 880, 30);
         _status.Text = "Indulás…";
 
-        Controls.AddRange([_list, _refreshBtn, _connectBtn, _editBtn, _status]);
+        Controls.AddRange([_list, _refreshBtn, _connectBtn, _editBtn, _approveBtn, _bootstrapBtn, _channelsBtn, _status]);
 
         Load += async (_, _) => await InitAsync();
         FormClosing += (_, _) => Cleanup();
@@ -108,8 +127,13 @@ public sealed class MainForm : Form
                 item.SubItems.Add(d.Online ? "igen" : "nem");
                 item.SubItems.Add(d.GroupName ?? "—");
                 item.SubItems.Add(d.UpdateAllowed ? "igen" : "NEM");
+                item.SubItems.Add(string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
+                item.SubItems.Add($"{Short(d.AgentVersion)}/{Short(d.HelperVersion)}/{Short(d.VncVersion)}");
+                item.SubItems.Add(d.AgentRestarts > 0 ? d.AgentRestarts.ToString() : "—");
                 item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
                 item.SubItems.Add(d.DeviceId);
+                if (!string.IsNullOrWhiteSpace(d.LastIncident))
+                    item.ToolTipText = "Supervisor: " + d.LastIncident;
                 _list.Items.Add(item);
             }
             SetStatus($"{devices.Count} eszköz. Válassz egyet és Csatlakozás.");
@@ -119,6 +143,9 @@ public sealed class MainForm : Form
             SetStatus("Lista hiba: " + ex.Message);
         }
     }
+
+    /// <summary>Rövid verzió-megjelenítés a listához (üres/null → „—").</summary>
+    private static string Short(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
 
     private async Task ConnectSelectedAsync()
     {
@@ -168,6 +195,46 @@ public sealed class MainForm : Form
         {
             _connectBtn.Enabled = true;
         }
+    }
+
+    private async Task ApproveSelectedAsync()
+    {
+        if (_api is null || _list.SelectedItems.Count == 0) return;
+        var sel = (DeviceInfo)_list.SelectedItems[0].Tag!;
+        if (string.Equals(sel.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus($"{sel.Hostname} már jóváhagyott.");
+            return;
+        }
+        if (MessageBox.Show($"Jóváhagyod ezt a gépet?\n\n{sel.Hostname}\n{sel.DeviceId}", "Jóváhagyás",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try
+        {
+            await _api.ApproveDeviceAsync(sel.DeviceId);
+            SetStatus($"{sel.Hostname} jóváhagyva.");
+            await RefreshAsync();
+        }
+        catch (Exception ex) { SetStatus("Jóváhagyás hiba: " + ex.Message); }
+    }
+
+    private async Task GenerateBootstrapAsync()
+    {
+        if (_api is null) return;
+        try
+        {
+            var blob = await _api.CreateBootstrapAsync(maxUses: 100000, expiresInHours: null);
+            if (string.IsNullOrWhiteSpace(blob)) { SetStatus("Bootstrap: üres válasz a szervertől."); return; }
+            try { Clipboard.SetText(blob); } catch { /* vágólap néha foglalt */ }
+            MessageBox.Show(
+                "Bootstrap blob (vágólapra másolva):\n\n" + blob +
+                "\n\nTelepítés az ügyfélnél (admin):\n" +
+                "  RemoteAgent.exe bootstrap <blob>\n" +
+                "  RemoteAgent.exe install-service\n\n" +
+                "A gép Pending-be kerül — itt hagyd jóvá a „Jóváhagyás\" gombbal.",
+                "Bootstrap blob", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            SetStatus("Bootstrap blob generálva és vágólapra másolva.");
+        }
+        catch (Exception ex) { SetStatus("Bootstrap hiba: " + ex.Message); }
     }
 
     private async Task EditSelectedAsync()

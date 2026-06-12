@@ -17,6 +17,16 @@ public sealed class TelemetryPayload
     [JsonPropertyName("agentVersion")]
     public string AgentVersion { get; set; } = string.Empty;
 
+    // Komponensenkénti verziók (a gépen lévő binárisokból olvasva). Null = nincs telepítve.
+    [JsonPropertyName("helperVersion")]
+    public string? HelperVersion { get; set; }
+
+    [JsonPropertyName("vncVersion")]
+    public string? VncVersion { get; set; }
+
+    [JsonPropertyName("clientVersion")]
+    public string? ClientVersion { get; set; }
+
     [JsonPropertyName("bootTimeUtc")]
     public DateTimeOffset BootTimeUtc { get; set; }
 
@@ -25,4 +35,11 @@ public sealed class TelemetryPayload
 
     [JsonPropertyName("tunnelActive")]
     public bool TunnelActive { get; set; }
+
+    // A Helper supervisor lokális állapota (supervisor.status), a megfigyelhetőséghez.
+    [JsonPropertyName("agentRestarts")]
+    public int AgentRestarts { get; set; }
+
+    [JsonPropertyName("lastIncident")]
+    public string? LastIncident { get; set; }
 }

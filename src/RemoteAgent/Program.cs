@@ -21,6 +21,10 @@ if (args is ["provision-vnc", ..])
 if (args is ["install-service", ..]) return await RemoteAgent.ServiceControl.InstallAsync();
 if (args is ["uninstall-service", ..]) return await RemoteAgent.ServiceControl.UninstallAsync();
 
+// "bootstrap <blob>" mód: token nélküli ön-telepítés előkészítése (lerakja a bootstrap.dat-ot).
+if (args is ["bootstrap", var bootstrapBlob, ..])
+    return RemoteAgent.Enrollment.BootstrapEnroller.WriteBootstrapFile(bootstrapBlob, @"C:\ProgramData\RemoteAgent");
+
 var builder = Host.CreateApplicationBuilder(args);
 
 // Windows service-ként fut (SYSTEM alatt). Konzolból is indul (debug).
@@ -75,12 +79,21 @@ builder.Services.AddSingleton<CommandBus>();
 builder.Services.AddSingleton<TunnelState>();
 builder.Services.AddSingleton<CommandVerifier>();
 builder.Services.AddSingleton<SystemInfoCollector>();
+builder.Services.AddSingleton<RemoteAgent.Update.UpdateInstaller>();
 
 // A három háttérszolgáltatás.
 builder.Services.AddHostedService<CommandChannelService>();
 builder.Services.AddHostedService<TunnelOrchestratorService>();
 builder.Services.AddHostedService<TelemetryService>();
 builder.Services.AddHostedService<VncProvisioningService>();
+builder.Services.AddHostedService<HeartbeatService>();
+builder.Services.AddHostedService<HelperUpdateWatcher>();
+
+// Token nélküli ön-telepítés: ha nincs enrollment, de van bootstrap.dat, beléptet MOST —
+// a host felépülése (és a PostConfigure enrollment.json-olvasása) ELŐTT.
+var enrollDir = builder.Configuration["Agent:EnrollmentDir"];
+await RemoteAgent.Enrollment.BootstrapEnroller.TryEnrollAsync(
+    string.IsNullOrWhiteSpace(enrollDir) ? @"C:\ProgramData\RemoteAgent" : enrollDir);
 
 var host = builder.Build();
 host.Run();

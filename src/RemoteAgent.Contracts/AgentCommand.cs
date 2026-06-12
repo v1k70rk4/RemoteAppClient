@@ -36,6 +36,25 @@ public sealed class CommandData
     /// <summary>Tunnel parancsnál: melyik távoli (bástya-oldali) portot nyissa a forward.</summary>
     [JsonPropertyName("remotePort")]
     public int RemotePort { get; set; }
+
+    // Update parancsnál: a csomag verziója, letöltési URL-je és SHA-256 hash-e.
+    // Mindegyik az aláírás alá esik (lásd CommandSignature.Canonicalize).
+    [JsonPropertyName("version")]
+    public string? UpdateVersion { get; set; }
+
+    [JsonPropertyName("url")]
+    public string? UpdateUrl { get; set; }
+
+    [JsonPropertyName("sha256")]
+    public string? UpdateSha256 { get; set; }
+
+    /// <summary>
+    /// Melyik komponenst frissíti: "agent" (alapértelmezett) vagy "updater"/"helper".
+    /// Az "updater" csomagot az AGENT cseréli (a Helper a saját futó exéjét nem tudja),
+    /// az "agent" csomagot a Helper. Az aláírás alá esik.
+    /// </summary>
+    [JsonPropertyName("target")]
+    public string? UpdateTarget { get; set; }
 }
 
 /// <summary>Ismert parancstípusok. Tetszőleges stringet nem dolgozunk fel.</summary>
@@ -43,6 +62,7 @@ public static class CommandTypes
 {
     public const string OpenTunnel = "open-tunnel";
     public const string CloseTunnel = "close-tunnel";
+    public const string Update = "update";
     public const string Ping = "ping";
 }
 
@@ -54,10 +74,14 @@ public static class CommandTypes
 [JsonSerializable(typeof(Enrollment.EnrollResponse))]
 [JsonSerializable(typeof(Enrollment.EnrollError))]
 [JsonSerializable(typeof(Enrollment.VncSecretReport))]
+[JsonSerializable(typeof(Enrollment.BootstrapBlob))]
 [JsonSerializable(typeof(Admin.DeviceInfo))]
 [JsonSerializable(typeof(Admin.DeviceUpdate))]
+[JsonSerializable(typeof(Admin.UpdateRequest))]
 [JsonSerializable(typeof(Admin.OpenTunnelResult))]
 [JsonSerializable(typeof(Admin.GroupInfo))]
+[JsonSerializable(typeof(Admin.ChannelPackageInfo))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.DeviceInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.GroupInfo>))]
+[JsonSerializable(typeof(System.Collections.Generic.List<Admin.ChannelPackageInfo>))]
 public sealed partial class AgentJsonContext : JsonSerializerContext;

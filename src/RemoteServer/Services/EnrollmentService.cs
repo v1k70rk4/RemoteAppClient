@@ -76,7 +76,8 @@ public sealed class EnrollmentService(
             DeviceId = deviceId,
             Hostname = req.Hostname,
             GroupId = token.GroupId,
-            Status = DeviceStatus.Approved,
+            // Admin egyszer-használatos token → azonnal Approved; site/bootstrap token → Pending (jóváhagyásra vár).
+            Status = token.AutoApprove ? DeviceStatus.Approved : DeviceStatus.Pending,
             CertThumbprint = thumbprint,
             SshPublicKey = req.SshPublicKey,
             TunnelPort = tunnelPort,
@@ -114,7 +115,7 @@ public sealed class EnrollmentService(
     }
 
     /// <summary>Új beléptető token. A NYERS tokent adja vissza (csak most látható); a DB-ben hash van.</summary>
-    public async Task<string> CreateTokenAsync(int maxUses, int? expiresInHours, Guid? groupId, string? note, CancellationToken ct)
+    public async Task<string> CreateTokenAsync(int maxUses, int? expiresInHours, Guid? groupId, string? note, CancellationToken ct, bool autoApprove = true)
     {
         var raw = Base64Url(RandomNumberGenerator.GetBytes(24));
         db.EnrollmentTokens.Add(new EnrollmentToken
@@ -124,6 +125,7 @@ public sealed class EnrollmentService(
             ExpiresAt = expiresInHours is { } h ? DateTimeOffset.UtcNow.AddHours(h) : null,
             GroupId = groupId,
             Note = note,
+            AutoApprove = autoApprove,
         });
         await db.SaveChangesAsync(ct);
         return raw;

@@ -15,6 +15,16 @@ if ! id "$SVC_USER" &>/dev/null; then
   echo "[deploy] service-user létrehozva: $SVC_USER"
 fi
 
+# 1b) update-csomagok mappája (KÜLÖN /var/lib alatt — túléli a redeployt!)
+sudo mkdir -p /var/lib/remoteserver/packages
+sudo chown -R "$SVC_USER:$SVC_USER" /var/lib/remoteserver
+
+# 1c) wixl (msitools) az MSI-gyártáshoz — ha még nincs
+if ! command -v wixl >/dev/null 2>&1; then
+  sudo apt-get update -qq && sudo apt-get install -y wixl
+  echo "[deploy] wixl telepítve (MSI-gyártás)."
+fi
+
 # 2) bináris
 sudo systemctl stop remoteserver.service 2>/dev/null || true
 sudo mkdir -p "$APP_DIR" "$ENV_DIR"

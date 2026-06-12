@@ -3,12 +3,14 @@ using System.Diagnostics;
 namespace RemoteAgent;
 
 /// <summary>
-/// A Windows service telepítése/eltávolítása sc.exe-vel. SYSTEM (LocalSystem) alatt
-/// fut, automatikus indítással. Admin jog kell hozzá.
+/// A Windows service-ek telepítése/eltávolítása sc.exe-vel. SYSTEM (LocalSystem) alatt
+/// futnak, automatikus indítással. Admin jog kell hozzá. A fő agent mellett — ha ott van —
+/// a RemoteAgent.Updater service-t is telepíti.
 /// </summary>
 public static class ServiceControl
 {
     public const string ServiceName = "RemoteAgent";
+    public const string UpdaterServiceName = "RemoteAgent.Updater";
 
     public static async Task<int> InstallAsync()
     {
@@ -19,44 +21,73 @@ public static class ServiceControl
             return 1;
         }
 
-        // Ha már létezik: csak frissítjük a binPath-t és újraindítjuk (nincs delete/create verseny).
-        if (await ServiceExistsAsync())
-        {
-            await RunScAsync("stop", ServiceName);
-            await RunScAsync("config", ServiceName, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem");
-            await RunScAsync("start", ServiceName);
-            Console.WriteLine($"A(z) {ServiceName} service frissítve és elindítva.");
-            return 0;
-        }
+        var rc = await InstallServiceAsync(ServiceName, exe, "RemoteAppClient Agent", "RemoteAppClient távelérő agent.");
+        if (rc != 0) return rc;
 
-        var create = await RunScAsync(
-            "create", ServiceName,
-            "binPath=", exe,
-            "start=", "auto",
-            "obj=", "LocalSystem",
-            "DisplayName=", "RemoteAppClient Agent");
-        if (create != 0)
-        {
-            Console.Error.WriteLine("A service létrehozása sikertelen (admin jog kell?).");
-            return create;
-        }
+        // Updater service is, ha az exe ott van az agent mellett.
+        var updaterExe = Path.Combine(Path.GetDirectoryName(exe)!, "RemoteAgent.Updater.exe");
+        if (File.Exists(updaterExe))
+            await InstallServiceAsync(UpdaterServiceName, updaterExe, "RemoteAppClient Updater", "RemoteAppClient self-update service.");
+        else
+            Console.WriteLine("(RemoteAgent.Updater.exe nincs az agent mellett — az Updater service kihagyva.)");
 
-        await RunScAsync("description", ServiceName, "RemoteAppClient távelérő agent.");
-        await RunScAsync("start", ServiceName);
-        Console.WriteLine($"A(z) {ServiceName} service telepítve és elindítva.");
         return 0;
     }
 
-    private static async Task<bool> ServiceExistsAsync() =>
-        await RunScAsync("query", ServiceName) == 0; // 1060 = nincs ilyen service
-
     public static async Task<int> UninstallAsync()
     {
-        await RunScAsync("stop", ServiceName);
-        var del = await RunScAsync("delete", ServiceName);
-        Console.WriteLine(del == 0 ? $"A(z) {ServiceName} service eltávolítva." : "A service törlése nem sikerült.");
+        await RemoveServiceAsync(UpdaterServiceName);
+        return await RemoveServiceAsync(ServiceName);
+    }
+
+    private static async Task<int> InstallServiceAsync(string name, string exe, string displayName, string description)
+    {
+        if (await ServiceExistsAsync(name))
+        {
+            // Létezik: csak binPath frissítés + újraindítás (nincs delete/create verseny).
+            await RunScAsync("stop", name);
+            await RunScAsync("config", name, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem");
+            await ConfigureRecoveryAsync(name);
+            await RunScAsync("start", name);
+            Console.WriteLine($"A(z) {name} service frissítve és elindítva.");
+            return 0;
+        }
+
+        var create = await RunScAsync("create", name, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem", "DisplayName=", displayName);
+        if (create != 0)
+        {
+            Console.Error.WriteLine($"A(z) {name} service létrehozása sikertelen (admin jog kell?).");
+            return create;
+        }
+
+        await RunScAsync("description", name, description);
+        await ConfigureRecoveryAsync(name);
+        await RunScAsync("start", name);
+        Console.WriteLine($"A(z) {name} service telepítve és elindítva.");
+        return 0;
+    }
+
+    private static async Task<int> RemoveServiceAsync(string name)
+    {
+        if (!await ServiceExistsAsync(name))
+            return 0;
+        await RunScAsync("stop", name);
+        var del = await RunScAsync("delete", name);
+        Console.WriteLine(del == 0 ? $"A(z) {name} service eltávolítva." : $"A(z) {name} törlése nem sikerült.");
         return del;
     }
+
+    /// <summary>
+    /// OS-szintű crash-recovery: ha a service váratlanul kilép (összeomlik), az SCM
+    /// automatikusan újraindítja, növekvő késleltetéssel. A *beragadást* ez nem látja
+    /// (azt a Helper watchdog kezeli) — ez csak a tényleges processz-kilépésre szól.
+    /// A 'reset= 86400' = egy nap hibamentes futás után a számláló nullázódik.
+    /// </summary>
+    private static async Task ConfigureRecoveryAsync(string name) =>
+        await RunScAsync("failure", name, "reset=", "86400", "actions=", "restart/5000/restart/10000/restart/60000");
+
+    private static async Task<bool> ServiceExistsAsync(string name) =>
+        await RunScAsync("query", name) == 0; // 1060 = nincs ilyen service
 
     private static async Task<int> RunScAsync(params string[] args)
     {

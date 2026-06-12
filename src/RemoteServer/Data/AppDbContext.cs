@@ -13,6 +13,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<DeviceTelemetry> DeviceTelemetry => Set<DeviceTelemetry>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<Command> Commands => Set<Command>();
+    public DbSet<ReleasePackage> ReleasePackages => Set<ReleasePackage>();
     public DbSet<RemoteSession> RemoteSessions => Set<RemoteSession>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
@@ -60,6 +61,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => new { x.DeviceId, x.Status });
             e.Property(x => x.PayloadJson).HasColumnType("json");
             e.Property(x => x.ResultJson).HasColumnType("json");
+        });
+
+        b.Entity<ReleasePackage>(e =>
+        {
+            e.HasIndex(x => new { x.Channel, x.Component, x.UploadedAt });
         });
 
         b.Entity<RemoteSession>(e =>

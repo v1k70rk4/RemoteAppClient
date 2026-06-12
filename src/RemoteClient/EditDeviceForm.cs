@@ -7,6 +7,7 @@ public sealed class EditDeviceForm : Form
 {
     private readonly ComboBox _group = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly CheckBox _update = new();
+    private readonly CheckBox _beta = new();
     private readonly ComboBox _unattended = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly ComboBox _consent = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _note = new() { Multiline = true };
@@ -18,7 +19,7 @@ public sealed class EditDeviceForm : Form
     public EditDeviceForm(DeviceInfo d, List<GroupInfo> groups)
     {
         Text = $"Eszköz: {(string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname)}";
-        Width = 430; Height = 380;
+        Width = 430; Height = 420;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = false; MinimizeBox = false;
@@ -37,6 +38,11 @@ public sealed class EditDeviceForm : Form
         _update.SetBounds(150, y, 24, 24);
         _update.Checked = d.UpdateAllowed;
         Controls.Add(_update); y += 38;
+
+        AddLabel("BETA csatorna:", y);
+        _beta.SetBounds(150, y, 24, 24);
+        _beta.Checked = string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase);
+        Controls.Add(_beta); y += 38;
 
         AddLabel("Unattended:", y);
         SetupTri(_unattended, d.UnattendedAllowed, y); y += 38;
@@ -77,6 +83,7 @@ public sealed class EditDeviceForm : Form
         {
             GroupId = ((GroupItem)_group.SelectedItem!).Id ?? Guid.Empty, // Empty → a szerver null-ra állítja
             UpdateAllowed = _update.Checked,
+            Channel = _beta.Checked ? "beta" : "rtm",
             UnattendedAllowed = FromTri(_unattended),
             ConsentRequired = FromTri(_consent),
             Note = _note.Text,
