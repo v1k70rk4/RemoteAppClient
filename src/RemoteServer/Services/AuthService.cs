@@ -69,9 +69,21 @@ public sealed class AuthService(AppDbContext db)
 
     public static string RoleOf(User u) =>
         u.UserRoles.Any(r => r.Role.Name == "admin") ? "admin"
-        : u.UserRoles.FirstOrDefault()?.Role.Name ?? "viewer";
+        : u.UserRoles.FirstOrDefault()?.Role.Name ?? "operator";
 
     public static bool IsAdmin(User u) => u.UserRoles.Any(r => r.Role.Name == "admin");
+
+    /// <summary>Egy user grantjai: a grantolt csoport-Id-k és gép-Id-k halmaza.</summary>
+    public async Task<(HashSet<Guid> GroupIds, HashSet<Guid> DeviceIds)> GrantsAsync(Guid userId, CancellationToken ct)
+    {
+        var grants = await db.UserGrants.Where(g => g.UserId == userId).ToListAsync(ct);
+        return (grants.Where(g => g.GroupId != null).Select(g => g.GroupId!.Value).ToHashSet(),
+                grants.Where(g => g.DeviceId != null).Select(g => g.DeviceId!.Value).ToHashSet());
+    }
+
+    /// <summary>Hozzáfér-e az operator az adott géphez (csoport-grant VAGY gép-grant alapján)?</summary>
+    public static bool CanAccessDevice(Device d, HashSet<Guid> groupIds, HashSet<Guid> deviceIds) =>
+        (d.GroupId is { } g && groupIds.Contains(g)) || deviceIds.Contains(d.Id);
 
     private static string HashToken(string raw) =>
         Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw)));

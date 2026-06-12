@@ -67,7 +67,26 @@ app.Use(async (ctx, next) =>
         await ctx.Response.WriteAsJsonAsync(new AuthError { Error = "setup_incomplete" }, AgentJsonContext.Default.AuthError);
         return;
     }
-    ctx.Items["user"] = v.Value.User;
+
+    // Szerep-gating: az operator CSAK a géplistát/csoportlistát látja és csak open-tunnelt indíthat
+    // (a szűrést/grant-ellenőrzést a végpontok végzik); MINDEN más /admin végpont admin-only.
+    var user = v.Value.User;
+    if (!AuthService.IsAdmin(user))
+    {
+        var m = ctx.Request.Method;
+        var p = ctx.Request.Path.Value ?? "";
+        bool operatorAllowed =
+            (m == "GET" && p == "/admin/devices")
+            || (m == "POST" && p.StartsWith("/admin/devices/", StringComparison.Ordinal) && p.EndsWith("/open-tunnel", StringComparison.Ordinal));
+        if (!operatorAllowed)
+        {
+            ctx.Response.StatusCode = 403;
+            await ctx.Response.WriteAsJsonAsync(new AuthError { Error = "forbidden" }, AgentJsonContext.Default.AuthError);
+            return;
+        }
+    }
+
+    ctx.Items["user"] = user;
     await next();
 });
 
@@ -268,9 +287,17 @@ app.MapPost("/api/vnc-secret", async (HttpContext ctx, AppDbContext db, SecretPr
 // === Admin (ideiglenes; localhost-only az nginxen át — a client SSH-tunnelen éri el) ===
 
 // Eszközlista a DB-ből (online a registryből, + a VNC-jelszó a client autoconnecthez).
-app.MapGet("/admin/devices", async (AppDbContext db, AgentConnectionRegistry registry, SecretProtector protector, CancellationToken ct) =>
+app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConnectionRegistry registry, SecretProtector protector, AuthService auth, CancellationToken ct) =>
 {
     var devices = await db.Devices.Include(d => d.Group).OrderBy(d => d.Hostname).ToListAsync(ct);
+
+    // Operator csak a grantolt gépeket látja; admin mindent.
+    var me = (User)ctx.Items["user"]!;
+    if (!AuthService.IsAdmin(me))
+    {
+        var (gids, dids) = await auth.GrantsAsync(me.Id, ct);
+        devices = devices.Where(d => AuthService.CanAccessDevice(d, gids, dids)).ToList();
+    }
     var list = devices.Select(d => new DeviceInfo
     {
         DeviceId = d.DeviceId,
@@ -520,10 +547,19 @@ app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> 
 
 // Tunnel nyitása: a gép STABIL portját használja (enrollkor kiosztva); felülírható a query-ből.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
-    string deviceId, int? remotePort, AppDbContext db, CommandService commands, CancellationToken ct) =>
+    string deviceId, int? remotePort, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();
+
+    // Operator csak a grantolt gépre indíthat tunnelt.
+    var me = (User)ctx.Items["user"]!;
+    if (!AuthService.IsAdmin(me))
+    {
+        var (gids, dids) = await auth.GrantsAsync(me.Id, ct);
+        if (!AuthService.CanAccessDevice(device, gids, dids))
+            return Results.Json(new AuthError { Error = "forbidden" }, AgentJsonContext.Default.AuthError, statusCode: 403);
+    }
 
     var port = remotePort is > 0 ? remotePort.Value
              : device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback régi (port nélküli) géphez
@@ -636,11 +672,131 @@ app.MapGet("/admin/msi/{fileName}", (string fileName, IOptions<ServerOptions> op
     return File.Exists(path) ? Results.File(path, "application/x-msi", safe) : Results.NotFound();
 });
 
-// === Bootstrap: szerepek (admin/viewer) + első admin user (ideiglenes jelszó a szerver-logba) ===
+// === User-kezelés (admin-only; az operatort a middleware már kizárta) ===
+app.MapGet("/admin/users", async (AppDbContext db, CancellationToken ct) =>
+{
+    var users = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role).OrderBy(u => u.Username).ToListAsync(ct);
+    var list = users.Select(u => new UserInfo
+    {
+        Id = u.Id, Username = u.Username, Email = u.Email, Role = AuthService.RoleOf(u),
+        IsActive = u.IsActive, MustChangePassword = u.MustChangePassword, TotpConfirmed = u.TotpConfirmed, LastLoginAt = u.LastLoginAt,
+    }).ToList();
+    return Results.Json(list, AgentJsonContext.Default.ListUserInfo);
+});
+
+app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    CreateUserRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.CreateUserRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest(new { error = "username_required" });
+
+    var role = req.Role == "admin" ? "admin" : "operator";
+    if (await db.Users.AnyAsync(u => u.Username == req.Username, ct)) return Results.Conflict(new { error = "username_taken" });
+
+    var temp = TempPw();
+    var user = new User { Username = req.Username.Trim(), Email = req.Email, PasswordHash = PasswordHasher.Hash(temp), MustChangePassword = true };
+    db.Users.Add(user);
+    await db.SaveChangesAsync(ct);
+    await SetRoleAsync(db, user.Id, role, ct);
+    await db.SaveChangesAsync(ct);
+    return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp }, AgentJsonContext.Default.CreateUserResponse);
+});
+
+app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    UserUpdate? upd;
+    try { upd = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.UserUpdate, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (upd is null) return Results.BadRequest();
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+    if (user is null) return Results.NotFound();
+
+    if (upd.Role is "admin" or "operator") await SetRoleAsync(db, id, upd.Role, ct);
+    if (upd.IsActive is { } act)
+    {
+        user.IsActive = act;
+        if (!act) await auth.RevokeAllForUserAsync(id, ct); // deaktiválás = azonnali kiléptetés
+    }
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+    if (user is null) return Results.NotFound();
+
+    var temp = TempPw();
+    user.PasswordHash = PasswordHasher.Hash(temp);
+    user.MustChangePassword = true;
+    await auth.RevokeAllForUserAsync(id, ct);
+    await db.SaveChangesAsync(ct);
+    return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp }, AgentJsonContext.Default.CreateUserResponse);
+});
+
+app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, AuthService auth, CancellationToken ct) =>
+{
+    await auth.RevokeAllForUserAsync(id, ct);
+    return Results.NoContent();
+});
+
+app.MapGet("/admin/users/{id:guid}/grants", async (Guid id, AppDbContext db, CancellationToken ct) =>
+{
+    var grants = await db.UserGrants.Where(g => g.UserId == id).ToListAsync(ct);
+    var groupIds = grants.Where(g => g.GroupId != null).Select(g => g.GroupId!.Value).ToList();
+    var devIds = grants.Where(g => g.DeviceId != null).Select(g => g.DeviceId!.Value).ToList();
+    var groups = (await db.DeviceGroups.Where(g => groupIds.Contains(g.Id)).ToListAsync(ct)).ToDictionary(g => g.Id);
+    var devices = (await db.Devices.Where(d => devIds.Contains(d.Id)).ToListAsync(ct)).ToDictionary(d => d.Id);
+
+    var list = grants.Select(g => new GrantInfo
+    {
+        Id = g.Id,
+        GroupId = g.GroupId,
+        GroupName = g.GroupId is { } gg && groups.TryGetValue(gg, out var grp) ? grp.Name : null,
+        DeviceId = g.DeviceId is { } dd && devices.TryGetValue(dd, out var dev) ? dev.DeviceId : null,
+        DeviceHostname = g.DeviceId is { } dh && devices.TryGetValue(dh, out var dv) ? dv.Hostname : null,
+    }).ToList();
+    return Results.Json(list, AgentJsonContext.Default.ListGrantInfo);
+});
+
+app.MapPost("/admin/users/{id:guid}/grants", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    GrantRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.GrantRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null) return Results.BadRequest();
+    if (!await db.Users.AnyAsync(u => u.Id == id, ct)) return Results.NotFound();
+
+    Guid? devicePk = null;
+    if (!string.IsNullOrWhiteSpace(req.DeviceId))
+    {
+        var dev = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == req.DeviceId, ct);
+        if (dev is null) return Results.NotFound(new { error = "device_not_found" });
+        devicePk = dev.Id;
+    }
+    if (req.GroupId is null && devicePk is null) return Results.BadRequest(new { error = "group_or_device_required" });
+
+    db.UserGrants.Add(new UserGrant { UserId = id, GroupId = req.GroupId, DeviceId = devicePk });
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+app.MapDelete("/admin/users/{id:guid}/grants/{grantId:guid}", async (Guid id, Guid grantId, AppDbContext db, CancellationToken ct) =>
+{
+    var g = await db.UserGrants.FirstOrDefaultAsync(x => x.Id == grantId && x.UserId == id, ct);
+    if (g is null) return Results.NotFound();
+    db.UserGrants.Remove(g);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+// === Bootstrap: szerepek (admin/operator) + első admin user (ideiglenes jelszó a szerver-logba) ===
 using (var scope = app.Services.CreateScope())
 {
     var sdb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    foreach (var rn in new[] { "admin", "viewer" })
+    foreach (var rn in new[] { "admin", "operator" })
         if (!await sdb.Roles.AnyAsync(r => r.Name == rn)) sdb.Roles.Add(new Role { Name = rn });
     await sdb.SaveChangesAsync();
 
@@ -664,6 +820,19 @@ static string? BearerToken(HttpContext ctx)
     var h = ctx.Request.Headers.Authorization.ToString();
     return h.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? h["Bearer ".Length..].Trim() : null;
 }
+
+// Egy user szerepének beállítása (a meglévő szerepeket lecseréli). A hívó ment.
+static async Task SetRoleAsync(AppDbContext db, Guid userId, string roleName, CancellationToken ct)
+{
+    var existing = await db.UserRoles.Where(ur => ur.UserId == userId).ToListAsync(ct);
+    db.UserRoles.RemoveRange(existing);
+    var role = await db.Roles.FirstAsync(r => r.Name == roleName, ct);
+    db.UserRoles.Add(new UserRole { UserId = userId, RoleId = role.Id });
+}
+
+// Rövid, URL-biztos ideiglenes jelszó.
+static string TempPw() =>
+    Convert.ToBase64String(RandomNumberGenerator.GetBytes(9)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
 
 // A device-azonosító feloldása. Éles üzemben az nginx validálja a kliens-certet
 // (mTLS) és a CN-t headerben adja át; a backend csak localhostról (nginx) érhető el,
