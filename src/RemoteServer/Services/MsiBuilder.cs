@@ -159,13 +159,18 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             sb.AppendLine("""    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />""");
         }
 
-        // A service-telepítést a maga az agent végzi (mindkét service + SCM-recovery), nem az MSI deklaratívan.
+        // A service-telepítést maga az agent végzi (mindkét service + SCM-recovery), nem az MSI deklaratívan.
+        // Telepítés: a frissen telepített exe futtatása (type 18 FileKey — telepítéskor működik).
         sb.AppendLine("""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service" Execute="deferred" Impersonate="no" Return="check" />""");
-        sb.AppendLine("""    <CustomAction Id="CA.UninstallSvc" FileKey="F.Agent" ExeCommand="uninstall-service" Execute="deferred" Impersonate="no" Return="ignore" />""");
+        // Eltávolítás: a FileKey (type 18) eltávolításkor 2753-at ad ("nincs telepítésre jelölve"),
+        // ezért az exe útvonalát property-ből (CustomActionData) adjuk át. A KVÓTÁZOTT út kezeli a szóközt.
+        sb.AppendLine("""    <CustomAction Id="CA.SetUninst" Property="CA.UninstallSvc" Value="&quot;[#F.Agent]&quot;" Execute="immediate" />""");
+        sb.AppendLine("""    <CustomAction Id="CA.UninstallSvc" Property="CA.UninstallSvc" ExeCommand="uninstall-service" Execute="deferred" Impersonate="no" Return="ignore" />""");
         sb.AppendLine("""    <InstallExecuteSequence>""");
         // A wixl a MajorUpgrade RemoveExistingProducts-ját az InstallInitialize ELÉ teszi (1401),
-        // ami upgrade-nél „transaction not started" (2762) hibát ad a deferred CA-knál. Áttesszük UTÁNA.
+        // ami upgrade-nél „transaction not started" (2762) hibát ad. Áttesszük UTÁNA.
         sb.AppendLine("""      <RemoveExistingProducts After="InstallInitialize" />""");
+        sb.AppendLine("""      <Custom Action="CA.SetUninst" Before="CA.UninstallSvc">Installed AND (REMOVE="ALL")</Custom>""");
         sb.AppendLine("""      <Custom Action="CA.UninstallSvc" Before="RemoveFiles">Installed AND (REMOVE="ALL")</Custom>""");
         sb.AppendLine("""      <Custom Action="CA.InstallSvc" After="InstallFiles">NOT Installed</Custom>""");
         sb.AppendLine("""    </InstallExecuteSequence>""");
