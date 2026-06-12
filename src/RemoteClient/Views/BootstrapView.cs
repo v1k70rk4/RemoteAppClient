@@ -1,66 +1,151 @@
 using System.Drawing;
 using MaterialSkin.Controls;
+using RemoteAgent.Admin;
 
 namespace RemoteClient.Views;
 
-/// <summary>Token nélküli telepítés: site-bootstrap blob generálása (vágólapra is), telepítési leírással.</summary>
+/// <summary>
+/// Token nélküli telepítés: bootstrap blob generálása (opcionálisan csoportra, lejárattal, telepítés-limittel),
+/// és a kiadott blob-ok kezelése (felhasználtság, lejárat, állapot; visszavonás/törlés).
+/// </summary>
 public sealed class BootstrapView : UserControl, IContentView
 {
-    public Task OnShownAsync() => Task.CompletedTask;
-    public void ApplyTheme() => ThemeManager.StyleView(this);
-
     private readonly AdminApi _api;
-    private readonly MaterialMultiLineTextBox2 _blob = new() { ReadOnly = true };
-    private readonly MaterialButton _genBtn = new() { Text = "Bootstrap blob generálása" };
-    private readonly MaterialButton _copyBtn = new() { Text = "Másolás", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Enabled = false };
+    private readonly MaterialComboBox _group = new() { Hint = "Csoport" };
+    private readonly MaterialComboBox _expiry = new() { Hint = "Lejárat" };
+    private readonly MaterialComboBox _maxUses = new() { Hint = "Max telepítés" };
+    private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
+
+    private sealed record GroupItem(Guid? Id, string Name) { public override string ToString() => Name; }
+    private sealed record ExpiryItem(int? Hours, string Name) { public override string ToString() => Name; }
+    private sealed record UsesItem(int Max, string Name) { public override string ToString() => Name; }
 
     public BootstrapView(AdminApi api)
     {
         _api = api;
         Dock = DockStyle.Fill;
-        Padding = new Padding(24, 18, 24, 12);
 
-        var title = new MaterialLabel { Text = "Token nélküli telepítés (bootstrap)", Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, 8) };
-        var help = new MaterialLabel
+        _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
+        _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
+        _expiry.Items.AddRange([new ExpiryItem(null, "Nincs lejárat"), new ExpiryItem(24, "24 óra"), new ExpiryItem(168, "7 nap"), new ExpiryItem(720, "30 nap")]);
+        _expiry.SelectedIndex = 0;
+        _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
+        _maxUses.Items.AddRange([new UsesItem(100000, "Korlátlan"), new UsesItem(1, "1 telepítés"), new UsesItem(5, "5"), new UsesItem(10, "10"), new UsesItem(50, "50")]);
+        _maxUses.SelectedIndex = 0;
+
+        var genBtn = ViewUi.ToolbarButton("Blob generálása");
+        genBtn.Click += async (_, _) => await GenerateAsync();
+        var genRow = ViewUi.Toolbar();
+        genRow.Controls.AddRange([_group, _expiry, _maxUses, genBtn]);
+
+        var listTools = ViewUi.Toolbar();
+        void Btn(string text, bool primary, Func<Task> onClick) { var b = ViewUi.ToolbarButton(text, primary); b.Click += async (_, _) => await onClick(); listTools.Controls.Add(b); }
+        Btn("Frissítés", true, RefreshAsync);
+        Btn("Visszavonás", false, RevokeAsync);
+        Btn("Törlés", false, DeleteAsync);
+
+        _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
+        _list.BorderStyle = BorderStyle.None;
+        _list.Columns.Add("Telepítési sz.", 110);
+        _list.Columns.Add("Csoport", 130);
+        _list.Columns.Add("Felhasználva", 100);
+        _list.Columns.Add("Lejárat", 130);
+        _list.Columns.Add("Állapot", 100);
+        _list.Columns.Add("Létrehozva", 130);
+
+        Controls.Add(ViewUi.Rows(2, genRow, listTools, _list, ViewUi.StatusHost(_status)));
+        ApplyTheme();
+    }
+
+    public void ApplyTheme() => ThemeManager.StyleView(this, _list);
+
+    public async Task OnShownAsync()
+    {
+        await LoadGroupsAsync();
+        await RefreshAsync();
+    }
+
+    private async Task LoadGroupsAsync()
+    {
+        try
         {
-            Text = "Generálj egy site-bootstrap blobot, amivel az ügyfélgép magától beléptet (Pending-be kerül, itt kell jóváhagyni).\n\nTelepítés az ügyfélnél (admin):\n    RemoteAgent.exe bootstrap <blob>\n    RemoteAgent.exe install-service",
-            AutoSize = true, Dock = DockStyle.Top,
-        };
-
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
-        _genBtn.Margin = new Padding(0, 0, 8, 0);
-        _genBtn.Click += async (_, _) => await GenerateAsync();
-        _copyBtn.Click += (_, _) => { try { Clipboard.SetText(_blob.Text); _status.Text = "Vágólapra másolva."; } catch { _status.Text = "A vágólap most foglalt."; } };
-        buttons.Controls.AddRange([_genBtn, _copyBtn]);
-
-        _blob.Dock = DockStyle.Fill;
-
-        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 40, Margin = new Padding(0) };
-        _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true;
-        _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
-        bottom.Controls.Add(_status);
-
-        Controls.Add(_blob);
-        Controls.Add(buttons);
-        Controls.Add(help);
-        Controls.Add(title);
-        Controls.Add(bottom);
+            var sel = (_group.SelectedItem as GroupItem)?.Id;
+            _group.Items.Clear();
+            _group.Items.Add(new GroupItem(null, "(nincs csoport)"));
+            foreach (var g in await _api.GetGroupsAsync()) _group.Items.Add(new GroupItem(g.Id, g.Name));
+            _group.SelectedIndex = 0;
+            for (int i = 0; i < _group.Items.Count; i++)
+                if (_group.Items[i] is GroupItem gi && gi.Id == sel) { _group.SelectedIndex = i; break; }
+        }
+        catch (Exception ex) { _status.Text = "Csoportok hiba: " + ex.Message; }
     }
 
     private async Task GenerateAsync()
     {
         try
         {
-            _genBtn.Enabled = false; _status.Text = "Generálás…";
-            var blob = await _api.CreateBootstrapAsync(maxUses: 100000, expiresInHours: null);
+            var groupId = (_group.SelectedItem as GroupItem)?.Id;
+            var hours = (_expiry.SelectedItem as ExpiryItem)?.Hours;
+            var max = (_maxUses.SelectedItem as UsesItem)?.Max ?? 100000;
+            var blob = await _api.CreateBootstrapAsync(max, hours, groupId);
             if (string.IsNullOrWhiteSpace(blob)) { _status.Text = "Üres válasz."; return; }
-            _blob.Text = blob;
-            _copyBtn.Enabled = true;
-            try { Clipboard.SetText(blob); _status.Text = "Generálva és vágólapra másolva."; }
-            catch { _status.Text = "Generálva (a vágólap most foglalt)."; }
+            try { Clipboard.SetText(blob); } catch { }
+            MessageBox.Show(
+                "Bootstrap blob (vágólapra másolva):\n\n" + blob +
+                "\n\nTelepítés az ügyfélnél (admin):\n  RemoteAgent.exe bootstrap <blob>\n  RemoteAgent.exe install-service",
+                "Bootstrap blob", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _status.Text = "Blob generálva és vágólapra másolva.";
+            await RefreshAsync();
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
-        finally { _genBtn.Enabled = true; }
+    }
+
+    private BootstrapTokenInfo? Selected() => _list.SelectedItems.Count == 0 ? null : (BootstrapTokenInfo)_list.SelectedItems[0].Tag!;
+
+    private static string StateOf(BootstrapTokenInfo t) =>
+        t.RevokedAt is not null ? "Visszavonva"
+        : t.ExpiresAt is { } e && e < DateTimeOffset.UtcNow ? "Lejárt"
+        : t.UseCount >= t.MaxUses ? "Elfogyott"
+        : "Aktív";
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var tokens = await _api.GetTokensAsync();
+            _list.Items.Clear();
+            foreach (var t in tokens)
+            {
+                var item = new ListViewItem(t.Id.ToString("N")[..8]) { Tag = t };
+                item.SubItems.Add(t.GroupName ?? "—");
+                item.SubItems.Add($"{t.UseCount} / {(t.MaxUses >= 100000 ? "∞" : t.MaxUses.ToString())}");
+                item.SubItems.Add(t.ExpiresAt?.LocalDateTime.ToString("g") ?? "—");
+                item.SubItems.Add(StateOf(t));
+                item.SubItems.Add(t.CreatedAt.LocalDateTime.ToString("g"));
+                _list.Items.Add(item);
+            }
+            _status.Text = $"{tokens.Count} blob.";
+        }
+        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+    }
+
+    private async Task RevokeAsync()
+    {
+        if (Selected() is not { } t) return;
+        if (t.RevokedAt is not null) { _status.Text = "Már visszavonva."; return; }
+        if (MessageBox.Show($"Visszavonod ezt a blobot (telepítési sz.: {t.Id.ToString("N")[..8]})?\n\nUtána már nem lehet vele új gépet beléptetni.",
+                "Blob visszavonása", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.RevokeTokenAsync(t.Id); await RefreshAsync(); }
+        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (Selected() is not { } t) return;
+        if (MessageBox.Show($"Véglegesen törlöd ezt a blobot (telepítési sz.: {t.Id.ToString("N")[..8]})?",
+                "Blob törlése", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.DeleteTokenAsync(t.Id); await RefreshAsync(); }
+        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
     }
 }

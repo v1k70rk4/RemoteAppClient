@@ -4,6 +4,7 @@ using System.IO;
 using MaterialSkin.Controls;
 using QRCoder;
 using RemoteAgent.Admin;
+using RemoteClient.Views;
 
 namespace RemoteClient;
 
@@ -46,23 +47,21 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialButton _finishBtn = new() { Text = "Befejezés" };
     private readonly MaterialLabel _setupStatus = new();
 
-    // Fő nézet
-    private readonly MaterialTabControl _tabs = new() { Dock = DockStyle.Fill };
-    private readonly MaterialTabSelector _tabSel = new() { Dock = DockStyle.Top, Height = 48 };
-    private readonly TabPage _devicesTab = new("Eszközök");
-    private readonly TabPage _adminTab = new("Adminisztráció");
+    // Fő nézet — egyablakos: bal oldali menü + jobb oldali tartalom-host
     private readonly MaterialLabel _mainServerLbl = new();
-    private readonly ListView _list = new();
-    private readonly MaterialButton _refreshBtn = new() { Text = "Frissítés" };
-    private readonly MaterialButton _connectBtn = new() { Text = "Csatlakozás" };
-    private readonly MaterialButton _editBtn = new() { Text = "Szerkesztés" };
-    private readonly MaterialButton _approveBtn = new() { Text = "Jóváhagyás" };
-    private readonly MaterialButton _bootstrapBtn = new() { Text = "Bootstrap készítése", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-    private readonly MaterialButton _channelsBtn = new() { Text = "Csatornák / Csomagok / MSI", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-    private readonly MaterialButton _usersBtn = new() { Text = "Felhasználók kezelése", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-    private readonly MaterialButton _vncLockBtn = new() { Text = "Helyi zár", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-    private readonly MaterialLabel _status = new();
     private readonly MaterialSwitch _themeSwitch = new() { Text = "Sötét" };
+    private readonly Panel _content = new() { Dock = DockStyle.Fill };
+    private readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8, 8, 8, 8) };
+    private readonly List<(MaterialButton Btn, IContentView View)> _navItems = new();
+    private IContentView? _currentView;
+
+    // Nézetpéldányok (belépés után jönnek létre, amikor már van _api/_broker)
+    private DevicesView? _devicesView;
+    private UsersView? _usersView;
+    private GroupsView? _groupsView;
+    private ChannelsView? _channelsView;
+    private BootstrapView? _bootstrapView;
+    private LocalLockView? _localLockView;
 
     public MainForm()
     {
@@ -197,98 +196,70 @@ public sealed class MainForm : MaterialForm
 
     private void BuildMainView()
     {
-        // --- Fejléc: szerver-státusz balra, téma-kapcsoló jobbra ---
-        var header = new MaterialCard { Dock = DockStyle.Top, Height = 56 };
-        _mainServerLbl.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
-        _mainServerLbl.AutoSize = true; _mainServerLbl.Location = new Point(16, 16);
+        // --- Bal oldali menü-sáv: fent a szerver neve, középen a menü, lent a téma-kapcsoló ---
+        var sidebar = new MaterialCard { Dock = DockStyle.Left, Width = 220, Margin = new Padding(0), Padding = new Padding(0) };
+
+        var brand = new Panel { Dock = DockStyle.Top, Height = 56 };
+        _mainServerLbl.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+        _mainServerLbl.AutoSize = false; _mainServerLbl.Dock = DockStyle.Fill;
+        _mainServerLbl.TextAlign = ContentAlignment.MiddleLeft; _mainServerLbl.Padding = new Padding(14, 0, 8, 0);
+        brand.Controls.Add(_mainServerLbl);
+
+        var themeRow = new Panel { Dock = DockStyle.Bottom, Height = 52 };
         _themeSwitch.Checked = _cfg.DarkTheme;
-        _themeSwitch.AutoSize = true;
-        _themeSwitch.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        _themeSwitch.Location = new Point(header.Width - 120, 12);
+        _themeSwitch.AutoSize = true; _themeSwitch.Location = new Point(12, 12);
         _themeSwitch.CheckedChanged += (_, _) => ApplyTheme(_themeSwitch.Checked);
-        header.Resize += (_, _) => _themeSwitch.Location = new Point(header.Width - 120, 12);
-        header.Controls.Add(_mainServerLbl);
-        header.Controls.Add(_themeSwitch);
-        _themeSwitch.BringToFront();
+        themeRow.Controls.Add(_themeSwitch);
 
-        BuildDevicesTab();
-        BuildAdminTab();
+        sidebar.Controls.Add(_nav);       // Fill
+        sidebar.Controls.Add(themeRow);   // Bottom
+        sidebar.Controls.Add(brand);      // Top
 
-        // A fülek a fejléc alatt: a tab-választó (sáv) + a tartalom.
-        _tabs.TabPages.Add(_devicesTab);
-        _tabSel.BaseTabControl = _tabs;
-
-        // Dokk-sorrend: a Fill-t adjuk hozzá először, a felső sávokat utána (a legutolsó kerül legfelülre).
-        _mainView.Controls.Add(_tabs);
-        _mainView.Controls.Add(_tabSel);
-        _mainView.Controls.Add(header);
-
-        ApplyTheme(_cfg.DarkTheme);
+        _mainView.Controls.Add(_content); // Fill (jobb oldal)
+        _mainView.Controls.Add(sidebar);  // Left
     }
 
-    private void BuildDevicesTab()
+    /// <summary>Egy menüpont gomb létrehozása a bal sávban + a hozzá tartozó nézet.</summary>
+    private void AddNav(string text, IContentView view)
     {
-        // Eszköz-műveletek FlowLayout + AutoSize gombokkal (DPI-biztos, a szöveg sosem lóg ki).
-        var tools = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 56, Padding = new Padding(8, 9, 8, 0), WrapContents = false };
-        void add(MaterialButton b, EventHandler onClick)
+        var b = new MaterialButton
         {
-            b.AutoSize = true; b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; tools.Controls.Add(b);
-        }
-        add(_refreshBtn, async (_, _) => await RefreshAsync());
-        add(_connectBtn, async (_, _) => await ConnectSelectedAsync());
-        add(_editBtn, async (_, _) => await EditSelectedAsync());
-        add(_approveBtn, async (_, _) => await ApproveSelectedAsync());
-        foreach (var b in new[] { _editBtn, _approveBtn }) b.Visible = false;
-
-        _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false; _list.Dock = DockStyle.Fill;
-        _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
-        _list.Columns.Add("Gép", 180); _list.Columns.Add("Állapot", 90); _list.Columns.Add("Online", 60);
-        _list.Columns.Add("Csoport", 110); _list.Columns.Add("Update", 60); _list.Columns.Add("Csat.", 55);
-        _list.Columns.Add("Zár", 45); _list.Columns.Add("Verzió A/H/V", 130); _list.Columns.Add("Restart", 55);
-        _list.Columns.Add("Utoljára látva", 130); _list.Columns.Add("deviceId", 170);
-        _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
-
-        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 40, Margin = new Padding(0) };
-        _status.Dock = DockStyle.Fill; _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 0, 0);
-        bottom.Controls.Add(_status);
-
-        _devicesTab.Controls.Add(_list);
-        _devicesTab.Controls.Add(bottom);
-        _devicesTab.Controls.Add(tools);
-    }
-
-    private void BuildAdminTab()
-    {
-        // Ritka admin-feladatok: nagy, függőleges gomblista + a helyi zár.
-        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(28, 24, 0, 0) };
-        var hint = new MaterialLabel
-        {
-            Text = "Adminisztrációs funkciók", Font = new Font("Segoe UI", 13F, FontStyle.Bold),
-            AutoSize = true, Margin = new Padding(4, 0, 0, 14),
+            Text = text, AutoSize = false, Width = 200, Height = 44,
+            Type = MaterialButton.MaterialButtonType.Text, HighEmphasis = false,
+            Margin = new Padding(0, 0, 0, 4),
         };
-        panel.Controls.Add(hint);
-        void add(MaterialButton b, EventHandler onClick)
-        {
-            b.AutoSize = true; b.MinimumSize = new Size(280, 40); b.Margin = new Padding(4, 4, 0, 8);
-            b.Click += onClick; panel.Controls.Add(b);
-        }
-        add(_usersBtn, (_, _) => { if (_api is not null) new UsersForm(_api, _username).ShowDialog(this); });
-        add(_channelsBtn, (_, _) => { if (_api is not null) new ChannelsForm(_api).ShowDialog(this); });
-        add(_bootstrapBtn, async (_, _) => await GenerateBootstrapAsync());
-        add(_vncLockBtn, (_, _) => ToggleLocalVncLock());
+        b.Click += async (_, _) => await SwitchToAsync(view);
+        _nav.Controls.Add(b);
+        _navItems.Add((b, view));
+    }
 
-        _adminTab.Controls.Add(panel);
+    private async Task SwitchToAsync(IContentView view)
+    {
+        if (ReferenceEquals(_currentView, view)) return;
+        _currentView = view;
+
+        // Aktív menüpont kiemelése.
+        foreach (var (btn, v) in _navItems)
+        {
+            bool active = ReferenceEquals(v, view);
+            btn.Type = active ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
+            btn.HighEmphasis = active;
+        }
+
+        var ctl = (Control)view;
+        ctl.Dock = DockStyle.Fill;
+        _content.Controls.Clear();
+        _content.Controls.Add(ctl);
+        view.ApplyTheme();
+        await view.OnShownAsync();
     }
 
     private void ApplyTheme(bool dark)
     {
         _cfg.DarkTheme = dark; try { _cfg.Save(); } catch { }
         ThemeManager.SetDark(dark);
-        // A sima ListView-t és a TabPage-hátteret kézzel színezzük a témához.
-        var back = dark ? Color.FromArgb(45, 45, 48) : Color.White;
-        var fore = dark ? Color.Gainsboro : Color.Black;
-        _list.BackColor = back; _list.ForeColor = fore;
-        foreach (TabPage tp in _tabs.TabPages) { tp.BackColor = back; tp.ForeColor = fore; }
+        _content.BackColor = ThemeManager.Background;
+        foreach (var (_, v) in _navItems) v.ApplyTheme();
         Invalidate(true);
     }
 
@@ -374,165 +345,30 @@ public sealed class MainForm : MaterialForm
 
     private async Task EnterMainAsync()
     {
-        _mainServerLbl.Text = "Szerver:  " + AgentInfo.ServerName();
+        _mainServerLbl.Text = AgentInfo.ServerName();
+
+        // Nézetek + menü létrehozása a jogosultság szerint (operator csak az Eszközöket látja).
+        _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin");
+        AddNav("Eszközök", _devicesView);
         if (_role == "admin")
         {
-            _editBtn.Visible = _approveBtn.Visible = true;
-            if (!_tabs.TabPages.Contains(_adminTab)) _tabs.TabPages.Add(_adminTab);
-            UpdateVncLockBtn();
+            _usersView = new UsersView(_api!, _username);
+            _groupsView = new GroupsView(_api!);
+            _channelsView = new ChannelsView(_api!);
+            _bootstrapView = new BootstrapView(_api!);
+            _localLockView = new LocalLockView();
+            AddNav("Felhasználók", _usersView);
+            AddNav("Csoportok", _groupsView);
+            AddNav("Csatornák / MSI", _channelsView);
+            AddNav("Bootstrap", _bootstrapView);
+            AddNav("Helyi zár", _localLockView);
         }
-        ApplyTheme(_cfg.DarkTheme); // a (most már jelenlévő) admin-fül háttere is helyes legyen
+
+        ApplyTheme(_cfg.DarkTheme);
         Show(_mainView);
-        await RefreshAsync();
+        await SwitchToAsync(_devicesView);
     }
 
-    // ---------------- Fő funkciók (portolt logika) ----------------
-
-    private async Task RefreshAsync()
-    {
-        if (_api is null) return;
-        try
-        {
-            SetStatus("Eszközlista lekérése…");
-            var devices = await RetryAsync(() => _api.GetDevicesAsync());
-            _list.Items.Clear();
-            foreach (var d in devices)
-            {
-                var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? "(névtelen)" : d.Hostname) { Tag = d };
-                item.SubItems.Add(d.Status);
-                item.SubItems.Add(d.Online ? "igen" : "nem");
-                item.SubItems.Add(d.GroupName ?? "—");
-                item.SubItems.Add(d.UpdateAllowed ? "igen" : "NEM");
-                item.SubItems.Add(string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
-                item.SubItems.Add(d.VncLocked ? "🔒" : "—");
-                item.SubItems.Add($"{Short(d.AgentVersion)}/{Short(d.HelperVersion)}/{Short(d.VncVersion)}");
-                item.SubItems.Add(d.AgentRestarts > 0 ? d.AgentRestarts.ToString() : "—");
-                item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
-                item.SubItems.Add(d.DeviceId);
-                if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
-                _list.Items.Add(item);
-            }
-            SetStatus($"{devices.Count} eszköz.");
-        }
-        catch (Exception ex) { SetStatus("Lista hiba: " + ex.Message); }
-    }
-
-    private static string Short(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
-
-    private void UpdateVncLockBtn() =>
-        _vncLockBtn.Text = LocalVncLock.IsLocked() ? "Zár FELOLD" : "Helyi zár";
-
-    private void ToggleLocalVncLock()
-    {
-        bool locked = LocalVncLock.IsLocked();
-        var q = locked
-            ? "Feloldod ezen a HELYI gépen a távoli elérést (VNC)?"
-            : "Letiltod ezen a HELYI gépen a távoli elérést (VNC)?\n\nUtána erre a gépre senki sem tud távolról belépni, amíg HELYBEN fel nem oldod.";
-        if (MessageBox.Show(q, "Helyi VNC-zár", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-        try
-        {
-            if (LocalVncLock.RunElevated(!locked))
-            {
-                SetStatus(locked ? "Helyi gép feloldva." : "Helyi gép ZÁROLVA — távolról nem elérhető.");
-                UpdateVncLockBtn();
-            }
-            else SetStatus("A művelet nem fejeződött be (UAC megszakítva?).");
-        }
-        catch (Exception ex) { SetStatus("Helyi zár hiba: " + ex.Message); }
-    }
-
-    private async Task ConnectSelectedAsync()
-    {
-        if (_api is null || _list.SelectedItems.Count == 0) { SetStatus("Válassz egy gépet."); return; }
-        var sel = (DeviceInfo)_list.SelectedItems[0].Tag!;
-        try
-        {
-            _connectBtn.Enabled = false;
-            SetStatus("Friss adatok lekérése…");
-            var devices = await _api.GetDevicesAsync();
-            var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
-
-            if (!d.Online) { MessageBox.Show("A gép nincs online.", "Offline", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-            if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show("Nincs VNC-jelszó a géphez (még nem jelentette).", "Nincs jelszó", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-
-            SetStatus($"Tunnel nyitása: {d.Hostname}…");
-            var result = await _api.OpenTunnelAsync(d.DeviceId);
-            if (result is null) { SetStatus("A tunnel-kérés sikertelen."); return; }
-
-            SetStatus("Bástya-port elérése a helyi agenten át…");
-            await Task.Delay(1500);
-            var localPort = await _broker!.ForwardAsync(result.RemotePort);
-            LaunchViewer(localPort, d.VncSecret!);
-            SetStatus($"VNC indítva: {d.Hostname}");
-        }
-        catch (Exception ex) { SetStatus("Csatlakozási hiba: " + ex.Message); }
-        finally { _connectBtn.Enabled = true; }
-    }
-
-    private async Task ApproveSelectedAsync()
-    {
-        if (_api is null || _list.SelectedItems.Count == 0) return;
-        var sel = (DeviceInfo)_list.SelectedItems[0].Tag!;
-        if (string.Equals(sel.Status, "Approved", StringComparison.OrdinalIgnoreCase)) { SetStatus($"{sel.Hostname} már jóváhagyott."); return; }
-        if (MessageBox.Show($"Jóváhagyod ezt a gépet?\n\n{sel.Hostname}\n{sel.DeviceId}", "Jóváhagyás", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        try { await _api.ApproveDeviceAsync(sel.DeviceId); SetStatus($"{sel.Hostname} jóváhagyva."); await RefreshAsync(); }
-        catch (Exception ex) { SetStatus("Jóváhagyás hiba: " + ex.Message); }
-    }
-
-    private async Task GenerateBootstrapAsync()
-    {
-        if (_api is null) return;
-        try
-        {
-            var blob = await _api.CreateBootstrapAsync(maxUses: 100000, expiresInHours: null);
-            if (string.IsNullOrWhiteSpace(blob)) { SetStatus("Bootstrap: üres válasz."); return; }
-            try { Clipboard.SetText(blob); } catch { }
-            MessageBox.Show(
-                "Bootstrap blob (vágólapra másolva):\n\n" + blob +
-                "\n\nTelepítés az ügyfélnél (admin):\n  RemoteAgent.exe bootstrap <blob>\n  RemoteAgent.exe install-service\n\n" +
-                "A gép Pending-be kerül — itt hagyd jóvá.",
-                "Bootstrap blob", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            SetStatus("Bootstrap blob generálva és vágólapra másolva.");
-        }
-        catch (Exception ex) { SetStatus("Bootstrap hiba: " + ex.Message); }
-    }
-
-    private async Task EditSelectedAsync()
-    {
-        if (_api is null || _list.SelectedItems.Count == 0) return;
-        var d = (DeviceInfo)_list.SelectedItems[0].Tag!;
-        try
-        {
-            var groups = await _api.GetGroupsAsync();
-            using var dlg = new EditDeviceForm(d, groups);
-            if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Result is null) return;
-            await _api.UpdateDeviceAsync(d.DeviceId, dlg.Result);
-            await RefreshAsync();
-        }
-        catch (Exception ex) { SetStatus("Szerkesztés hiba: " + ex.Message); }
-    }
-
-    private void LaunchViewer(int localPort, string password)
-    {
-        var psi = new ProcessStartInfo(_cfg.ViewerExe) { UseShellExecute = false };
-        psi.ArgumentList.Add("-host=127.0.0.1");
-        psi.ArgumentList.Add($"-port={localPort}");
-        psi.ArgumentList.Add($"-password={password}");
-        Process.Start(psi);
-    }
-
-    private static async Task<T> RetryAsync<T>(Func<Task<T>> action, int attempts = 4)
-    {
-        Exception? last = null;
-        for (int i = 0; i < attempts; i++)
-        {
-            try { return await action(); }
-            catch (Exception ex) { last = ex; await Task.Delay(800); }
-        }
-        throw last!;
-    }
-
-    private void SetStatus(string text) => _status.Text = text;
     private void SetLoginStatus(string text) => _loginStatus.Text = text;
 
     private void Cleanup()

@@ -88,14 +88,54 @@ public sealed class AdminApi(string baseUrl) : IDisposable
     public Task ApproveDeviceAsync(string deviceId, CancellationToken ct = default) =>
         UpdateDeviceAsync(deviceId, new DeviceUpdate { Status = "Approved" }, ct);
 
-    /// <summary>Bootstrap blob generálása (site-token + szerver-URL egy stringben). A blobot adja vissza.</summary>
-    public async Task<string?> CreateBootstrapAsync(int maxUses, int? expiresInHours, CancellationToken ct = default)
+    /// <summary>Bootstrap blob generálása (site-token + szerver-URL egy stringben), opcionálisan csoportra + lejárattal. A blobot adja vissza.</summary>
+    public async Task<string?> CreateBootstrapAsync(int maxUses, int? expiresInHours, Guid? groupId = null, CancellationToken ct = default)
     {
-        var q = $"/admin/bootstrap?maxUses={maxUses}" + (expiresInHours is { } h ? $"&expiresInHours={h}" : "");
+        var q = $"/admin/bootstrap?maxUses={maxUses}"
+            + (expiresInHours is { } h ? $"&expiresInHours={h}" : "")
+            + (groupId is { } g ? $"&groupId={g}" : "");
         using var resp = await _http.PostAsync(q, content: null, ct);
         resp.EnsureSuccessStatusCode();
         using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         return doc.RootElement.TryGetProperty("blob", out var b) ? b.GetString() : null;
+    }
+
+    // === Bootstrap-tokenek (blob-ok) kezelése ===
+    public async Task<List<BootstrapTokenInfo>> GetTokensAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync("/admin/tokens-list", AgentJsonContext.Default.ListBootstrapTokenInfo, ct) ?? [];
+
+    public async Task RevokeTokenAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/tokens-list/{id}/revoke", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteTokenAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.DeleteAsync($"/admin/tokens-list/{id}", ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    // === Csoport-kezelés ===
+    public async Task<GroupInfo> CreateGroupAsync(GroupInfo g, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(g, AgentJsonContext.Default.GroupInfo);
+        using var resp = await _http.PostAsync("/admin/groups", content, ct);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.GroupInfo, ct))!;
+    }
+
+    public async Task UpdateGroupAsync(Guid id, GroupInfo g, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(g, AgentJsonContext.Default.GroupInfo);
+        using var resp = await _http.PutAsync($"/admin/groups/{id}", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteGroupAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.DeleteAsync($"/admin/groups/{id}", ct);
+        resp.EnsureSuccessStatusCode();
     }
 
     /// <summary>A csatornák aktuális csomagjai (komponensenként).</summary>
