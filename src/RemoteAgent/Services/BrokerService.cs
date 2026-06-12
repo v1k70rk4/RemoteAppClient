@@ -68,41 +68,47 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
 
     private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
     {
+        // BINÁRIS protokoll: a kliens int32 távoli portot ír, mi int32 helyi portot válaszolunk
+        // (0 = hiba). Nincs szöveg/sorvég/BOM gond.
         var forwards = new List<SshLocalForward>();
         try
         {
-            using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
-            var writer = new StreamWriter(pipe, Encoding.UTF8, 1024, leaveOpen: true) { AutoFlush = true };
-
-            string? line;
-            while (pipe.IsConnected && (line = await reader.ReadLineAsync(ct)) is not null)
+            var req = new byte[4];
+            while (pipe.IsConnected)
             {
-                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length == 2 && parts[0] == "FORWARD" && int.TryParse(parts[1], out var remotePort) && IsAllowed(remotePort))
+                try { await pipe.ReadExactlyAsync(req, ct); }
+                catch (EndOfStreamException) { break; } // a kliens bontotta
+                catch (IOException) { break; }
+
+                int remotePort = BitConverter.ToInt32(req, 0);
+                int localPort = 0;
+                if (IsAllowed(remotePort))
                 {
                     try
                     {
                         var fwd = new SshLocalForward(_bastion, lf.CreateLogger<SshLocalForward>());
                         await fwd.StartAsync(remotePort, ct);
                         forwards.Add(fwd);
-                        await writer.WriteLineAsync($"OK {fwd.LocalPort}");
-                        logger.LogWarning("Bróker forward OK: bástya {Remote} -> helyi {Local}.", remotePort, fwd.LocalPort);
+                        localPort = fwd.LocalPort;
+                        logger.LogWarning("Bróker forward OK: bástya {Remote} -> helyi {Local}.", remotePort, localPort);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "Bróker forward SIKERTELEN ({Port}) — lásd az ssh -L sorokat.", remotePort);
-                        await writer.WriteLineAsync("ERR forward_failed");
+                        logger.LogWarning(ex, "Bróker forward SIKERTELEN ({Port}) — lásd az 'ssh -L:' sorokat.", remotePort);
+                        localPort = 0;
                     }
                 }
                 else
                 {
-                    await writer.WriteLineAsync("ERR bad_request");
+                    logger.LogWarning("Bróker: nem engedélyezett port kérve ({Port}).", remotePort);
                 }
+
+                await pipe.WriteAsync(BitConverter.GetBytes(localPort), ct);
+                await pipe.FlushAsync(ct);
             }
         }
-        catch (IOException) { /* a kliens bontotta — normális */ }
         catch (OperationCanceledException) { /* leállás */ }
-        catch (Exception ex) { logger.LogDebug(ex, "Bróker handler hiba."); }
+        catch (Exception ex) { logger.LogWarning(ex, "Bróker handler hiba."); }
         finally
         {
             foreach (var f in forwards) await f.StopAsync();
