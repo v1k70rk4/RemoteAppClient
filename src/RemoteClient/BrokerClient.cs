@@ -26,17 +26,18 @@ public sealed class BrokerClient : IDisposable
         _writer = new StreamWriter(pipe, Encoding.UTF8, 1024, leaveOpen: true) { AutoFlush = true };
     }
 
-    /// <summary>Csatlakozás a helyi brókerhez (NEM blokkolja a UI-t); null, ha nincs/nem fut az agent.</summary>
-    public static async Task<BrokerClient?> TryConnectAsync(int timeoutMs = 3000)
-    {
-        try
+    /// <summary>Csatlakozás a helyi brókerhez HÁTTÉRSZÁLON (nem fagyasztja a UI-t); null, ha nincs/nem fut az agent.</summary>
+    public static Task<BrokerClient?> TryConnectAsync(int timeoutMs = 3000) =>
+        Task.Run<BrokerClient?>(() =>
         {
-            var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-            await pipe.ConnectAsync(timeoutMs);
-            return new BrokerClient(pipe);
-        }
-        catch { return null; }
-    }
+            try
+            {
+                var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                pipe.Connect(timeoutMs); // szinkron, de háttérszálon; az ERROR_PIPE_BUSY-t + timeoutot kezeli
+                return new BrokerClient(pipe);
+            }
+            catch { return null; }
+        });
 
     /// <summary>Forward kérése a bástya egy portjára (admin API 5000 / cél VNC bástya-port). Helyi portot ad.</summary>
     public async Task<int> ForwardAsync(int remotePort, CancellationToken ct = default)

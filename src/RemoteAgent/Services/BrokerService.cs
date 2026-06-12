@@ -35,6 +35,8 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
     {
         logger.LogWarning("Konzol-bróker indul (pipe: {Pipe}).", PipeName);
 
+        // TÖBB instance: mindig van új figyelő, így egy beragadt kezelő (pl. force-killed kliens)
+        // sem blokkolja az új csatlakozásokat. Minden kapcsolatot külön task kezel.
         while (!stoppingToken.IsCancellationRequested)
         {
             NamedPipeServerStream pipe;
@@ -49,13 +51,18 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             try
             {
                 await pipe.WaitForConnectionAsync(stoppingToken);
-                logger.LogWarning("Bróker: kliens csatlakozott.");
-                await HandleConnectionAsync(pipe, stoppingToken);
-                logger.LogWarning("Bróker: kliens lecsatlakozott, forwardok lebontva.");
             }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex) { logger.LogWarning(ex, "Bróker kapcsolat hiba."); }
-            finally { try { await pipe.DisposeAsync(); } catch { /* best effort */ } }
+            catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Bróker accept hiba.");
+                await pipe.DisposeAsync();
+                try { await Task.Delay(1000, stoppingToken); } catch { break; }
+                continue;
+            }
+
+            logger.LogWarning("Bróker: kliens csatlakozott.");
+            _ = HandleConnectionAsync(pipe, stoppingToken); // külön task; a ciklus új figyelőt nyit
         }
     }
 
@@ -94,11 +101,13 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             }
         }
         catch (IOException) { /* a kliens bontotta — normális */ }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) { /* leállás */ }
         catch (Exception ex) { logger.LogDebug(ex, "Bróker handler hiba."); }
         finally
         {
             foreach (var f in forwards) await f.StopAsync();
+            try { await pipe.DisposeAsync(); } catch { /* best effort */ }
+            logger.LogWarning("Bróker: kliens lecsatlakozott, forwardok lebontva.");
         }
     }
 
@@ -116,9 +125,9 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl, AccessControlType.Allow));
 
-        // Egyetlen instance (maxNumberOfServerInstances: 1) — egy konzol-session egyszerre.
+        // Több instance engedélyezett (egy beragadt kezelő ne blokkoljon új csatlakozást).
         return NamedPipeServerStreamAcl.Create(
-            PipeName, PipeDirection.InOut, maxNumberOfServerInstances: 1,
+            PipeName, PipeDirection.InOut, maxNumberOfServerInstances: 8,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous, inBufferSize: 0, outBufferSize: 0, sec);
     }
 }
