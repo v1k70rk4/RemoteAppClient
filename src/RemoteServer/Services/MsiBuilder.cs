@@ -163,6 +163,9 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         sb.AppendLine("""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service" Execute="deferred" Impersonate="no" Return="check" />""");
         sb.AppendLine("""    <CustomAction Id="CA.UninstallSvc" FileKey="F.Agent" ExeCommand="uninstall-service" Execute="deferred" Impersonate="no" Return="ignore" />""");
         sb.AppendLine("""    <InstallExecuteSequence>""");
+        // A wixl a MajorUpgrade RemoveExistingProducts-ját az InstallInitialize ELÉ teszi (1401),
+        // ami upgrade-nél „transaction not started" (2762) hibát ad a deferred CA-knál. Áttesszük UTÁNA.
+        sb.AppendLine("""      <RemoveExistingProducts After="InstallInitialize" />""");
         sb.AppendLine("""      <Custom Action="CA.UninstallSvc" Before="RemoveFiles">Installed AND (REMOVE="ALL")</Custom>""");
         sb.AppendLine("""      <Custom Action="CA.InstallSvc" After="InstallFiles">NOT Installed</Custom>""");
         sb.AppendLine("""    </InstallExecuteSequence>""");
