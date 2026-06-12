@@ -10,6 +10,8 @@ public sealed class MsiForm : MaterialForm
     private readonly AdminApi _api;
     private readonly MaterialComboBox _group = new() { Hint = "Csoport" };
     private readonly MaterialComboBox _channel = new() { Hint = "Csatorna" };
+    private readonly MaterialSwitch _client = new() { Text = "Konzol-kliens telepítése", Checked = true };
+    private readonly MaterialSwitch _shortcut = new() { Text = "Start menü parancsikon a klienshez", Checked = true };
     private readonly MaterialLabel _status = new();
 
     private sealed record GroupItem(Guid? Id, string Name) { public override string ToString() => Name; }
@@ -20,7 +22,7 @@ public sealed class MsiForm : MaterialForm
         ThemeManager.Skin.AddFormToManage(this);
         Text = "MSI gyártás";
         Sizable = false;
-        Width = 470; Height = 340;
+        Width = 470; Height = 420;
         StartPosition = FormStartPosition.CenterParent;
 
         var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(20, 16, 20, 8) };
@@ -34,12 +36,16 @@ public sealed class MsiForm : MaterialForm
         _channel.Dock = DockStyle.Fill; _channel.Margin = new Padding(3, 6, 3, 6);
         _channel.Items.AddRange(["rtm", "beta"]); _channel.SelectedIndex = 0;
 
+        _client.Dock = DockStyle.Top; _client.Margin = new Padding(3, 6, 3, 0);
+        _shortcut.Dock = DockStyle.Top; _shortcut.Margin = new Padding(3, 0, 3, 6);
+        _client.CheckedChanged += (_, _) => _shortcut.Enabled = _client.Checked; // parancsikon csak ha van kliens
+
         var build = new MaterialButton { Text = "Gyártás és letöltés", AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(3, 10, 3, 6) };
         build.Click += async (_, _) => await BuildAsync();
 
         _status.Dock = DockStyle.Fill; _status.AutoSize = false; _status.Height = 50; _status.Margin = new Padding(3, 8, 3, 6);
 
-        foreach (var c in new Control[] { _group, _channel, build, _status })
+        foreach (var c in new Control[] { _group, _channel, _client, _shortcut, build, _status })
         {
             body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             body.Controls.Add(c);
@@ -54,7 +60,7 @@ public sealed class MsiForm : MaterialForm
         {
             Enabled = false; _status.Text = "MSI gyártása a szerveren…";
             var groupId = ((GroupItem)_group.SelectedItem!).Id;
-            var (fileName, _) = await _api.BuildMsiAsync(groupId, (string)_channel.SelectedItem!);
+            var (fileName, _) = await _api.BuildMsiAsync(groupId, (string)_channel.SelectedItem!, _client.Checked, _client.Checked && _shortcut.Checked);
 
             using var sd = new SaveFileDialog { FileName = fileName, Filter = "MSI|*.msi" };
             if (sd.ShowDialog(this) == DialogResult.OK)

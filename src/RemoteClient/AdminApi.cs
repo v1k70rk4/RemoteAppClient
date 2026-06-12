@@ -170,10 +170,12 @@ public sealed class AdminApi(string baseUrl) : IDisposable
         return await resp.Content.ReadAsStringAsync(ct);
     }
 
-    /// <summary>MSI legyártása egy csoporthoz egy csatornából. A (fájlnév, letöltési-url) párt adja vissza.</summary>
-    public async Task<(string fileName, string url)> BuildMsiAsync(Guid? groupId, string channel, CancellationToken ct = default)
+    /// <summary>MSI legyártása egy csoporthoz egy csatornából (opcionálisan a konzol-klienssel + Start menü parancsikonnal). A (fájlnév, letöltési-url) párt adja vissza.</summary>
+    public async Task<(string fileName, string url)> BuildMsiAsync(Guid? groupId, string channel, bool includeClient = true, bool shortcut = true, CancellationToken ct = default)
     {
-        var q = $"/admin/msi?channel={channel}" + (groupId is { } g ? $"&group={g}" : "");
+        var q = $"/admin/msi?channel={channel}"
+            + (groupId is { } g ? $"&group={g}" : "")
+            + $"&client={includeClient.ToString().ToLowerInvariant()}&shortcut={shortcut.ToString().ToLowerInvariant()}";
         using var resp = await _http.PostAsync(q, content: null, ct);
         resp.EnsureSuccessStatusCode();
         using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));

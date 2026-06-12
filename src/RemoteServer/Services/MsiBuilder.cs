@@ -23,11 +23,14 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
     private const string CompAgent = "A1A1A1A1-0001-4001-8001-000000000001";
     private const string CompUpdater = "A1A1A1A1-0001-4001-8001-000000000002";
     private const string CompBootstrap = "A1A1A1A1-0001-4001-8001-000000000003";
+    private const string CompClient = "A1A1A1A1-0001-4001-8001-000000000004";
+    private const string CompShortcut = "A1A1A1A1-0001-4001-8001-000000000005";
 
     public sealed record Result(bool Ok, string? FileName, string? Error);
 
     public async Task<Result> BuildAsync(
-        string agentExe, string? updaterExe, string bootstrapBlob, string version, string label, CancellationToken ct)
+        string agentExe, string? updaterExe, string? clientExe, string bootstrapBlob,
+        string version, string label, bool startMenuShortcut, CancellationToken ct)
     {
         var work = Path.Combine(_opt.PackagesDir, "msi-build", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);
@@ -39,7 +42,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var iconPath = await TryWriteIconAsync(work, ct); // null, ha nincs beágyazott ikon
 
             var wxsPath = Path.Combine(work, "product.wxs");
-            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, bootstrapPath, iconPath, SanitizeVersion(version), label), ct);
+            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, clientExe, bootstrapPath, iconPath, SanitizeVersion(version), label, startMenuShortcut), ct);
 
             var fileName = $"RemoteAppClient-{Sanitize(label)}-{SanitizeVersion(version)}.msi";
             var outPath = Path.Combine(_opt.PackagesDir, fileName);
@@ -83,8 +86,11 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         catch { return null; }
     }
 
-    private string GenerateWxs(string agentExe, string? updaterExe, string bootstrapPath, string? iconPath, string version, string label)
+    private string GenerateWxs(string agentExe, string? updaterExe, string? clientExe, string bootstrapPath, string? iconPath, string version, string label, bool startMenuShortcut)
     {
+        bool hasClient = !string.IsNullOrWhiteSpace(clientExe);
+        bool hasIcon = !string.IsNullOrWhiteSpace(iconPath);
+        bool shortcut = startMenuShortcut && hasClient;
         // FONTOS: a Windows Installer NEM nyitja meg az UTF-8 (65001) codepage-ű MSI-t (1620-as hiba),
         // ezért 1252-t használunk, és a megjelenő nevet ASCII-ra hajtjuk (ékezet nélkül) — így biztos kompatibilis.
         var name = AsciiFold($"RemoteAppClient Agent ({label})");
@@ -110,24 +116,46 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             sb.AppendLine("""          </Component>""");
         }
 
+        if (hasClient)
+        {
+            sb.AppendLine($"""          <Component Id="C.Client" Guid="{CompClient}" Win64="yes">""");
+            sb.AppendLine($"""            <File Id="F.Client" Name="RemoteClient.exe" Source="{X(clientExe!)}" KeyPath="yes" />""");
+            sb.AppendLine("""          </Component>""");
+        }
+
         sb.AppendLine($"""          <Component Id="C.Bootstrap" Guid="{CompBootstrap}" Win64="yes">""");
         sb.AppendLine($"""            <File Id="F.Bootstrap" Name="bootstrap.dat" Source="{X(bootstrapPath)}" KeyPath="yes" />""");
         sb.AppendLine("""          </Component>""");
 
         sb.AppendLine("""        </Directory>""");
         sb.AppendLine("""      </Directory>""");
+
+        // Opcionális Start menü parancsikon a konzol-klienshez (perMachine → All Users start menü).
+        if (shortcut)
+        {
+            sb.AppendLine("""      <Directory Id="ProgramMenuFolder">""");
+            sb.AppendLine($"""        <Component Id="C.Shortcut" Guid="{CompShortcut}" Win64="yes">""");
+            var iconAttr = hasIcon ? """ Icon="AppIcon.ico" """ : " ";
+            sb.AppendLine($"""          <Shortcut Id="SC.Client" Name="RemoteAppClient" Target="[INSTALLDIR]RemoteClient.exe" WorkingDirectory="INSTALLDIR"{iconAttr}/>""");
+            sb.AppendLine("""          <RegistryValue Root="HKLM" Key="Software\RemoteAppClient" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />""");
+            sb.AppendLine("""        </Component>""");
+            sb.AppendLine("""      </Directory>""");
+        }
+
         sb.AppendLine("""    </Directory>""");
 
         sb.AppendLine("""    <Feature Id="Main" Level="1">""");
         sb.AppendLine("""      <ComponentRef Id="C.Agent" />""");
         if (!string.IsNullOrWhiteSpace(updaterExe)) sb.AppendLine("""      <ComponentRef Id="C.Updater" />""");
+        if (hasClient) sb.AppendLine("""      <ComponentRef Id="C.Client" />""");
         sb.AppendLine("""      <ComponentRef Id="C.Bootstrap" />""");
+        if (shortcut) sb.AppendLine("""      <ComponentRef Id="C.Shortcut" />""");
         sb.AppendLine("""    </Feature>""");
 
-        // Add/Remove Programs ikon (ha van beágyazott app.ico).
-        if (!string.IsNullOrWhiteSpace(iconPath))
+        // Add/Remove Programs ikon (ha van beágyazott app.ico). A parancsikon is ezt használja.
+        if (hasIcon)
         {
-            sb.AppendLine($"""    <Icon Id="AppIcon.ico" SourceFile="{X(iconPath)}" />""");
+            sb.AppendLine($"""    <Icon Id="AppIcon.ico" SourceFile="{X(iconPath!)}" />""");
             sb.AppendLine("""    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />""");
         }
 

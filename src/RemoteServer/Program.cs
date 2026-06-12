@@ -682,10 +682,12 @@ app.MapDelete("/admin/tokens-list/{id:guid}", async (Guid id, AppDbContext db, C
 // === MSI-gyártás: egy csoporthoz, egy csatorna aktuális exéiből (wixl) ===
 // Lerakja az agent+updater exét + a group bootstrap.dat-ját, és install-service-szel telepít.
 app.MapPost("/admin/msi", async (
-    string? group, string? channel, AppDbContext db, EnrollmentService enroll,
+    string? group, string? channel, bool? client, bool? shortcut, AppDbContext db, EnrollmentService enroll,
     MsiBuilder msi, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     var ch = string.IsNullOrWhiteSpace(channel) ? "rtm" : channel.Trim().ToLowerInvariant();
+    bool includeClient = client ?? true;       // alapból a konzol-klienst is telepíti
+    bool startMenuShortcut = shortcut ?? true; // alapból Start menü parancsikonnal
 
     Guid? groupId = Guid.TryParse(group, out var g) ? g : null;
     string label = "all";
@@ -710,11 +712,24 @@ app.MapPost("/admin/msi", async (
     var updaterExe = updaterPkg is null ? null : Path.Combine(opt.Value.PackagesDir, updaterPkg.FileName);
     if (updaterExe is not null && !File.Exists(updaterExe)) updaterExe = null;
 
+    // Konzol-kliens (opcionális): az adott csatorna aktuális 'client' csomagja, ha kérve van + létezik.
+    string? clientExe = null;
+    if (includeClient)
+    {
+        var clientPkg = await db.ReleasePackages.Where(p => p.Channel == ch && p.Component == "client")
+            .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+        if (clientPkg is not null)
+        {
+            var path = Path.Combine(opt.Value.PackagesDir, clientPkg.FileName);
+            if (File.Exists(path)) clientExe = path;
+        }
+    }
+
     // Csoport-bootstrap: AutoApprove=false site-token → a telepített gép Pending lesz.
     var token = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = token });
 
-    var res = await msi.BuildAsync(agentExe, updaterExe, blob, agentPkg.Version, label, ct);
+    var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ct);
     if (!res.Ok) return Results.Problem(res.Error ?? "msi_failed");
 
     return Results.Ok(new
@@ -723,6 +738,7 @@ app.MapPost("/admin/msi", async (
         url = $"/admin/msi/{res.FileName}",
         channel = ch, group = label, version = agentPkg.Version,
         includesUpdater = updaterExe is not null,
+        includesClient = clientExe is not null,
     });
 });
 
