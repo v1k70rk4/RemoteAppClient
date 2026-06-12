@@ -22,6 +22,9 @@ public sealed class ClientConfig
     /// <summary>Sötét téma (MaterialSkin). False = világos.</summary>
     public bool DarkTheme { get; set; } = true;
 
+    /// <summary>Release-csatorna az önfrissítéshez: "rtm" (alap) vagy "beta".</summary>
+    public string Channel { get; set; } = "rtm";
+
     public bool IsComplete =>
         !string.IsNullOrWhiteSpace(SshHost) &&
         !string.IsNullOrWhiteSpace(SshUser) &&

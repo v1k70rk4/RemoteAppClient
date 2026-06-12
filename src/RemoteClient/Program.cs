@@ -6,6 +6,7 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+        ClientUpdater.CleanupOld(); // korábbi frissítés .old maradványa
         Application.Run(new MainForm());
     }
 }

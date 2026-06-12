@@ -190,6 +190,15 @@ public sealed class AdminApi(string baseUrl) : IDisposable
         await resp.Content.CopyToAsync(fs, ct);
     }
 
+    /// <summary>Egy release-csomag (exe) letöltése a /api/updates-ről (a kliens önfrissítéséhez).</summary>
+    public async Task DownloadUpdateAsync(string fileName, string destPath, CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync($"/api/updates/{fileName}", HttpCompletionOption.ResponseHeadersRead, ct);
+        resp.EnsureSuccessStatusCode();
+        await using var fs = File.Create(destPath);
+        await resp.Content.CopyToAsync(fs, ct);
+    }
+
     // === User-kezelés (admin) ===
     public async Task<List<UserInfo>> GetUsersAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/users", AgentJsonContext.Default.ListUserInfo, ct) ?? [];

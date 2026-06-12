@@ -345,6 +345,13 @@ public sealed class MainForm : MaterialForm
 
     private async Task EnterMainAsync()
     {
+        // Csendes önfrissítés: ha van újabb 'client' a csatornán, lecseréli magát és újraindul.
+        if (_api is not null)
+        {
+            SetLoginStatus("Frissítés keresése…");
+            if (await ClientUpdater.CheckAndUpdateAsync(_api, _cfg.Channel)) { Cleanup(); Application.Exit(); return; }
+        }
+
         _mainServerLbl.Text = AgentInfo.ServerName();
 
         // Nézetek + menü létrehozása a jogosultság szerint (operator csak az Eszközöket látja).
