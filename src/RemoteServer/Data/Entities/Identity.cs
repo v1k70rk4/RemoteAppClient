@@ -28,6 +28,28 @@ public sealed class User
     public ICollection<UserGrant> Grants { get; set; } = [];
 }
 
+/// <summary>
+/// Windows Hello (passkey-stílusú) hitelesítő egy userhez+géphez. A privát kulcs a gép TPM-jében,
+/// Hello-val (ujjlenyomat/PIN) védve; a szerver CSAK a publikus kulcsot tárolja. Visszavonható.
+/// Belépés: a kliens egy szerver-challenge-et ír alá a Hello-kulccsal, a szerver a pub-kulccsal ellenőrzi.
+/// </summary>
+public sealed class HelloCredential
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public User User { get; set; } = null!;
+
+    /// <summary>A publikus kulcs (X.509 SubjectPublicKeyInfo, base64).</summary>
+    public string PublicKey { get; set; } = string.Empty;
+
+    /// <summary>Megjelenítendő eszköznév (pl. a gép hostname-je).</summary>
+    public string DeviceName { get; set; } = string.Empty;
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastUsedAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+}
+
 /// <summary>Szerep (admin / viewer). RBAC tier.</summary>
 public sealed class Role
 {

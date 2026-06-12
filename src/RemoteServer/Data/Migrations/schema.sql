@@ -247,5 +247,22 @@ ALTER TABLE `EnrollmentTokens` ADD `RevokedAt` datetime(6) NULL;
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260612194720_EnrollmentTokenRevoke', '9.0.0');
 
+CREATE TABLE `HelloCredentials` (
+    `Id` char(36) COLLATE ascii_general_ci NOT NULL,
+    `UserId` char(36) COLLATE ascii_general_ci NOT NULL,
+    `PublicKey` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `DeviceName` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    `LastUsedAt` datetime(6) NULL,
+    `RevokedAt` datetime(6) NULL,
+    CONSTRAINT `PK_HelloCredentials` PRIMARY KEY (`Id`),
+    CONSTRAINT `FK_HelloCredentials_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
+) CHARACTER SET=utf8mb4;
+
+CREATE INDEX `IX_HelloCredentials_UserId` ON `HelloCredentials` (`UserId`);
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260612232254_HelloCredentials', '9.0.0');
+
 COMMIT;
 

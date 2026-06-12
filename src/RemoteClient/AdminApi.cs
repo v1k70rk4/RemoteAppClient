@@ -57,6 +57,52 @@ public sealed class AdminApi(string baseUrl) : IDisposable
         try { using var resp = await _http.PostAsync("/auth/logout", content: null, ct); } catch { /* best effort */ }
     }
 
+    // === Windows Hello (passkey-stílus) ===
+    /// <summary>Belépési challenge kérése (még nincs session). A nyers nonce-t adja vissza.</summary>
+    public async Task<byte[]> HelloChallengeAsync(string username, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new HelloChallengeRequest { Username = username }, AgentJsonContext.Default.HelloChallengeRequest);
+        using var resp = await _http.PostAsync("/auth/hello/challenge", content, ct);
+        resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.HelloChallengeResponse, ct);
+        return Convert.FromBase64String(r!.Challenge);
+    }
+
+    /// <summary>Belépés az aláírt challenge-dzsel. Sikertelennél AuthException.</summary>
+    public async Task<LoginResponse> HelloLoginAsync(string username, Guid credentialId, string signatureBase64, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(
+            new HelloLoginRequest { Username = username, CredentialId = credentialId, Signature = signatureBase64 }, AgentJsonContext.Default.HelloLoginRequest);
+        using var resp = await _http.PostAsync("/auth/hello/login", content, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string code = $"http_{(int)resp.StatusCode}";
+            try { var e = await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.AuthError, ct); if (!string.IsNullOrEmpty(e?.Error)) code = e.Error; } catch { }
+            throw new AuthException(code);
+        }
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.LoginResponse, ct))!;
+    }
+
+    /// <summary>Hello-eszköz regisztrálása a bejelentkezett userhez (publikus kulcs + eszköznév). A credentialId-t adja vissza.</summary>
+    public async Task<Guid> RegisterHelloAsync(string publicKeyBase64, string deviceName, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(
+            new HelloRegisterRequest { PublicKey = publicKeyBase64, DeviceName = deviceName }, AgentJsonContext.Default.HelloRegisterRequest);
+        using var resp = await _http.PostAsync("/auth/hello/register", content, ct);
+        resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.HelloRegisterResponse, ct);
+        return r!.CredentialId;
+    }
+
+    public async Task<List<HelloCredentialInfo>> GetHelloCredentialsAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync("/auth/hello/credentials", AgentJsonContext.Default.ListHelloCredentialInfo, ct) ?? [];
+
+    public async Task RevokeHelloAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/auth/hello/credentials/{id}/revoke", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Gyors health-ping a szerverre (a „/" végpont „RemoteServer up."-ot ad).</summary>
     public async Task<bool> PingAsync(CancellationToken ct = default)
     {

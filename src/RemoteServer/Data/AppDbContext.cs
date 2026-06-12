@@ -10,6 +10,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<UserGrant> UserGrants => Set<UserGrant>();
     public DbSet<UserSession> UserSessions => Set<UserSession>();
+    public DbSet<HelloCredential> HelloCredentials => Set<HelloCredential>();
     public DbSet<DeviceGroup> DeviceGroups => Set<DeviceGroup>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<DeviceTelemetry> DeviceTelemetry => Set<DeviceTelemetry>();
@@ -47,6 +48,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<UserSession>(e =>
         {
             e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<HelloCredential>(e =>
+        {
+            e.HasIndex(x => x.UserId);
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

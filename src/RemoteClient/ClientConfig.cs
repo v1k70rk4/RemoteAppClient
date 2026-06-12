@@ -25,6 +25,12 @@ public sealed class ClientConfig
     /// <summary>Release-csatorna az önfrissítéshez: "rtm" (alap) vagy "beta".</summary>
     public string Channel { get; set; } = "rtm";
 
+    /// <summary>Windows Hello: a szerverhez regisztrált hitelesítő azonosítója ezen a gépen (null = nincs beállítva).</summary>
+    public Guid? HelloCredentialId { get; set; }
+
+    /// <summary>A Hello-hoz tartozó felhasználónév (a passwordless belépéshez).</summary>
+    public string? HelloUsername { get; set; }
+
     public bool IsComplete =>
         !string.IsNullOrWhiteSpace(SshHost) &&
         !string.IsNullOrWhiteSpace(SshUser) &&

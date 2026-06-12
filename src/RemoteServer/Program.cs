@@ -41,6 +41,7 @@ builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<EnrollmentService>();
 builder.Services.AddSingleton<MsiBuilder>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddSingleton<HelloChallengeStore>();
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -136,6 +137,107 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
 
     await db.SaveChangesAsync(ct);
     return Results.Json(resp, AgentJsonContext.Default.LoginResponse);
+});
+
+// === Windows Hello (passkey-stílus) ===
+// Belépés 1/2: challenge. Mindig adunk (nem áruljuk el, létezik-e a user / van-e Hello).
+app.MapPost("/auth/hello/challenge", async (HttpContext ctx, HelloChallengeStore challenges, CancellationToken ct) =>
+{
+    HelloChallengeRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.HelloChallengeRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest();
+    var nonce = challenges.Issue(req.Username.Trim());
+    return Results.Json(new HelloChallengeResponse { Challenge = Convert.ToBase64String(nonce) }, AgentJsonContext.Default.HelloChallengeResponse);
+});
+
+// Belépés 2/2: az aláírt challenge ellenőrzése a tárolt publikus kulccsal → session.
+app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthService auth, HelloChallengeStore challenges, CancellationToken ct) =>
+{
+    HelloLoginRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.HelloLoginRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Signature))
+        return Results.Json(new AuthError { Error = "invalid_request" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+
+    var nonce = challenges.Consume(req.Username.Trim());
+    if (nonce is null) return Results.Json(new AuthError { Error = "challenge_expired" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    var user = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+        .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
+    if (user is null) return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    var cred = await db.HelloCredentials.FirstOrDefaultAsync(c => c.Id == req.CredentialId && c.UserId == user.Id && c.RevokedAt == null, ct);
+    if (cred is null) return Results.Json(new AuthError { Error = "hello_unknown" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    bool ok;
+    try
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(cred.PublicKey), out _);
+        ok = rsa.VerifyData(nonce, Convert.FromBase64String(req.Signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+    }
+    catch { ok = false; }
+    if (!ok) return Results.Json(new AuthError { Error = "hello_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    cred.LastUsedAt = DateTimeOffset.UtcNow;
+    var token = await auth.CreateSessionAsync(user, ct);
+    user.LastLoginAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
+
+    return Results.Json(new LoginResponse
+    {
+        Token = token,
+        Role = AuthService.RoleOf(user),
+        MustChangePassword = user.MustChangePassword,
+        TotpEnrollRequired = !user.TotpConfirmed,
+    }, AgentJsonContext.Default.LoginResponse);
+});
+
+// Hello-eszköz regisztrálása (bejelentkezve; bármely user a sajátját — ezért itt validálunk, nem az /admin gate-en).
+app.MapPost("/auth/hello/register", async (HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    var v = await auth.ValidateAsync(BearerToken(ctx), ct);
+    if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+
+    HelloRegisterRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.HelloRegisterRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.PublicKey)) return Results.BadRequest();
+    try { using var rsa = RSA.Create(); rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(req.PublicKey), out _); }
+    catch { return Results.BadRequest(new { error = "bad_public_key" }); }
+
+    var cred = new HelloCredential
+    {
+        UserId = v.Value.User.Id,
+        PublicKey = req.PublicKey,
+        DeviceName = string.IsNullOrWhiteSpace(req.DeviceName) ? "ismeretlen gép" : req.DeviceName.Trim(),
+    };
+    db.HelloCredentials.Add(cred);
+    await db.SaveChangesAsync(ct);
+    return Results.Json(new HelloRegisterResponse { CredentialId = cred.Id }, AgentJsonContext.Default.HelloRegisterResponse);
+});
+
+app.MapGet("/auth/hello/credentials", async (HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    var v = await auth.ValidateAsync(BearerToken(ctx), ct);
+    if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+    var list = await db.HelloCredentials.Where(c => c.UserId == v.Value.User.Id && c.RevokedAt == null)
+        .OrderByDescending(c => c.CreatedAt)
+        .Select(c => new HelloCredentialInfo { Id = c.Id, DeviceName = c.DeviceName, CreatedAt = c.CreatedAt, LastUsedAt = c.LastUsedAt })
+        .ToListAsync(ct);
+    return Results.Json(list, AgentJsonContext.Default.ListHelloCredentialInfo);
+});
+
+app.MapPost("/auth/hello/credentials/{id:guid}/revoke", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    var v = await auth.ValidateAsync(BearerToken(ctx), ct);
+    if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+    var cred = await db.HelloCredentials.FirstOrDefaultAsync(c => c.Id == id && c.UserId == v.Value.User.Id, ct);
+    if (cred is null) return Results.NotFound();
+    cred.RevokedAt ??= DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
 });
 
 // A setup-lépések (mid-setup user is hívhatja, ezért itt validálunk, nem az /admin gate-en).

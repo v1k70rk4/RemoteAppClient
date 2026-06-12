@@ -38,7 +38,9 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialTextBox2 _pass = new() { Hint = "Jelszó", UseSystemPasswordChar = true };
     private readonly MaterialTextBox2 _totp = new() { Hint = "TOTP (ha van)" };
     private readonly MaterialButton _loginBtn = new() { Text = "Belépés" };
+    private readonly MaterialButton _helloBtn = new() { Text = "Belépés Windows Hello-val", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Visible = false };
     private readonly MaterialLabel _loginStatus = new() { Visible = true };
+    private bool _loggedInViaHello;
     // Setup
     private readonly MaterialTextBox2 _newPass = new() { Hint = "Új jelszó (min. 10)", UseSystemPasswordChar = true };
     private readonly MaterialTextBox2 _newPass2 = new() { Hint = "Új jelszó újra", UseSystemPasswordChar = true };
@@ -128,7 +130,19 @@ public sealed class MainForm : MaterialForm
             _onlineLbl.ForeColor = Color.IndianRed;
             SetLoginStatus("Csatorna hiba: " + ex.Message);
         }
+
+        // Windows Hello gomb: csak ha ezen a gépen be van állítva (van credentialId) ÉS elérhető a Hello.
+        try
+        {
+            _helloBtn.Visible = _cfg.HelloCredentialId is not null
+                && !string.IsNullOrWhiteSpace(_cfg.HelloUsername)
+                && await WindowsHello.IsAvailableAsync()
+                && await WindowsHello.ExistsAsync(HelloKeyName(_cfg.HelloUsername!));
+        }
+        catch { _helloBtn.Visible = false; }
     }
+
+    private static string HelloKeyName(string username) => "RemoteAppClient-" + username;
 
     // ---------------- Nézetek építése ----------------
 
@@ -165,15 +179,17 @@ public sealed class MainForm : MaterialForm
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _loginCard.Anchor = AnchorStyles.None;
         _setupCard.Anchor = AnchorStyles.None;
-        _loginCard.Size = new Size(360, 320);
+        _loginCard.Size = new Size(360, 380);
         var lt = new MaterialLabel { Text = "Bejelentkezés", Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _user.SetBounds(20, 56, 320, 48);
         _pass.SetBounds(20, 110, 320, 48);
         _totp.SetBounds(20, 164, 320, 48);
         _loginBtn.SetBounds(20, 222, 320, 40);
         _loginBtn.Click += async (_, _) => await DoLoginAsync();
-        _loginStatus.SetBounds(20, 270, 320, 40); _loginStatus.ForeColor = Color.IndianRed;
-        _loginCard.Controls.AddRange([lt, _user, _pass, _totp, _loginBtn, _loginStatus]);
+        _helloBtn.SetBounds(20, 268, 320, 40);
+        _helloBtn.Click += async (_, _) => await DoHelloLoginAsync();
+        _loginStatus.SetBounds(20, 316, 320, 50); _loginStatus.ForeColor = Color.IndianRed;
+        _loginCard.Controls.AddRange([lt, _user, _pass, _totp, _loginBtn, _helloBtn, _loginStatus]);
         AcceptButton = _loginBtn;
 
         // Setup kártya (első belépés) — kezdetben rejtett
@@ -294,6 +310,74 @@ public sealed class MainForm : MaterialForm
         finally { _loginBtn.Enabled = true; }
     }
 
+    private async Task DoHelloLoginAsync()
+    {
+        SetLoginStatus("");
+        if (_api is null) { SetLoginStatus("Nincs kapcsolat a szerverrel."); return; }
+        if (_cfg.HelloCredentialId is not { } credId || string.IsNullOrWhiteSpace(_cfg.HelloUsername))
+        { SetLoginStatus("Nincs beállítva Windows Hello ezen a gépen."); return; }
+        var user = _cfg.HelloUsername!;
+        try
+        {
+            _helloBtn.Enabled = false;
+            SetLoginStatus("Windows Hello…");
+            var challenge = await _api.HelloChallengeAsync(user);
+            var sig = await WindowsHello.SignAsync(HelloKeyName(user), challenge);
+            if (sig is null) { SetLoginStatus("Windows Hello megszakítva vagy nem elérhető."); return; }
+            _login = await _api.HelloLoginAsync(user, credId, sig);
+            _api.SetToken(_login.Token);
+            _role = _login.Role;
+            _username = user;
+            _loggedInViaHello = true;
+            if (_login.MustChangePassword || _login.TotpEnrollRequired) { EnterSetup(); return; }
+            await EnterMainAsync();
+        }
+        catch (AuthException ex)
+        {
+            SetLoginStatus(ex.Code switch
+            {
+                "challenge_expired" => "A Hello-belépés lejárt, próbáld újra.",
+                "hello_unknown" => "Ez a Hello-eszköz nincs (már) regisztrálva — lépj be jelszóval.",
+                "hello_invalid" => "A Hello-aláírás érvénytelen.",
+                "invalid_credentials" => "A felhasználó nem aktív vagy nem létezik.",
+                _ => "Hello-belépés sikertelen: " + ex.Code,
+            });
+            if (ex.Code == "hello_unknown")
+            {
+                _cfg.HelloCredentialId = null; _cfg.HelloUsername = null; try { _cfg.Save(); } catch { }
+                _helloBtn.Visible = false;
+            }
+        }
+        catch (Exception ex) { SetLoginStatus("Hiba: " + ex.Message); }
+        finally { _helloBtn.Enabled = true; }
+    }
+
+    /// <summary>Jelszavas belépés után felajánlja a Windows Hello beállítását ezen a gépen (egyszer).</summary>
+    private async Task OfferHelloSetupAsync()
+    {
+        if (_api is null || _loggedInViaHello) return;
+        if (_cfg.HelloCredentialId is not null) return;           // már be van állítva
+        if (!await WindowsHello.IsAvailableAsync()) return;        // nincs Hello a gépen
+        if (MessageBox.Show(
+                "Szeretnél legközelebb Windows Hello-val (ujjlenyomat/PIN) belépni ezen a gépen?\n\n" +
+                "A privát kulcs a gép TPM-jében marad; a szerver csak a publikus kulcsot tárolja, és bármikor visszavonhatod.",
+                "Windows Hello beállítása", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+        try
+        {
+            var pub = await WindowsHello.CreateAsync(HelloKeyName(_username));
+            if (pub is null) return; // a felhasználó megszakította a Hello-promptot
+            var credId = await _api.RegisterHelloAsync(pub, Environment.MachineName);
+            _cfg.HelloCredentialId = credId; _cfg.HelloUsername = _username; try { _cfg.Save(); } catch { }
+            MessageBox.Show("Windows Hello beállítva — legközelebb ujjlenyomattal/PIN-nel léphetsz be ezen a gépen.",
+                "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Windows Hello beállítás hiba: " + ex.Message, "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
     private void EnterSetup()
     {
         _loginCard.Visible = false;
@@ -374,6 +458,9 @@ public sealed class MainForm : MaterialForm
         ApplyTheme(_cfg.DarkTheme);
         Show(_mainView);
         await SwitchToAsync(_devicesView);
+
+        // Jelszavas belépés után (ha még nincs) felajánljuk a Windows Hello beállítását ezen a gépen.
+        await OfferHelloSetupAsync();
     }
 
     private void SetLoginStatus(string text) => _loginStatus.Text = text;

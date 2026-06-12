@@ -43,6 +43,48 @@ public sealed class TotpConfirmRequest
     [JsonPropertyName("code")] public string Code { get; set; } = string.Empty;
 }
 
+// === Windows Hello (passkey-stílus) ===
+
+/// <summary>Hello-hitelesítő regisztrálása (bejelentkezve): a kliens TPM-kulcsának PUBLIKUS része + eszköznév.</summary>
+public sealed class HelloRegisterRequest
+{
+    [JsonPropertyName("publicKey")] public string PublicKey { get; set; } = string.Empty; // base64 SPKI
+    [JsonPropertyName("deviceName")] public string DeviceName { get; set; } = string.Empty;
+}
+
+public sealed class HelloRegisterResponse
+{
+    [JsonPropertyName("credentialId")] public Guid CredentialId { get; set; }
+}
+
+/// <summary>Egy regisztrált Hello-eszköz (listázás/visszavonás).</summary>
+public sealed class HelloCredentialInfo
+{
+    [JsonPropertyName("id")] public Guid Id { get; set; }
+    [JsonPropertyName("deviceName")] public string DeviceName { get; set; } = string.Empty;
+    [JsonPropertyName("createdAt")] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyName("lastUsedAt")] public DateTimeOffset? LastUsedAt { get; set; }
+}
+
+/// <summary>Belépés 1. lépés: challenge kérése (még nincs session).</summary>
+public sealed class HelloChallengeRequest
+{
+    [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
+}
+
+public sealed class HelloChallengeResponse
+{
+    [JsonPropertyName("challenge")] public string Challenge { get; set; } = string.Empty; // base64 nonce
+}
+
+/// <summary>Belépés 2. lépés: az aláírt challenge.</summary>
+public sealed class HelloLoginRequest
+{
+    [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
+    [JsonPropertyName("credentialId")] public Guid CredentialId { get; set; }
+    [JsonPropertyName("signature")] public string Signature { get; set; } = string.Empty; // base64
+}
+
 /// <summary>„Ki vagyok" — a kliens a session-state-hez.</summary>
 public sealed class MeResponse
 {
