@@ -18,6 +18,7 @@ public sealed class MainForm : MaterialForm
     private BrokerClient? _broker;
     private AdminApi? _api;
     private string _role = "operator";
+    private string _username = "";
     private bool _started;
     private LoginResponse? _login;
 
@@ -260,7 +261,7 @@ public sealed class MainForm : MaterialForm
             b.AutoSize = true; b.MinimumSize = new Size(280, 40); b.Margin = new Padding(4, 4, 0, 8);
             b.Click += onClick; panel.Controls.Add(b);
         }
-        add(_usersBtn, (_, _) => { if (_api is not null) new UsersForm(_api).ShowDialog(this); });
+        add(_usersBtn, (_, _) => { if (_api is not null) new UsersForm(_api, _username).ShowDialog(this); });
         add(_channelsBtn, (_, _) => { if (_api is not null) new ChannelsForm(_api).ShowDialog(this); });
         add(_bootstrapBtn, async (_, _) => await GenerateBootstrapAsync());
         add(_vncLockBtn, (_, _) => ToggleLocalVncLock());
@@ -289,7 +290,8 @@ public sealed class MainForm : MaterialForm
         try
         {
             _loginBtn.Enabled = false;
-            _login = await _api.LoginAsync(_user.Text.Trim(), _pass.Text, string.IsNullOrWhiteSpace(_totp.Text) ? null : _totp.Text.Trim());
+            _username = _user.Text.Trim();
+            _login = await _api.LoginAsync(_username, _pass.Text, string.IsNullOrWhiteSpace(_totp.Text) ? null : _totp.Text.Trim());
             _api.SetToken(_login.Token);
             _role = _login.Role;
 

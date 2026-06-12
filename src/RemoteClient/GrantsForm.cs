@@ -48,8 +48,9 @@ public sealed class GrantsForm : MaterialForm
         var deviceRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
         deviceRow.Controls.AddRange([_devices, addDevice]);
 
-        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 40, Margin = new Padding(0) };
-        _status.Dock = DockStyle.Fill; _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 0, 0);
+        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 48, Margin = new Padding(0) };
+        _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true;
+        _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
         bottom.Controls.Add(_status);
 
         // Dokk-sorrend: Fill először, majd a Bottom-sorok fentről lefelé (első Bottom = lista alá,

@@ -714,6 +714,11 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
     var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
     if (user is null) return Results.NotFound();
 
+    // Önkizárás-védelem: a hívó admin ne deaktiválja / ne fokozza le saját magát.
+    var me = (User)ctx.Items["user"]!;
+    if (id == me.Id && upd.IsActive == false) return Results.BadRequest(new { error = "self_deactivate" });
+    if (id == me.Id && upd.Role == "operator") return Results.BadRequest(new { error = "self_demote" });
+
     if (upd.Role is "admin" or "operator") await SetRoleAsync(db, id, upd.Role, ct);
     if (upd.IsActive is { } act)
     {
@@ -737,8 +742,11 @@ app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, AppDbContex
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp }, AgentJsonContext.Default.CreateUserResponse);
 });
 
-app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, AuthService auth, CancellationToken ct) =>
+app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, HttpContext ctx, AuthService auth, CancellationToken ct) =>
 {
+    // Önkizárás-védelem: ne tudja a hívó admin saját magát azonnal kiléptetni.
+    var me = (User)ctx.Items["user"]!;
+    if (id == me.Id) return Results.BadRequest(new { error = "self_revoke" });
     await auth.RevokeAllForUserAsync(id, ct);
     return Results.NoContent();
 });
