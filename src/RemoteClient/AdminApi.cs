@@ -240,6 +240,21 @@ public sealed class AdminApi : IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>Blob/token módosítása (max telepítés és/vagy lejárat). A null mezők változatlanok. Hibakódot dob (pl. max_below_used).</summary>
+    public async Task EditTokenAsync(Guid id, int? maxUses, int? expiresInHours, bool clearExpiry, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(
+            new EditTokenRequest { MaxUses = maxUses, ExpiresInHours = expiresInHours, ClearExpiry = clearExpiry },
+            AgentJsonContext.Default.EditTokenRequest);
+        using var resp = await _http.PutAsync($"/admin/tokens-list/{id}", content, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string code = $"http_{(int)resp.StatusCode}";
+            try { var e = await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.AuthError, ct); if (!string.IsNullOrEmpty(e?.Error)) code = e.Error; } catch { }
+            throw new InvalidOperationException(code);
+        }
+    }
+
     // === Csoport-kezelés ===
     public async Task<GroupInfo> CreateGroupAsync(GroupInfo g, CancellationToken ct = default)
     {

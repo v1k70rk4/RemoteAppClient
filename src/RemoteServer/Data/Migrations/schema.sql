@@ -264,5 +264,10 @@ CREATE INDEX `IX_HelloCredentials_UserId` ON `HelloCredentials` (`UserId`);
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260612232254_HelloCredentials', '9.0.0');
 
+ALTER TABLE `EnrollmentTokens` ADD `MsiFileName` longtext CHARACTER SET utf8mb4 NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613120900_TokenMsiFileName', '9.0.0');
+
 COMMIT;
 

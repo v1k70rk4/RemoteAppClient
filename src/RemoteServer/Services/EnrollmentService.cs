@@ -116,11 +116,15 @@ public sealed class EnrollmentService(
         }, null);
     }
 
-    /// <summary>Új beléptető token. A NYERS tokent adja vissza (csak most látható); a DB-ben hash van.</summary>
-    public async Task<string> CreateTokenAsync(int maxUses, int? expiresInHours, Guid? groupId, string? note, CancellationToken ct, bool autoApprove = true)
+    /// <summary>
+    /// Új beléptető token. A NYERS tokent (csak most látható; a DB-ben hash van) ÉS a létrejött
+    /// entitást adja vissza — utóbbin a hívó pl. az MSI-fájlnevet állíthatja be build után.
+    /// </summary>
+    public async Task<(string Raw, EnrollmentToken Token)> CreateTokenAsync(
+        int maxUses, int? expiresInHours, Guid? groupId, string? note, CancellationToken ct, bool autoApprove = true)
     {
         var raw = Base64Url(RandomNumberGenerator.GetBytes(24));
-        db.EnrollmentTokens.Add(new EnrollmentToken
+        var token = new EnrollmentToken
         {
             TokenHash = HashToken(raw),
             MaxUses = maxUses < 1 ? 1 : maxUses,
@@ -128,9 +132,10 @@ public sealed class EnrollmentService(
             GroupId = groupId,
             Note = note,
             AutoApprove = autoApprove,
-        });
+        };
+        db.EnrollmentTokens.Add(token);
         await db.SaveChangesAsync(ct);
-        return raw;
+        return (raw, token);
     }
 
     private static string HashToken(string raw) =>

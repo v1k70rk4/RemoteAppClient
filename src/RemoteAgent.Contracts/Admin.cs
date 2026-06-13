@@ -178,6 +178,23 @@ public sealed class BootstrapTokenInfo
 
     [JsonPropertyName("note")]
     public string? Note { get; set; }
+
+    /// <summary>Ha generált MSI-hez tartozik: a kész MSI fájlneve (/admin/msi/{fileName}). Kézi esetben null.</summary>
+    [JsonPropertyName("msiFileName")]
+    public string? MsiFileName { get; set; }
+}
+
+/// <summary>Egy blob/token utólagos módosítása. A null mezők változatlanok.</summary>
+public sealed class EditTokenRequest
+{
+    /// <summary>Új max telepítésszám. Null = változatlan. A szerver elutasítja, ha kevesebb a már elhasználtnál.</summary>
+    [JsonPropertyName("maxUses")] public int? MaxUses { get; set; }
+
+    /// <summary>Új lejárat: MOSTantól ennyi óra. Null = változatlan (kivéve ha clearExpiry).</summary>
+    [JsonPropertyName("expiresInHours")] public int? ExpiresInHours { get; set; }
+
+    /// <summary>True = nincs lejárat (felülírja az expiresInHours-t).</summary>
+    [JsonPropertyName("clearExpiry")] public bool ClearExpiry { get; set; }
 }
 
 /// <summary>Update-parancs indítása: a csomag verziója, URL-je, SHA-256 hash-e.</summary>

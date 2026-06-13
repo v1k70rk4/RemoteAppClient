@@ -42,17 +42,21 @@ public sealed class BootstrapView : UserControl, IContentView
         var listTools = ViewUi.Toolbar();
         void Btn(string text, bool primary, Func<Task> onClick) { var b = ViewUi.ToolbarButton(text, primary); b.Click += async (_, _) => await onClick(); listTools.Controls.Add(b); }
         Btn("Frissítés", true, RefreshAsync);
+        Btn("Módosítás…", false, EditAsync);
+        Btn("MSI mentése…", false, SaveMsiAsync);
         Btn("Visszavonás", false, RevokeAsync);
         Btn("Törlés", false, DeleteAsync);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add("Telepítési sz.", 110);
-        _list.Columns.Add("Csoport", 130);
-        _list.Columns.Add("Felhasználva", 100);
-        _list.Columns.Add("Lejárat", 130);
-        _list.Columns.Add("Állapot", 100);
-        _list.Columns.Add("Létrehozva", 130);
+        _list.Columns.Add("Telepítési sz.", 100);
+        _list.Columns.Add("Típus", 90);
+        _list.Columns.Add("Csoport", 120);
+        _list.Columns.Add("Felhasználva", 90);
+        _list.Columns.Add("Lejárat", 120);
+        _list.Columns.Add("Állapot", 90);
+        _list.Columns.Add("Létrehozva", 120);
+        _list.Columns.Add("MSI fájl", 220);
 
         Controls.Add(ViewUi.Rows(2, genRow, listTools, _list, ViewUi.StatusHost(_status)));
         ApplyTheme();
@@ -109,6 +113,12 @@ public sealed class BootstrapView : UserControl, IContentView
         : t.UseCount >= t.MaxUses ? "Elfogyott"
         : "Aktív";
 
+    /// <summary>A blob eredete: MSI-hez generált, kézi blob, vagy kézi (egyszer-használatos) token.</summary>
+    private static string KindOf(BootstrapTokenInfo t) =>
+        !string.IsNullOrWhiteSpace(t.MsiFileName) || t.Note is "msi-bootstrap" ? "MSI"
+        : t.Note is "bootstrap" ? "Kézi blob"
+        : "Kézi token";
+
     private async Task RefreshAsync()
     {
         try
@@ -118,14 +128,51 @@ public sealed class BootstrapView : UserControl, IContentView
             foreach (var t in tokens)
             {
                 var item = new ListViewItem(t.Id.ToString("N")[..8]) { Tag = t };
+                item.SubItems.Add(KindOf(t));
                 item.SubItems.Add(t.GroupName ?? "—");
                 item.SubItems.Add($"{t.UseCount} / {(t.MaxUses >= 100000 ? "∞" : t.MaxUses.ToString())}");
                 item.SubItems.Add(t.ExpiresAt?.LocalDateTime.ToString("g") ?? "—");
                 item.SubItems.Add(StateOf(t));
                 item.SubItems.Add(t.CreatedAt.LocalDateTime.ToString("g"));
+                item.SubItems.Add(t.MsiFileName ?? "—");
                 _list.Items.Add(item);
             }
             _status.Text = $"{tokens.Count} blob.";
+        }
+        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+    }
+
+    private async Task EditAsync()
+    {
+        if (Selected() is not { } t) return;
+        using var f = new EditTokenForm(t);
+        if (f.ShowDialog(this) != DialogResult.OK) return;
+        if (f.MaxUses is null && f.ExpiresInHours is null && !f.ClearExpiry) { _status.Text = "Nincs változtatás."; return; }
+        try
+        {
+            await _api.EditTokenAsync(t.Id, f.MaxUses, f.ExpiresInHours, f.ClearExpiry);
+            _status.Text = "Blob módosítva.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _status.Text = ex.Message == "max_below_used"
+                ? "A max telepítés nem lehet a már elhasznált alatt."
+                : "Hiba: " + ex.Message;
+        }
+    }
+
+    private async Task SaveMsiAsync()
+    {
+        if (Selected() is not { } t) return;
+        if (string.IsNullOrWhiteSpace(t.MsiFileName)) { _status.Text = "Ehhez a blobhoz nem tartozik MSI (kézi token/blob)."; return; }
+        using var sfd = new SaveFileDialog { FileName = t.MsiFileName, Filter = "MSI telepítő (*.msi)|*.msi", Title = "MSI mentése" };
+        if (sfd.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            _status.Text = "MSI letöltése…";
+            await _api.DownloadMsiAsync(t.MsiFileName!, sfd.FileName);
+            _status.Text = "MSI mentve: " + sfd.FileName;
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
     }

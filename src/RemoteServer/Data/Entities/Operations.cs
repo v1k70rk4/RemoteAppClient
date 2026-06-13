@@ -32,6 +32,12 @@ public sealed class EnrollmentToken
     public DateTimeOffset? RevokedAt { get; set; }
 
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Ha a token egy generált MSI-hez tartozik: a kész MSI fájlneve (a PackagesDir-ben,
+    /// az /admin/msi/{fileName} szolgálja ki). Kézi token/blob esetén null.
+    /// </summary>
+    public string? MsiFileName { get; set; }
 }
 
 /// <summary>

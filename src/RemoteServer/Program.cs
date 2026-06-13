@@ -738,7 +738,7 @@ app.MapPost("/enroll", async (HttpContext ctx, EnrollmentService enroll, Cancell
 // === Token-gyártás (ideiglenes; később auth+2FA mögé) ===
 app.MapPost("/admin/tokens", async (EnrollmentService enroll, int? maxUses, int? expiresInHours, CancellationToken ct) =>
 {
-    var raw = await enroll.CreateTokenAsync(maxUses ?? 1, expiresInHours, groupId: null, note: null, ct);
+    var (raw, _) = await enroll.CreateTokenAsync(maxUses ?? 1, expiresInHours, groupId: null, note: null, ct);
     return Results.Ok(new { token = raw, maxUses = maxUses ?? 1, expiresInHours });
 });
 
@@ -752,7 +752,7 @@ app.MapPost("/admin/bootstrap", async (
     if (string.IsNullOrWhiteSpace(url))
         return Results.BadRequest(new { error = "no_server_url", hint = "állítsd be a Server:PublicUrl-t vagy add meg: ?serverUrl=" });
 
-    var raw = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
+    var (raw, _) = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = raw });
     return Results.Ok(new { blob, url = url.TrimEnd('/'), token = raw, groupId, maxUses = maxUses ?? 100000, expiresInHours });
 });
@@ -767,6 +767,7 @@ app.MapGet("/admin/tokens-list", async (AppDbContext db, CancellationToken ct) =
         Id = t.Id, GroupId = t.GroupId, GroupName = t.GroupId is { } g && groups.TryGetValue(g, out var n) ? n : null,
         MaxUses = t.MaxUses, UseCount = t.UseCount, AutoApprove = t.AutoApprove,
         CreatedAt = t.CreatedAt, ExpiresAt = t.ExpiresAt, RevokedAt = t.RevokedAt, LastUsedAt = t.UsedAt, Note = t.Note,
+        MsiFileName = t.MsiFileName,
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListBootstrapTokenInfo);
 });
@@ -776,6 +777,31 @@ app.MapPost("/admin/tokens-list/{id:guid}/revoke", async (Guid id, AppDbContext 
     var token = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
     if (token is null) return Results.NotFound();
     token.RevokedAt ??= DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+// Blob/token utólagos módosítása: max telepítés és/vagy lejárat. A letiltás = revoke (külön),
+// ezért a MaxUses NEM mehet a már elhasznált (UseCount) alá.
+app.MapPut("/admin/tokens-list/{id:guid}", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    EditTokenRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.EditTokenRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null) return Results.BadRequest();
+
+    var token = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
+    if (token is null) return Results.NotFound();
+
+    if (req.MaxUses is { } mu)
+    {
+        if (mu < token.UseCount)
+            return Results.BadRequest(new { error = "max_below_used", useCount = token.UseCount });
+        token.MaxUses = mu;
+    }
+    if (req.ClearExpiry) token.ExpiresAt = null;
+    else if (req.ExpiresInHours is { } h) token.ExpiresAt = DateTimeOffset.UtcNow.AddHours(h);
+
     await db.SaveChangesAsync(ct);
     return Results.NoContent();
 });
@@ -836,11 +862,15 @@ app.MapPost("/admin/msi", async (
     }
 
     // Csoport-bootstrap: AutoApprove=false site-token → a telepített gép Pending lesz.
-    var token = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
-    var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = token });
+    var (rawToken, tokenEntity) = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
+    var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = rawToken });
 
     var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ct);
     if (!res.Ok) return Results.Problem(res.Error ?? "msi_failed");
+
+    // A blobot a generált MSI-hez kötjük → a bootstrap nézet megmutatja, melyik MSI-hez tartozik.
+    tokenEntity.MsiFileName = res.FileName;
+    await db.SaveChangesAsync(ct);
 
     return Results.Ok(new
     {
