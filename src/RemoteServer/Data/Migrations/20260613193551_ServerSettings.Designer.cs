@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RemoteServer.Data;
 
@@ -11,9 +12,11 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260613193551_ServerSettings")]
+    partial class ServerSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -454,9 +457,6 @@ namespace RemoteServer.Data.Migrations
                     b.Property<string>("GraphClientSecretEnc")
                         .HasColumnType("longtext");
 
-                    b.Property<DateTimeOffset?>("GraphSecretExpiresAt")
-                        .HasColumnType("datetime(6)");
-
                     b.Property<string>("GraphSender")
                         .HasColumnType("longtext");
 
@@ -465,9 +465,6 @@ namespace RemoteServer.Data.Migrations
 
                     b.Property<string>("OwnerName")
                         .HasColumnType("longtext");
-
-                    b.Property<DateTimeOffset?>("SecretExpiryNotifiedAt")
-                        .HasColumnType("datetime(6)");
 
                     b.Property<string>("SmtpFrom")
                         .HasColumnType("longtext");

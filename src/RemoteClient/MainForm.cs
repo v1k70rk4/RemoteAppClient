@@ -32,6 +32,9 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialLabel _serverNameLbl = new();
     private readonly MaterialLabel _onlineLbl = new();
     private readonly MaterialLabel _remoteLbl = new();
+    private readonly MaterialLabel _supportLbl = new();        // tulajdonos + support a login fejlécen
+    private readonly MaterialLabel _noAgentSupportLbl = new(); // support a "nincs agent" képernyőn
+    private RemoteAgent.Admin.BrandingInfo? _branding;
     private readonly MaterialCard _loginCard = new();
     private readonly MaterialCard _setupCard = new();
     private readonly MaterialTextBox2 _user = new() { Hint = "Felhasználó" };
@@ -50,10 +53,11 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialLabel _setupStatus = new();
 
     // Fő nézet — egyablakos: bal oldali menü + jobb oldali tartalom-host
-    private readonly MaterialLabel _mainServerLbl = new();
     private readonly MaterialLabel _envLbl = new();   // élő környezet-jelző (a helyi agent status-pipe-jából)
     private readonly System.Windows.Forms.Timer _envTimer = new() { Interval = 3000 };
     private readonly MaterialLabel _verLbl = new();   // ver: x.y.z a bal alsó sarokban
+    private readonly Panel _warnPanel = new() { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Visible = false };
+    private readonly MaterialLabel _secretWarnLbl = new(); // secret-lejárat figyelmeztető (piros, az online felett)
     private readonly Panel _content = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8, 8, 8, 8) };
     private readonly List<(MaterialButton Btn, IContentView View)> _navItems = new();
@@ -68,6 +72,7 @@ public sealed class MainForm : MaterialForm
     private SettingsView? _settingsView;
     private AboutView? _aboutView;
     private LogView? _logView;
+    private ServerSettingsView? _serverSettingsView;
 
     public MainForm()
     {
@@ -165,8 +170,66 @@ public sealed class MainForm : MaterialForm
         finally { _envBusy = false; }
     }
 
+    private void ApplyBranding()
+    {
+        // A branding a kék címsorban (Form.Text), pl. „Coimbra ITS RemoteAppClient".
+        Text = string.IsNullOrWhiteSpace(_branding?.OwnerName)
+            ? "RemoteAppClient"
+            : $"{_branding!.OwnerName} RemoteAppClient";
+
+        var support = SupportLine();
+        if (!_supportLbl.IsDisposed) _supportLbl.Text = support;
+        if (!_noAgentSupportLbl.IsDisposed) _noAgentSupportLbl.Text = support;
+    }
+
+    private string SupportLine()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_branding?.SupportPhone)) parts.Add("☎ " + _branding!.SupportPhone);
+        if (!string.IsNullOrWhiteSpace(_branding?.SupportEmail)) parts.Add("✉ " + _branding!.SupportEmail);
+        return parts.Count == 0 ? "" : "Támogatás:  " + string.Join("    ", parts);
+    }
+
+    /// <summary>Admin: a Graph secret 30 napon belül lejár-e → piros jelzés az online felett.</summary>
+    private async Task CheckSecretExpiryAsync()
+    {
+        try
+        {
+            var s = await _api!.GetSettingsAsync();
+            if (s.EmailProvider == "graph" && s.GraphSecretExpiresAt is { } exp)
+            {
+                var days = (exp - DateTimeOffset.UtcNow).TotalDays;
+                if (days <= 30)
+                {
+                    _secretWarnLbl.Text = days <= 0
+                        ? "⚠ A levélküldési token LEJÁRT"
+                        : $"⚠ A levélküldési token {(int)days} napon belül lejár";
+                    _warnPanel.Visible = true;
+                    return;
+                }
+            }
+            _warnPanel.Visible = false;
+        }
+        catch { /* nem kritikus */ }
+    }
+
+    /// <summary>Friss branding a szerverről (a tunnelen át), cache-be is. Csendben hibatűrő.</summary>
+    private async Task RefreshBrandingAsync()
+    {
+        if (_api is null) return;
+        var b = await _api.GetBrandingAsync();
+        if (b is null) return;
+        _branding = b;
+        BrandingCache.Save(b);
+        ApplyBranding();
+    }
+
     private async Task InitAsync()
     {
+        // Cache-elt branding azonnal (bejelentkezés / agent előtt is látszik).
+        _branding = BrandingCache.Load();
+        ApplyBranding();
+
         SetLoginStatus("Helyi agent keresése…");
         _broker = await BrokerClient.TryConnectAsync();
         if (_broker is null) { Show(_noAgentView); return; }
@@ -198,6 +261,8 @@ public sealed class MainForm : MaterialForm
             _onlineLbl.Text = online ? "● Online" : "● Offline";
             _onlineLbl.ForeColor = online ? Color.MediumSeaGreen : Color.IndianRed;
             SetLoginStatus(online ? "" : "A szerver nem válaszol — próbálj belépni, a tunnel lehet, hogy most épül.");
+
+            if (online) await RefreshBrandingAsync(); // friss branding a tunnelen át (login előtt is)
         }
         catch (Exception ex)
         {
@@ -226,15 +291,17 @@ public sealed class MainForm : MaterialForm
         var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1 };
         center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var card = new MaterialCard { Width = 470, Height = 210, Anchor = AnchorStyles.None };
+        var card = new MaterialCard { Width = 470, Height = 250, Anchor = AnchorStyles.None };
         var icon = new MaterialLabel { Text = "⚠", Font = new Font("Segoe UI", 36F), AutoSize = true, Location = new Point(24, 18) };
         var title = new MaterialLabel { Text = "Nincs helyi agent", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Location = new Point(90, 28) };
         var body = new MaterialLabel
         {
             Text = "Ezen a gépen nem fut a RemoteAgent szolgáltatás,\nezért a konzol nem használható.\n\nTelepítsd (újra) az agentet, majd indítsd újra a klienst.",
-            AutoSize = false, Location = new Point(28, 84), Size = new Size(414, 110),
+            AutoSize = false, Location = new Point(28, 84), Size = new Size(414, 100),
         };
-        card.Controls.AddRange([icon, title, body]);
+        _noAgentSupportLbl.AutoSize = false; _noAgentSupportLbl.Location = new Point(28, 192); _noAgentSupportLbl.Size = new Size(414, 48);
+        _noAgentSupportLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
+        card.Controls.AddRange([icon, title, body, _noAgentSupportLbl]);
         center.Controls.Add(card);
         _noAgentView.Controls.Add(center);
     }
@@ -242,11 +309,13 @@ public sealed class MainForm : MaterialForm
     private void BuildAuthView()
     {
         // Státusz-fejléc
-        var header = new MaterialCard { Dock = DockStyle.Top, Height = 92, Padding = new Padding(20) };
-        _serverNameLbl.Font = new Font("Segoe UI", 14F, FontStyle.Bold); _serverNameLbl.AutoSize = true; _serverNameLbl.Location = new Point(20, 16);
-        _onlineLbl.Text = "● …"; _onlineLbl.AutoSize = true; _onlineLbl.Location = new Point(22, 52);
-        _remoteLbl.AutoSize = true; _remoteLbl.Location = new Point(160, 52);
-        header.Controls.AddRange([_serverNameLbl, _onlineLbl, _remoteLbl]);
+        var header = new MaterialCard { Dock = DockStyle.Top, Height = 116, Padding = new Padding(20) };
+        _serverNameLbl.Font = new Font("Segoe UI", 14F, FontStyle.Bold); _serverNameLbl.AutoSize = true; _serverNameLbl.Location = new Point(20, 14);
+        _onlineLbl.Text = "● …"; _onlineLbl.AutoSize = true; _onlineLbl.Location = new Point(22, 50);
+        _remoteLbl.AutoSize = true; _remoteLbl.Location = new Point(160, 50);
+        _supportLbl.AutoSize = true; _supportLbl.Location = new Point(22, 78);
+        _supportLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
+        header.Controls.AddRange([_serverNameLbl, _onlineLbl, _remoteLbl, _supportLbl]);
 
         // Login + setup kártya egy középre igazító TableLayoutPanelben (egy cella, 100% kitöltés).
         var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1 };
@@ -287,14 +356,8 @@ public sealed class MainForm : MaterialForm
 
     private void BuildMainView()
     {
-        // --- Bal oldali menü-sáv: fent a szerver neve, középen a menü, lent a téma-kapcsoló ---
+        // --- Bal oldali menü-sáv: a menü + lent az online/verzió. A branding a kék címsorban van. ---
         var sidebar = new MaterialCard { Dock = DockStyle.Left, Width = 220, Margin = new Padding(0), Padding = new Padding(0) };
-
-        var brand = new Panel { Dock = DockStyle.Top, Height = 56 };
-        _mainServerLbl.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
-        _mainServerLbl.AutoSize = false; _mainServerLbl.Dock = DockStyle.Fill;
-        _mainServerLbl.TextAlign = ContentAlignment.MiddleLeft; _mainServerLbl.Padding = new Padding(14, 0, 8, 0);
-        brand.Controls.Add(_mainServerLbl);
 
         // Bal alsó sarok: Online-jelző + kliens verzió (a téma-kapcsoló átkerült a Beállításokba).
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 56 };
@@ -305,9 +368,16 @@ public sealed class MainForm : MaterialForm
         _verLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
         footer.Controls.AddRange([_envLbl, _verLbl]);
 
-        sidebar.Controls.Add(_nav);       // Fill
-        sidebar.Controls.Add(footer);     // Bottom
-        sidebar.Controls.Add(brand);      // Top
+        // Az online FELETT: secret-lejárat figyelmeztető (piros, csak ha aktuális).
+        _secretWarnLbl.AutoSize = true; _secretWarnLbl.MaximumSize = new Size(200, 0);
+        _secretWarnLbl.ForeColor = Color.IndianRed; _secretWarnLbl.Margin = new Padding(12, 6, 8, 6);
+        _secretWarnLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
+        _warnPanel.Padding = new Padding(0, 2, 0, 2);
+        _warnPanel.Controls.Add(_secretWarnLbl);
+
+        sidebar.Controls.Add(_nav);        // Fill
+        sidebar.Controls.Add(_warnPanel);  // Bottom (előbb adva → a footer FÖLÉ kerül)
+        sidebar.Controls.Add(footer);      // Bottom (utoljára → legalulra)
 
         _mainView.Controls.Add(_content); // Fill (jobb oldal)
         _mainView.Controls.Add(sidebar);  // Left
@@ -570,7 +640,7 @@ public sealed class MainForm : MaterialForm
             if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); _cleaned = true; Application.Exit(); return; }
         }
 
-        _mainServerLbl.Text = AgentInfo.ServerName();
+        ApplyBranding(); // kék címsor branding
 
         // Nézetek + menü létrehozása a jogosultság szerint (operator csak az Eszközöket látja).
         _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin");
@@ -582,11 +652,14 @@ public sealed class MainForm : MaterialForm
             _channelsView = new ChannelsView(_api!);
             _bootstrapView = new BootstrapView(_api!);
             _logView = new LogView(_api!);
+            _serverSettingsView = new ServerSettingsView(_api!);
             AddNav("Felhasználók", _usersView);
             AddNav("Csoportok", _groupsView);
             AddNav("Csatornák / MSI", _channelsView);
             AddNav("Bootstrap", _bootstrapView);
             AddNav("Napló", _logView);
+            AddNav("Szerver beállítások", _serverSettingsView);
+            _ = CheckSecretExpiryAsync();
         }
 
         // Beállítások + Névjegy MINDENKINEK (lokális beállítások; nem admin-függő).

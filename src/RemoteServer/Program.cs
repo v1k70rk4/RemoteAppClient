@@ -43,6 +43,8 @@ builder.Services.AddSingleton<MsiBuilder>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton<HelloChallengeStore>();
 builder.Services.AddSingleton<AccessResultStore>();
+builder.Services.AddScoped<IEmailSender, EmailSender>();
+builder.Services.AddHostedService<SecretExpiryWatcher>();
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -53,6 +55,10 @@ app.UseWebSockets();
 app.Use(async (ctx, next) =>
 {
     if (!ctx.Request.Path.StartsWithSegments("/admin")) { await next(); return; }
+
+    // A branding (tulajdonos + support) publikus a tunnelen át — bejelentkezés ELŐTT is kell.
+    // (Az nginx az /admin/-t csak localhostról, a tunnelen át engedi, így kintről nem elérhető.)
+    if (ctx.Request.Path.StartsWithSegments("/admin/branding")) { await next(); return; }
 
     var auth = ctx.RequestServices.GetRequiredService<AuthService>();
     var token = BearerToken(ctx);
@@ -875,6 +881,78 @@ app.MapDelete("/admin/tokens-list/{id:guid}", async (Guid id, HttpContext ctx, A
     return Results.NoContent();
 });
 
+// === Szerver-beállítások: branding (tulajdonos + support) + e-mail küldés ===
+app.MapGet("/admin/settings", async (AppDbContext db, CancellationToken ct) =>
+{
+    var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+    var info = new ServerSettingsInfo();
+    if (s is not null)
+    {
+        info.OwnerName = s.OwnerName; info.SupportPhone = s.SupportPhone; info.SupportEmail = s.SupportEmail;
+        info.EmailProvider = s.EmailProvider;
+        info.SmtpHost = s.SmtpHost; info.SmtpPort = s.SmtpPort; info.SmtpUseTls = s.SmtpUseTls;
+        info.SmtpUser = s.SmtpUser; info.SmtpFrom = s.SmtpFrom;
+        info.HasSmtpPassword = !string.IsNullOrEmpty(s.SmtpPasswordEnc);
+        info.GraphTenantId = s.GraphTenantId; info.GraphClientId = s.GraphClientId; info.GraphSender = s.GraphSender;
+        info.HasGraphSecret = !string.IsNullOrEmpty(s.GraphClientSecretEnc);
+        info.GraphSecretExpiresAt = s.GraphSecretExpiresAt;
+    }
+    return Results.Json(info, AgentJsonContext.Default.ServerSettingsInfo);
+});
+
+app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretProtector protector, CancellationToken ct) =>
+{
+    var upd = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.ServerSettingsInfo, ct);
+    if (upd is null) return Results.BadRequest();
+
+    var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+    if (s is null) { s = new ServerSettings(); db.ServerSettings.Add(s); }
+
+    s.OwnerName = Nz(upd.OwnerName); s.SupportPhone = Nz(upd.SupportPhone); s.SupportEmail = Nz(upd.SupportEmail);
+    s.EmailProvider = string.IsNullOrWhiteSpace(upd.EmailProvider) ? "none" : upd.EmailProvider.Trim().ToLowerInvariant();
+    s.SmtpHost = Nz(upd.SmtpHost); s.SmtpPort = upd.SmtpPort <= 0 ? 587 : upd.SmtpPort; s.SmtpUseTls = upd.SmtpUseTls;
+    s.SmtpUser = Nz(upd.SmtpUser); s.SmtpFrom = Nz(upd.SmtpFrom);
+    if (!string.IsNullOrEmpty(upd.SmtpPassword)) s.SmtpPasswordEnc = protector.Protect(upd.SmtpPassword);
+    s.GraphTenantId = Nz(upd.GraphTenantId); s.GraphClientId = Nz(upd.GraphClientId); s.GraphSender = Nz(upd.GraphSender);
+    if (!string.IsNullOrEmpty(upd.GraphClientSecret)) s.GraphClientSecretEnc = protector.Protect(upd.GraphClientSecret);
+
+    // Secret lejárat: max 2 év a mostantól. Ha változott a lejárat → újra figyelmeztethetünk.
+    var prevExpiry = s.GraphSecretExpiresAt;
+    if (upd.GraphSecretExpiresAt is { } exp)
+    {
+        var max = DateTimeOffset.UtcNow.AddYears(2);
+        s.GraphSecretExpiresAt = exp > max ? max : exp;
+    }
+    else s.GraphSecretExpiresAt = null;
+    if (s.GraphSecretExpiresAt != prevExpiry) s.SecretExpiryNotifiedAt = null;
+
+    await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "settings-update", null, null);
+    return Results.NoContent();
+
+    static string? Nz(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+});
+
+app.MapPost("/admin/settings/test-email", async (HttpContext ctx, AppDbContext db, IEmailSender email, CancellationToken ct) =>
+{
+    var req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.TestEmailRequest, ct);
+    if (req is null || string.IsNullOrWhiteSpace(req.To)) return Results.BadRequest(new { error = "no_recipient" });
+
+    var (ok, err) = await email.SendAsync(req.To.Trim(),
+        "RemoteAppClient teszt e-mail",
+        "Ez egy teszt e-mail a RemoteAppClient szerver-beállításokból. Ha megkaptad, a küldés működik.", ct);
+    await AuditAsync(db, ctx, "settings-test-email", null, ok ? req.To.Trim() : $"hiba: {err}");
+    return ok ? Results.Ok(new { ok = true }) : Results.Problem(err ?? "send_failed");
+});
+
+// Publikus branding (a tunnelen át, bejelentkezés ELŐTT is) — az auth-gate kivételt ad rá.
+app.MapGet("/admin/branding", async (AppDbContext db, CancellationToken ct) =>
+{
+    var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+    var b = new BrandingInfo { OwnerName = s?.OwnerName, SupportPhone = s?.SupportPhone, SupportEmail = s?.SupportEmail };
+    return Results.Json(b, AgentJsonContext.Default.BrandingInfo);
+});
+
 // === MSI-gyártás: egy csoporthoz, egy csatorna aktuális exéiből (wixl) ===
 // Lerakja az agent+updater exét + a group bootstrap.dat-ját, és install-service-szel telepít.
 app.MapPost("/admin/msi", async (
@@ -925,7 +1003,8 @@ app.MapPost("/admin/msi", async (
     var (rawToken, tokenEntity) = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = rawToken });
 
-    var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ct);
+    var ownerName = (await db.ServerSettings.FirstOrDefaultAsync(ct))?.OwnerName;
+    var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ownerName, ct);
     if (!res.Ok) return Results.Problem(res.Error ?? "msi_failed");
 
     // A blobot a generált MSI-hez kötjük → a bootstrap nézet megmutatja, melyik MSI-hez tartozik.

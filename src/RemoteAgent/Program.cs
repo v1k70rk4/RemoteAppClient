@@ -21,9 +21,17 @@ if (args is ["provision-vnc", ..])
 if (args is ["vnc-lock", ..]) return RemoteAgent.Vnc.VncLock.Lock();
 if (args is ["vnc-unlock", ..]) return RemoteAgent.Vnc.VncLock.Unlock();
 
-// Service telepítése/eltávolítása (admin kell).
-if (args is ["install-service", ..]) return await RemoteAgent.ServiceControl.InstallAsync();
+// Service telepítése/eltávolítása (admin kell). Opcionális: --owner "<név>" --group "<csoport>"
+// → a megjelenített szolgáltatás-név "{owner} RemoteAppClient Agent ({group})".
+if (args is ["install-service", ..])
+    return await RemoteAgent.ServiceControl.InstallAsync(ArgVal(args, "--owner"), ArgVal(args, "--group"));
 if (args is ["uninstall-service", ..]) return await RemoteAgent.ServiceControl.UninstallAsync();
+
+static string? ArgVal(string[] a, string flag)
+{
+    var i = Array.IndexOf(a, flag);
+    return i >= 0 && i + 1 < a.Length ? a[i + 1] : null;
+}
 
 // "bootstrap <blob>" mód: token nélküli ön-telepítés előkészítése (lerakja a bootstrap.dat-ot).
 if (args is ["bootstrap", var bootstrapBlob, ..])

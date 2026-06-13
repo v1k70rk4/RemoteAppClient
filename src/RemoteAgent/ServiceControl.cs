@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace RemoteAgent;
 
@@ -12,7 +13,7 @@ public static class ServiceControl
     public const string ServiceName = "RemoteAgent";
     public const string UpdaterServiceName = "RemoteAgent.Updater";
 
-    public static async Task<int> InstallAsync()
+    public static async Task<int> InstallAsync(string? owner = null, string? group = null)
     {
         var exe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exe))
@@ -21,17 +22,27 @@ public static class ServiceControl
             return 1;
         }
 
-        var rc = await InstallServiceAsync(ServiceName, exe, "RemoteAppClient Agent", "RemoteAppClient távelérő agent.");
+        var rc = await InstallServiceAsync(ServiceName, exe, ComposeDisplay(owner, "Agent", group), "RemoteAppClient távelérő agent.");
         if (rc != 0) return rc;
 
         // Updater service is, ha az exe ott van az agent mellett.
         var updaterExe = Path.Combine(Path.GetDirectoryName(exe)!, "RemoteAgent.Updater.exe");
         if (File.Exists(updaterExe))
-            await InstallServiceAsync(UpdaterServiceName, updaterExe, "RemoteAppClient Updater", "RemoteAppClient self-update service.");
+            await InstallServiceAsync(UpdaterServiceName, updaterExe, ComposeDisplay(owner, "Updater", group), "RemoteAppClient self-update service.");
         else
             Console.WriteLine("(RemoteAgent.Updater.exe nincs az agent mellett — az Updater service kihagyva.)");
 
         return 0;
+    }
+
+    /// <summary>Megjelenített szolgáltatás-név: "{Owner} RemoteAppClient {component} ({group})" (owner/group opcionális).</summary>
+    private static string ComposeDisplay(string? owner, string component, string? group)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(owner)) sb.Append(owner.Trim()).Append(' ');
+        sb.Append("RemoteAppClient ").Append(component);
+        if (!string.IsNullOrWhiteSpace(group)) sb.Append(" (").Append(group.Trim()).Append(')');
+        return sb.ToString();
     }
 
     public static async Task<int> UninstallAsync()

@@ -261,3 +261,46 @@ public sealed class AccessResultInfo
     [JsonPropertyName("outcome")]
     public string Outcome { get; set; } = string.Empty;
 }
+
+/// <summary>Szerver-szintű beállítások (admin GET/PUT). A titkok SOSEM utaznak vissza — helyettük Has* flag.</summary>
+public sealed class ServerSettingsInfo
+{
+    [JsonPropertyName("ownerName")] public string? OwnerName { get; set; }
+    [JsonPropertyName("supportPhone")] public string? SupportPhone { get; set; }
+    [JsonPropertyName("supportEmail")] public string? SupportEmail { get; set; }
+
+    /// <summary>"none" | "smtp" | "graph".</summary>
+    [JsonPropertyName("emailProvider")] public string EmailProvider { get; set; } = "none";
+
+    [JsonPropertyName("smtpHost")] public string? SmtpHost { get; set; }
+    [JsonPropertyName("smtpPort")] public int SmtpPort { get; set; } = 587;
+    [JsonPropertyName("smtpUseTls")] public bool SmtpUseTls { get; set; } = true;
+    [JsonPropertyName("smtpUser")] public string? SmtpUser { get; set; }
+    [JsonPropertyName("smtpFrom")] public string? SmtpFrom { get; set; }
+    /// <summary>PUT: üres = változatlan; GET: mindig null. A meglét jelzése Has* flagben.</summary>
+    [JsonPropertyName("smtpPassword")] public string? SmtpPassword { get; set; }
+    [JsonPropertyName("hasSmtpPassword")] public bool HasSmtpPassword { get; set; }
+
+    [JsonPropertyName("graphTenantId")] public string? GraphTenantId { get; set; }
+    [JsonPropertyName("graphClientId")] public string? GraphClientId { get; set; }
+    [JsonPropertyName("graphSender")] public string? GraphSender { get; set; }
+    /// <summary>PUT: üres = változatlan; GET: mindig null.</summary>
+    [JsonPropertyName("graphClientSecret")] public string? GraphClientSecret { get; set; }
+    [JsonPropertyName("hasGraphSecret")] public bool HasGraphSecret { get; set; }
+    /// <summary>A Graph client secret lejárati ideje (max 2 év a mentés pillanatától).</summary>
+    [JsonPropertyName("graphSecretExpiresAt")] public DateTimeOffset? GraphSecretExpiresAt { get; set; }
+}
+
+/// <summary>Teszt-e-mail kérés (admin): az aktív providerrel küld a megadott címre.</summary>
+public sealed class TestEmailRequest
+{
+    [JsonPropertyName("to")] public string To { get; set; } = string.Empty;
+}
+
+/// <summary>Publikus branding (bejelentkezés előtt is): tulajdonos + support. Küldő-konfig nélkül.</summary>
+public sealed class BrandingInfo
+{
+    [JsonPropertyName("ownerName")] public string? OwnerName { get; set; }
+    [JsonPropertyName("supportPhone")] public string? SupportPhone { get; set; }
+    [JsonPropertyName("supportEmail")] public string? SupportEmail { get; set; }
+}

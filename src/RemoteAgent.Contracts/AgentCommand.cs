@@ -138,4 +138,7 @@ public static class CommandTypes
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.GroupInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.ChannelPackageInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.BootstrapTokenInfo>))]
+[JsonSerializable(typeof(Admin.ServerSettingsInfo))]
+[JsonSerializable(typeof(Admin.TestEmailRequest))]
+[JsonSerializable(typeof(Admin.BrandingInfo))]
 public sealed partial class AgentJsonContext : JsonSerializerContext;

@@ -208,6 +208,34 @@ public sealed class AdminApi : IDisposable
         return await _http.GetFromJsonAsync($"/admin/audit?{string.Join("&", q)}", AgentJsonContext.Default.ListAuditEntryInfo, ct) ?? [];
     }
 
+    // --- Szerver-beállítások (branding + e-mail) ---
+    public async Task<ServerSettingsInfo> GetSettingsAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync("/admin/settings", AgentJsonContext.Default.ServerSettingsInfo, ct) ?? new ServerSettingsInfo();
+
+    public async Task UpdateSettingsAsync(ServerSettingsInfo s, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(s, AgentJsonContext.Default.ServerSettingsInfo);
+        using var resp = await _http.PutAsync("/admin/settings", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Teszt-e-mail az aktív providerrel. (ok, error) — error a szerver hibaüzenete.</summary>
+    public async Task<(bool Ok, string? Error)> TestEmailAsync(string to, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new TestEmailRequest { To = to }, AgentJsonContext.Default.TestEmailRequest);
+        using var resp = await _http.PostAsync("/admin/settings/test-email", content, ct);
+        if (resp.IsSuccessStatusCode) return (true, null);
+        string body = ""; try { body = await resp.Content.ReadAsStringAsync(ct); } catch { /* ignore */ }
+        return (false, string.IsNullOrWhiteSpace(body) ? $"HTTP {(int)resp.StatusCode}" : body);
+    }
+
+    /// <summary>Publikus branding (a tunnelen át, bejelentkezés előtt is). Null hiba esetén.</summary>
+    public async Task<BrandingInfo?> GetBrandingAsync(CancellationToken ct = default)
+    {
+        try { return await _http.GetFromJsonAsync("/admin/branding", AgentJsonContext.Default.BrandingInfo, ct); }
+        catch { return null; }
+    }
+
     /// <summary>A hozzáférés-kérés kimenetele (nonce alapján). Üres = még nincs válasz (várj tovább).</summary>
     public async Task<string> GetAccessResultAsync(string nonce, CancellationToken ct = default)
     {

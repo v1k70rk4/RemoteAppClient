@@ -19,6 +19,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ReleasePackage> ReleasePackages => Set<ReleasePackage>();
     public DbSet<RemoteSession> RemoteSessions => Set<RemoteSession>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<ServerSettings> ServerSettings => Set<ServerSettings>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using MaterialSkin;
 using MaterialSkin.Controls;
@@ -69,6 +70,18 @@ public sealed class AboutView : UserControl, IContentView
         _row++;
     }
 
+    /// <summary>Kattintható e-mail sor (mailto:).</summary>
+    private void RowMail(string caption, string email)
+    {
+        var cap = new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 3, 24, 0) };
+        var val = new MaterialLabel { Text = email, AutoSize = true, Margin = new Padding(0, 3, 0, 0), ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
+        val.Font = new Font(val.Font, FontStyle.Underline);
+        val.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("mailto:" + email) { UseShellExecute = true }); } catch { /* nincs levelező */ } };
+        _tbl.Controls.Add(cap, 0, _row);
+        _tbl.Controls.Add(val, 1, _row);
+        _row++;
+    }
+
     private async Task LoadAsync()
     {
         _status.Text = "Állapot lekérése…";
@@ -92,6 +105,15 @@ public sealed class AboutView : UserControl, IContentView
         Section("Szerver");
         Row("Cím", AgentInfo.ServerName());
         Row("Frissítési csatorna", string.Equals(_cfg.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
+
+        var brand = BrandingCache.Load();
+        if (brand is not null && (!string.IsNullOrWhiteSpace(brand.OwnerName) || !string.IsNullOrWhiteSpace(brand.SupportPhone) || !string.IsNullOrWhiteSpace(brand.SupportEmail)))
+        {
+            Section("Támogatás");
+            if (!string.IsNullOrWhiteSpace(brand.OwnerName)) Row("Tulajdonos", brand.OwnerName!);
+            if (!string.IsNullOrWhiteSpace(brand.SupportPhone)) Row("Telefon", brand.SupportPhone!);
+            if (!string.IsNullOrWhiteSpace(brand.SupportEmail)) RowMail("E-mail", brand.SupportEmail!);
+        }
 
         Section("Komponensek (ezen a gépen)");
         Row("Agent", s is null ? "—" : $"{s.Version} · {(s.C2Connected ? "fut, online" : "fut")}", s is null ? Color.Gray : Color.MediumSeaGreen);

@@ -292,5 +292,34 @@ ALTER TABLE `Devices` ADD `PublicIpAddress` longtext CHARACTER SET utf8mb4 NULL;
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260613183100_DevicePublicIp', '9.0.0');
 
+CREATE TABLE `ServerSettings` (
+    `Id` char(36) COLLATE ascii_general_ci NOT NULL,
+    `OwnerName` longtext CHARACTER SET utf8mb4 NULL,
+    `SupportPhone` longtext CHARACTER SET utf8mb4 NULL,
+    `SupportEmail` longtext CHARACTER SET utf8mb4 NULL,
+    `EmailProvider` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `SmtpHost` longtext CHARACTER SET utf8mb4 NULL,
+    `SmtpPort` int NOT NULL,
+    `SmtpUseTls` tinyint(1) NOT NULL,
+    `SmtpUser` longtext CHARACTER SET utf8mb4 NULL,
+    `SmtpFrom` longtext CHARACTER SET utf8mb4 NULL,
+    `SmtpPasswordEnc` longtext CHARACTER SET utf8mb4 NULL,
+    `GraphTenantId` longtext CHARACTER SET utf8mb4 NULL,
+    `GraphClientId` longtext CHARACTER SET utf8mb4 NULL,
+    `GraphSender` longtext CHARACTER SET utf8mb4 NULL,
+    `GraphClientSecretEnc` longtext CHARACTER SET utf8mb4 NULL,
+    CONSTRAINT `PK_ServerSettings` PRIMARY KEY (`Id`)
+) CHARACTER SET=utf8mb4;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613193551_ServerSettings', '9.0.0');
+
+ALTER TABLE `ServerSettings` ADD `GraphSecretExpiresAt` datetime(6) NULL;
+
+ALTER TABLE `ServerSettings` ADD `SecretExpiryNotifiedAt` datetime(6) NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613201701_SecretExpiry', '9.0.0');
+
 COMMIT;
 

@@ -30,7 +30,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
 
     public async Task<Result> BuildAsync(
         string agentExe, string? updaterExe, string? clientExe, string bootstrapBlob,
-        string version, string label, bool startMenuShortcut, CancellationToken ct)
+        string version, string label, bool startMenuShortcut, string? ownerName, CancellationToken ct)
     {
         var work = Path.Combine(_opt.PackagesDir, "msi-build", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);
@@ -42,7 +42,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var iconPath = await TryWriteIconAsync(work, ct); // null, ha nincs beágyazott ikon
 
             var wxsPath = Path.Combine(work, "product.wxs");
-            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, clientExe, bootstrapPath, iconPath, SanitizeVersion(version), label, startMenuShortcut), ct);
+            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, clientExe, bootstrapPath, iconPath, SanitizeVersion(version), label, startMenuShortcut, ownerName), ct);
 
             var fileName = $"RemoteAppClient-{Sanitize(label)}-{SanitizeVersion(version)}.msi";
             var outPath = Path.Combine(_opt.PackagesDir, fileName);
@@ -86,7 +86,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         catch { return null; }
     }
 
-    private string GenerateWxs(string agentExe, string? updaterExe, string? clientExe, string bootstrapPath, string? iconPath, string version, string label, bool startMenuShortcut)
+    private string GenerateWxs(string agentExe, string? updaterExe, string? clientExe, string bootstrapPath, string? iconPath, string version, string label, bool startMenuShortcut, string? ownerName)
     {
         bool hasClient = !string.IsNullOrWhiteSpace(clientExe);
         bool hasIcon = !string.IsNullOrWhiteSpace(iconPath);
@@ -161,7 +161,10 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
 
         // A service-telepítést maga az agent végzi (mindkét service + SCM-recovery), nem az MSI deklaratívan.
         // Telepítés: a frissen telepített exe futtatása (type 18 FileKey — telepítéskor működik).
-        sb.AppendLine("""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service" Execute="deferred" Impersonate="no" Return="check" />""");
+        // A megjelenített szolgáltatás-nevet az agent komponálja az átadott owner+group argokból.
+        var ownerArg = string.IsNullOrWhiteSpace(ownerName) ? "" : $" --owner &quot;{X(AsciiFold(ownerName!))}&quot;";
+        var groupArg = $" --group &quot;{X(AsciiFold(label))}&quot;";
+        sb.AppendLine($"""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service{ownerArg}{groupArg}" Execute="deferred" Impersonate="no" Return="check" />""");
         // Eltávolítás: a FileKey (type 18) eltávolításkor 2753-at ad ("nincs telepítésre jelölve"),
         // ezért az exe útvonalát property-ből (CustomActionData) adjuk át. A KVÓTÁZOTT út kezeli a szóközt.
         sb.AppendLine("""    <CustomAction Id="CA.SetUninst" Property="CA.UninstallSvc" Value="&quot;[#F.Agent]&quot;" Execute="immediate" />""");
