@@ -269,5 +269,10 @@ ALTER TABLE `EnrollmentTokens` ADD `MsiFileName` longtext CHARACTER SET utf8mb4 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260613120900_TokenMsiFileName', '9.0.0');
 
+ALTER TABLE `Users` ADD `Name` longtext CHARACTER SET utf8mb4 NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613150608_UserDisplayName', '9.0.0');
+
 COMMIT;
 

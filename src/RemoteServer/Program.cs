@@ -913,7 +913,7 @@ app.MapGet("/admin/users", async (AppDbContext db, CancellationToken ct) =>
         .GroupBy(c => c.UserId).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count, ct);
     var list = users.Select(u => new UserInfo
     {
-        Id = u.Id, Username = u.Username, Email = u.Email, Role = AuthService.RoleOf(u),
+        Id = u.Id, Username = u.Username, Name = u.Name, Email = u.Email, Role = AuthService.RoleOf(u),
         IsActive = u.IsActive, MustChangePassword = u.MustChangePassword, TotpConfirmed = u.TotpConfirmed, LastLoginAt = u.LastLoginAt,
         HelloCount = hello.GetValueOrDefault(u.Id),
     }).ToList();
@@ -931,7 +931,7 @@ app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, Cancellatio
     if (await db.Users.AnyAsync(u => u.Username == req.Username, ct)) return Results.Conflict(new { error = "username_taken" });
 
     var temp = TempPw();
-    var user = new User { Username = req.Username.Trim(), Email = req.Email, PasswordHash = PasswordHasher.Hash(temp), MustChangePassword = true };
+    var user = new User { Username = req.Username.Trim(), Name = string.IsNullOrWhiteSpace(req.Name) ? null : req.Name.Trim(), Email = req.Email, PasswordHash = PasswordHasher.Hash(temp), MustChangePassword = true };
     db.Users.Add(user);
     await db.SaveChangesAsync(ct);
     await SetRoleAsync(db, user.Id, role, ct);
@@ -955,6 +955,7 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
     if (id == me.Id && upd.Role == "operator") return Results.BadRequest(new { error = "self_demote" });
 
     if (upd.Role is "admin" or "operator") await SetRoleAsync(db, id, upd.Role, ct);
+    if (upd.Name is not null) user.Name = upd.Name.Trim().Length == 0 ? null : upd.Name.Trim();
     if (upd.IsActive is { } act)
     {
         user.IsActive = act;

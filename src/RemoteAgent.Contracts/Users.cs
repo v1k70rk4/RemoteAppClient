@@ -7,6 +7,7 @@ public sealed class UserInfo
 {
     [JsonPropertyName("id")] public Guid Id { get; set; }
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("email")] public string? Email { get; set; }
     [JsonPropertyName("role")] public string Role { get; set; } = string.Empty;
     [JsonPropertyName("isActive")] public bool IsActive { get; set; }
@@ -22,6 +23,7 @@ public sealed class UserInfo
 public sealed class CreateUserRequest
 {
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("email")] public string? Email { get; set; }
     [JsonPropertyName("role")] public string Role { get; set; } = "operator"; // admin | operator
 }
@@ -33,9 +35,10 @@ public sealed class CreateUserResponse
     [JsonPropertyName("tempPassword")] public string TempPassword { get; set; } = string.Empty;
 }
 
-/// <summary>User módosítása (szerep / aktív). A null mezők változatlanok.</summary>
+/// <summary>User módosítása (név / szerep / aktív). A null mezők változatlanok.</summary>
 public sealed class UserUpdate
 {
+    [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("role")] public string? Role { get; set; }
     [JsonPropertyName("isActive")] public bool? IsActive { get; set; }
 }

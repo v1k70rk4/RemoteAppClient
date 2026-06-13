@@ -2,10 +2,10 @@ using System.Drawing;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
 
-namespace RemoteClient;
+namespace RemoteClient.Views;
 
-/// <summary>Egy felhasználó grantjainak kezelése: csoport- vagy gép-szintű hozzáférés ad/elvesz.</summary>
-public sealed class GrantsForm : MaterialForm
+/// <summary>Egy felhasználó grantjai (csoport/gép hozzáférés) — beágyazható panel a user-szerkesztő „Jogosultságok" füléhez.</summary>
+public sealed class GrantsPanel : UserControl
 {
     private readonly AdminApi _api;
     private readonly Guid _userId;
@@ -13,27 +13,24 @@ public sealed class GrantsForm : MaterialForm
     private readonly MaterialComboBox _groups = new() { Hint = "Csoport" };
     private readonly MaterialComboBox _devices = new() { Hint = "Gép" };
     private readonly MaterialLabel _status = new();
+    private bool _loaded;
 
     private sealed record GroupItem(Guid Id, string Name) { public override string ToString() => Name; }
     private sealed record DeviceItem(string DeviceId, string Name) { public override string ToString() => Name; }
 
-    public GrantsForm(AdminApi api, Guid userId, string username)
+    public GrantsPanel(AdminApi api, Guid userId)
     {
         _api = api; _userId = userId;
-        ThemeManager.Skin.AddFormToManage(this);
-        Text = $"Jogosultságok — {username}";
-        Sizable = false;
-        Width = 580; Height = 520;
-        StartPosition = FormStartPosition.CenterParent;
+        Dock = DockStyle.Fill;
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill;
+        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill; _list.BorderStyle = BorderStyle.None;
         _list.Columns.Add("Típus", 90);
         _list.Columns.Add("Név / Gép", 440);
-        ThemeManager.StyleList(_list);
 
         var remove = new MaterialButton { Text = "Kijelölt elvétele", AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         remove.Click += async (_, _) => await RemoveSelectedAsync();
-        var removeRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(8, 8, 8, 0), WrapContents = false };
+        // A táblázat ALÁ, JOBBRA igazítva.
+        var removeRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(8, 8, 8, 0), WrapContents = false, FlowDirection = FlowDirection.RightToLeft };
         removeRow.Controls.Add(remove);
 
         _groups.Width = 250;
@@ -48,34 +45,38 @@ public sealed class GrantsForm : MaterialForm
         var deviceRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
         deviceRow.Controls.AddRange([_devices, addDevice]);
 
-        var bottom = new MaterialCard { Dock = DockStyle.Bottom, Height = 48, Margin = new Padding(0) };
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 32 };
         _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true;
         _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
         bottom.Controls.Add(_status);
 
-        // Dokk-sorrend: Fill először, majd a Bottom-sorok fentről lefelé (első Bottom = lista alá,
-        // utolsó = legalsó szél), végül a Top-sor (legfelülre, a lista fölé).
+        // _list (Fill) elsőként; a Bottom-sorok közül az ELSŐként hozzáadott (removeRow) kerül
+        // legfelülre (közvetlenül a lista alá), a státusz pedig a legaljára.
         Controls.Add(_list);
+        Controls.Add(removeRow);
         Controls.Add(groupRow);
         Controls.Add(deviceRow);
         Controls.Add(bottom);
-        Controls.Add(removeRow);
-
-        Load += async (_, _) => await InitAsync();
     }
 
-    private async Task InitAsync()
+    /// <summary>A fül megnyitásakor hívjuk: első alkalommal betölt, utána frissít.</summary>
+    public async Task ShownAsync()
     {
-        try
+        ThemeManager.StyleList(_list);
+        if (!_loaded)
         {
-            foreach (var g in await _api.GetGroupsAsync()) _groups.Items.Add(new GroupItem(g.Id, g.Name));
-            if (_groups.Items.Count > 0) _groups.SelectedIndex = 0;
-            foreach (var d in await _api.GetDevicesAsync())
-                _devices.Items.Add(new DeviceItem(d.DeviceId, string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname));
-            if (_devices.Items.Count > 0) _devices.SelectedIndex = 0;
-            await RefreshAsync();
+            _loaded = true;
+            try
+            {
+                foreach (var g in await _api.GetGroupsAsync()) _groups.Items.Add(new GroupItem(g.Id, g.Name));
+                if (_groups.Items.Count > 0) _groups.SelectedIndex = 0;
+                foreach (var d in await _api.GetDevicesAsync())
+                    _devices.Items.Add(new DeviceItem(d.DeviceId, string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname));
+                if (_devices.Items.Count > 0) _devices.SelectedIndex = 0;
+            }
+            catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
         }
-        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+        await RefreshAsync();
     }
 
     private async Task RefreshAsync()

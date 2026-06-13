@@ -7,10 +7,12 @@ namespace RemoteClient;
 public sealed class NewUserForm : MaterialForm
 {
     private readonly MaterialTextBox2 _username = new() { Hint = "Felhasználónév" };
+    private readonly MaterialTextBox2 _name = new() { Hint = "Megjelenítendő név (pl. Révész Viktor)" };
     private readonly MaterialTextBox2 _email = new() { Hint = "E-mail (opcionális)" };
     private readonly MaterialComboBox _role = new() { Hint = "Szerep" };
 
     public string Username => _username.Text.Trim();
+    public string? Name => string.IsNullOrWhiteSpace(_name.Text) ? null : _name.Text.Trim();
     public string? Email => string.IsNullOrWhiteSpace(_email.Text) ? null : _email.Text.Trim();
     public string Role => (string)_role.SelectedItem!;
 
@@ -19,12 +21,12 @@ public sealed class NewUserForm : MaterialForm
         ThemeManager.Skin.AddFormToManage(this);
         Text = "Új felhasználó";
         Sizable = false;
-        Width = 420; Height = 320;
+        Width = 420; Height = 380;
         StartPosition = FormStartPosition.CenterParent;
 
         var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(20, 16, 20, 8) };
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        foreach (var c in new Control[] { _username, _email, _role })
+        foreach (var c in new Control[] { _username, _name, _email, _role })
         {
             c.Dock = DockStyle.Top; c.Margin = new Padding(3, 6, 3, 6);
             body.RowStyles.Add(new RowStyle(SizeType.AutoSize));

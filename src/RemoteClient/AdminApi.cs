@@ -351,17 +351,17 @@ public sealed class AdminApi : IDisposable
     public async Task<List<UserInfo>> GetUsersAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/users", AgentJsonContext.Default.ListUserInfo, ct) ?? [];
 
-    public async Task<CreateUserResponse> CreateUserAsync(string username, string? email, string role, CancellationToken ct = default)
+    public async Task<CreateUserResponse> CreateUserAsync(string username, string? email, string role, string? name = null, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new CreateUserRequest { Username = username, Email = email, Role = role }, AgentJsonContext.Default.CreateUserRequest);
+        using var content = JsonContent.Create(new CreateUserRequest { Username = username, Email = email, Role = role, Name = name }, AgentJsonContext.Default.CreateUserRequest);
         using var resp = await _http.PostAsync("/admin/users", content, ct);
         resp.EnsureSuccessStatusCode();
         return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.CreateUserResponse, ct))!;
     }
 
-    public async Task UpdateUserAsync(Guid id, string? role, bool? isActive, CancellationToken ct = default)
+    public async Task UpdateUserAsync(Guid id, string? role, bool? isActive, string? name = null, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new UserUpdate { Role = role, IsActive = isActive }, AgentJsonContext.Default.UserUpdate);
+        using var content = JsonContent.Create(new UserUpdate { Role = role, IsActive = isActive, Name = name }, AgentJsonContext.Default.UserUpdate);
         using var resp = await _http.PutAsync($"/admin/users/{id}", content, ct);
         resp.EnsureSuccessStatusCode();
     }

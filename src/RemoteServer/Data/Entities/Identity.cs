@@ -7,6 +7,9 @@ public sealed class User
     public string Username { get; set; } = string.Empty;
     public string? Email { get; set; }
 
+    /// <summary>Megjelenítendő név (pl. „Révész Viktor"). Ez látszik majd a hozzájárulás-kérésben és a logban.</summary>
+    public string? Name { get; set; }
+
     /// <summary>Argon2id hash. Soha nem plaintext.</summary>
     public string PasswordHash { get; set; } = string.Empty;
 
