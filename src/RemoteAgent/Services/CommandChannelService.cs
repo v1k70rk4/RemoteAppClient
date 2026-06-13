@@ -19,6 +19,7 @@ public sealed class CommandChannelService(
     IOptions<AgentOptions> options,
     CommandVerifier verifier,
     CommandBus bus,
+    AgentStatusState status,
     ILogger<CommandChannelService> logger) : BackgroundService
 {
     private readonly CommandChannelOptions _opt = options.Value.CommandChannel;
@@ -50,6 +51,7 @@ public sealed class CommandChannelService(
             {
                 logger.LogWarning(ex, "Parancscsatorna hiba, újracsatlakozás {Delay}s múlva.", delay.TotalSeconds);
             }
+            finally { status.SetC2Connected(false); } // lekapcsolódtunk → a status-pipe ezt mutatja
 
             try { await Task.Delay(delay, stoppingToken); }
             catch (OperationCanceledException) { break; }
@@ -79,6 +81,7 @@ public sealed class CommandChannelService(
         logger.LogInformation("Csatlakozás a parancscsatornához: {Url}", _opt.Url);
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
         logger.LogInformation("Parancscsatorna él.");
+        status.SetC2Connected(true); // a status-pipe ezt jelzi a kliensnek
 
         var buffer = new byte[8192];
         var message = new MemoryStream();

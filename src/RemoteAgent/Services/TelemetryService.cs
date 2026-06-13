@@ -16,6 +16,7 @@ namespace RemoteAgent.Services;
 public sealed class TelemetryService(
     IOptions<AgentOptions> options,
     SystemInfoCollector collector,
+    AgentStatusState status,
     ILogger<TelemetryService> logger) : BackgroundService
 {
     private readonly TelemetryOptions _opt = options.Value.Telemetry;
@@ -42,7 +43,10 @@ public sealed class TelemetryService(
                     _opt.IngestUrl, payload, AgentJsonContext.Default.TelemetryPayload, stoppingToken);
 
                 if (resp.IsSuccessStatusCode)
+                {
+                    status.MarkServerContact(); // a status-pipe „utolsó szerver-kontakt"-ja
                     logger.LogDebug("Telemetria elküldve.");
+                }
                 else
                     logger.LogWarning("Telemetria elutasítva: HTTP {Code}", (int)resp.StatusCode);
             }

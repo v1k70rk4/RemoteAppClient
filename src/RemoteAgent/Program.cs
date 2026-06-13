@@ -81,6 +81,7 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
 // Megosztott állapot és infrastruktúra.
 builder.Services.AddSingleton<CommandBus>();
 builder.Services.AddSingleton<TunnelState>();
+builder.Services.AddSingleton<AgentStatusState>();
 builder.Services.AddSingleton<CommandVerifier>();
 builder.Services.AddSingleton<SystemInfoCollector>();
 builder.Services.AddSingleton<RemoteAgent.Update.UpdateInstaller>();
@@ -93,6 +94,7 @@ builder.Services.AddHostedService<VncProvisioningService>();
 builder.Services.AddHostedService<HeartbeatService>();
 builder.Services.AddHostedService<HelperUpdateWatcher>();
 builder.Services.AddHostedService<BrokerService>();
+builder.Services.AddHostedService<StatusPipeService>();
 
 // Token nélküli ön-telepítés: ha nincs enrollment, de van bootstrap.dat, beléptet MOST —
 // a host felépülése (és a PostConfigure enrollment.json-olvasása) ELŐTT.

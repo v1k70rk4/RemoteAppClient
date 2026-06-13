@@ -1,5 +1,7 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using RemoteAgent.Admin;
 using RemoteAgent.Commands;
 
@@ -11,11 +13,83 @@ public sealed class AuthException(string code) : Exception(code)
     public string Code { get; } = code;
 }
 
-/// <summary>A szerver admin API-ja, az SSH-forwardolt localhost porton keresztül.</summary>
-public sealed class AdminApi(string baseUrl) : IDisposable
+/// <summary>
+/// A szerver admin API-ja az SSH-forwardolt localhost porton keresztül. A forwardot a HELYI agent
+/// brókere adja (<paramref name="openForward"/>). A kapcsolat ÖNGYÓGYÍTÓ: ha a tunnel meghal (pl. a gép
+/// alvása után a 127.0.0.1 port elutasít), a ConnectCallback automatikusan kér egy FRISS forwardot és
+/// újrapróbál — a hívó hibaüzenet helyett (pár mp ssh-handshake késéssel) működő választ kap.
+/// </summary>
+public sealed class AdminApi : IDisposable
 {
-    // 10 perc: a nagy exe-feltöltés / MSI-gyártás belefér (a sima lekérdezések így is gyorsak).
-    private readonly HttpClient _http = new() { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromMinutes(10) };
+    private readonly Func<CancellationToken, Task<int>> _openForward;
+    private readonly SemaphoreSlim _forwardGate = new(1, 1);
+    private volatile int _port; // az aktuális helyi forward-port; 0 = még nincs / újra kell nyitni
+    private readonly HttpClient _http;
+
+    public AdminApi(Func<CancellationToken, Task<int>> openForward)
+    {
+        _openForward = openForward;
+        var handler = new SocketsHttpHandler
+        {
+            ConnectCallback = ConnectAsync,
+            // Alvás után a poolban maradt kapcsolat holt; a ConnectCallback csak ÚJ kapcsolatra fut.
+            // Rövid idle-timeouttal a (mindig >15s) alvás után biztosan friss kapcsolat épül → újraforward.
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(15),
+        };
+        // 10 perc: a nagy exe-feltöltés / MSI-gyártás belefér (a sima lekérdezések így is gyorsak).
+        // A BaseAddress hosztja lényegtelen — a tényleges célt a ConnectCallback dönti el (a friss port).
+        _http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1"), Timeout = TimeSpan.FromMinutes(10) };
+    }
+
+    /// <summary>Kapcsolat felépítése a tunnel aktuális portjához; halott tunnelnél friss forward + újrapróba.</summary>
+    private async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext _, CancellationToken ct)
+    {
+        int port = _port;
+        if (port != 0)
+        {
+            try { return await DialAsync(port, ct); }
+            catch (SocketException) { /* halott tunnel (alvás után) → lent friss forward */ }
+            catch (IOException) { }
+        }
+
+        await _forwardGate.WaitAsync(ct);
+        try
+        {
+            // Lehet, hogy közben egy másik hívás már újranyitotta — próbáljuk azt előbb.
+            if (_port != 0 && _port != port)
+            {
+                try { return await DialAsync(_port, ct); }
+                catch (SocketException) { }
+                catch (IOException) { }
+            }
+            int fresh = await _openForward(ct);
+            _port = fresh;
+            return await DialWithWarmupAsync(fresh, ct);
+        }
+        finally { _forwardGate.Release(); }
+    }
+
+    private static async ValueTask<Stream> DialAsync(int port, CancellationToken ct)
+    {
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(IPAddress.Loopback, port, ct);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch { socket.Dispose(); throw; }
+    }
+
+    /// <summary>Friss forward dialja: a hideg ssh -L handshake pár másodpercig tarthat, ezért ~15s-ig próbálkozunk.</summary>
+    private static async ValueTask<Stream> DialWithWarmupAsync(int port, CancellationToken ct)
+    {
+        for (int i = 0; ; i++)
+        {
+            try { return await DialAsync(port, ct); }
+            catch (SocketException) when (i < 15) { await Task.Delay(1000, ct); }
+            catch (IOException) when (i < 15) { await Task.Delay(1000, ct); }
+        }
+    }
 
     /// <summary>A session-token beállítása minden további híváshoz (Bearer).</summary>
     public void SetToken(string? token) =>
@@ -309,5 +383,9 @@ public sealed class AdminApi(string baseUrl) : IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        try { _http.Dispose(); } catch { /* best effort */ }
+        try { _forwardGate.Dispose(); } catch { /* best effort */ }
+    }
 }

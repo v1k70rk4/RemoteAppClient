@@ -51,6 +51,8 @@ public sealed class MainForm : MaterialForm
 
     // Fő nézet — egyablakos: bal oldali menü + jobb oldali tartalom-host
     private readonly MaterialLabel _mainServerLbl = new();
+    private readonly MaterialLabel _envLbl = new();   // élő környezet-jelző (a helyi agent status-pipe-jából)
+    private readonly System.Windows.Forms.Timer _envTimer = new() { Interval = 3000 };
     private readonly MaterialSwitch _themeSwitch = new() { Text = "Sötét" };
     private readonly Panel _content = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8, 8, 8, 8) };
@@ -94,6 +96,51 @@ public sealed class MainForm : MaterialForm
         view.BringToFront();
     }
 
+    /// <summary>
+    /// Friss admin-API forwardot nyit a HELYI brókeren. Ha a named pipe meghalt (pl. a gép alvása
+    /// után), eldobja és újracsatlakozik, majd újrapróbál. Ezt hívja az AdminApi ConnectCallback-je,
+    /// így a halott tunnel hibaüzenet helyett magától újraépül.
+    /// </summary>
+    private async Task<int> RefreshAdminForwardAsync(CancellationToken ct)
+    {
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                _broker ??= await BrokerClient.TryConnectAsync()
+                    ?? throw new InvalidOperationException("Nincs helyi agent (a bróker nem elérhető).");
+                return await _broker.ForwardAsync(_cfg.AdminApiPort, ct);
+            }
+            catch when (attempt == 0)
+            {
+                // A named pipe meghalhatott alvás közben — dobjuk el és csatlakozzunk újra.
+                try { _broker?.Dispose(); } catch { /* best effort */ }
+                _broker = null;
+            }
+        }
+        throw new InvalidOperationException("Nem sikerült admin-forwardot nyitni a helyi brókeren.");
+    }
+
+    private bool _envBusy;
+
+    /// <summary>A helyi agent status-pipe-ját lekérdezi, és frissíti az élő környezet-jelzőt.</summary>
+    private async Task RefreshEnvAsync()
+    {
+        if (_envBusy) return;
+        _envBusy = true;
+        try
+        {
+            var s = await StatusClient.QueryAgentAsync();
+            string text; Color color;
+            if (s is null) { text = "● Agent nem elérhető"; color = Color.Gray; }
+            else if (!s.C2Connected) { text = "● Szerver: nincs kapcsolat"; color = Color.IndianRed; }
+            else { text = s.TunnelActive ? "● Online · tunnel kész" : "● Online"; color = Color.MediumSeaGreen; }
+            if (!_envLbl.IsDisposed) { _envLbl.Text = text; _envLbl.ForeColor = color; }
+        }
+        catch { /* a jelző nem kritikus */ }
+        finally { _envBusy = false; }
+    }
+
     private async Task InitAsync()
     {
         SetLoginStatus("Helyi agent keresése…");
@@ -105,10 +152,14 @@ public sealed class MainForm : MaterialForm
         _remoteLbl.Text = "Távoli elérés ezen a gépen:  " + (LocalVncLock.IsLocked() ? "LETILTVA" : "Engedélyezve");
         Show(_authView);
 
+        // Élő környezet-jelző: a helyi agent status-pipe-ját pollozzuk (C2 / tunnel valós időben).
+        _envTimer.Tick += async (_, _) => await RefreshEnvAsync();
+        _envTimer.Start();
+        _ = RefreshEnvAsync();
+
         try
         {
-            var adminPort = await _broker.ForwardAsync(_cfg.AdminApiPort);
-            _api = new AdminApi($"http://127.0.0.1:{adminPort}");
+            _api = new AdminApi(RefreshAdminForwardAsync);
 
             // A bróker ssh -L tunnele pár másodperccel a port lefoglalása UTÁN épül fel
             // (hideg SSH-handshake). Ne ijesszünk azonnal „nem válaszol"-lal: ~15 mp-ig pingelünk.
@@ -221,11 +272,13 @@ public sealed class MainForm : MaterialForm
         _mainServerLbl.TextAlign = ContentAlignment.MiddleLeft; _mainServerLbl.Padding = new Padding(14, 0, 8, 0);
         brand.Controls.Add(_mainServerLbl);
 
-        var themeRow = new Panel { Dock = DockStyle.Bottom, Height = 52 };
+        var themeRow = new Panel { Dock = DockStyle.Bottom, Height = 88 };
+        _envLbl.AutoSize = true; _envLbl.MaximumSize = new Size(200, 0);
+        _envLbl.Location = new Point(12, 10); _envLbl.Text = "● Környezet…"; _envLbl.ForeColor = Color.Gray;
         _themeSwitch.Checked = _cfg.DarkTheme;
-        _themeSwitch.AutoSize = true; _themeSwitch.Location = new Point(12, 12);
+        _themeSwitch.AutoSize = true; _themeSwitch.Location = new Point(12, 48);
         _themeSwitch.CheckedChanged += (_, _) => ApplyTheme(_themeSwitch.Checked);
-        themeRow.Controls.Add(_themeSwitch);
+        themeRow.Controls.AddRange([_envLbl, _themeSwitch]);
 
         sidebar.Controls.Add(_nav);       // Fill
         sidebar.Controls.Add(themeRow);   // Bottom
@@ -521,6 +574,7 @@ public sealed class MainForm : MaterialForm
 
     private void Cleanup()
     {
+        try { _envTimer.Stop(); _envTimer.Dispose(); } catch { /* best effort */ }
         try { _api?.LogoutAsync().Wait(TimeSpan.FromSeconds(2)); } catch { }
         _broker?.Dispose();
         _api?.Dispose();
