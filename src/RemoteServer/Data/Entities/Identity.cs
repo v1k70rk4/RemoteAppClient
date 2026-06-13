@@ -27,6 +27,10 @@ public sealed class User
     public DateTimeOffset? PasswordChangedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
 
+    /// <summary>Jelszó-emlékeztető kód SHA-256 hash-e (hex). Null, ha nincs aktív kód.</summary>
+    public string? ResetCodeHash { get; set; }
+    public DateTimeOffset? ResetCodeExpiresAt { get; set; }
+
     public ICollection<UserRole> UserRoles { get; set; } = [];
     public ICollection<UserGrant> Grants { get; set; } = [];
 }

@@ -18,12 +18,14 @@ namespace RemoteAgent.Services;
 /// valós időben látja: él-e a C2, kész-e a tunnel, mikor volt utolsó szerver-kontakt.
 /// SEMMI parancs, SEMMI titok — a kontroll-csatorna marad az aláírt C2.
 /// </summary>
-public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel, RemoteAgent.Telemetry.SystemInfoCollector sysInfo, ILogger<StatusPipeService> logger) : BackgroundService
+public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel, RemoteAgent.Telemetry.SystemInfoCollector sysInfo, Microsoft.Extensions.Options.IOptions<RemoteAgent.Configuration.AgentOptions> options, ILogger<StatusPipeService> logger) : BackgroundService
 {
     public const string PipeName = "RemoteAgent.status";
 
     private static readonly string Version =
         Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
+
+    private readonly string _deviceId = RemoteAgent.Telemetry.MachineIdentity.Resolve(options.Value.AgentId);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -67,6 +69,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
                 TunnelActive = tunnel.IsActive,
                 LastServerContactUtc = state.LastServerContactUtc,
                 Healthy = state.C2Connected,
+                DeviceId = _deviceId,
             };
             var json = JsonSerializer.SerializeToUtf8Bytes(report, AgentJsonContext.Default.StatusReport);
             await pipe.WriteAsync(json, ct);

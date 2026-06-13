@@ -67,6 +67,7 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     catch { return; }
     if (rec is null || string.IsNullOrWhiteSpace(rec.ServerUrl)) return;
 
+    if (!string.IsNullOrWhiteSpace(rec.DeviceId)) opt.AgentId = rec.DeviceId; // a szerver-oldali DeviceId (cert CN)
     var baseUrl = rec.ServerUrl.TrimEnd('/');
     opt.CommandChannel.Url = baseUrl.Replace("https://", "wss://").Replace("http://", "ws://") + "/agent";
     opt.Telemetry.IngestUrl = baseUrl + "/api/telemetry";

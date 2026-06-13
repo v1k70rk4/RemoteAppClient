@@ -13,6 +13,8 @@ public sealed class LoginRequest
     [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
     /// <summary>A kliens csatornája (rtm/beta) — innen kapja a kötelező frissítés csomagját.</summary>
     [JsonPropertyName("channel")] public string? Channel { get; set; }
+    /// <summary>A helyi agent gépazonosítója (a status-pipe-ból) — a gép-szintű fail-counterhez.</summary>
+    [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
 }
 
 /// <summary>

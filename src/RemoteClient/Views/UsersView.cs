@@ -32,6 +32,7 @@ public sealed class UsersView : UserControl, IContentView
     // Általános fül
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
     private readonly MaterialTextBox2 _nameBox = new() { Hint = "Megjelenítendő név (pl. Gipsz Jakab)", Width = 380 };
+    private readonly MaterialTextBox2 _emailBox = new() { Hint = "E-mail cím", Width = 380 };
     private readonly MaterialComboBox _roleCombo = new() { Hint = "Szerep", Width = 200 };
     private readonly MaterialSwitch _activeSwitch = new() { Text = "Aktív", AutoSize = true };
     private readonly MaterialLabel _generalStatus = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
@@ -130,9 +131,11 @@ public sealed class UsersView : UserControl, IContentView
 
         var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
         _nameBox.Margin = new Padding(4, 8, 4, 8);
+        _emailBox.Margin = new Padding(4, 8, 4, 8);
         _roleCombo.Margin = new Padding(4, 8, 4, 8);
         _activeSwitch.Margin = new Padding(4, 8, 4, 12);
         body.Controls.Add(_nameBox);
+        body.Controls.Add(_emailBox);
         body.Controls.Add(_roleCombo);
         body.Controls.Add(_activeSwitch);
         body.Controls.Add(save);
@@ -143,13 +146,26 @@ public sealed class UsersView : UserControl, IContentView
         return body;
     }
 
+    private readonly MaterialSwitch _resetEmailCode = new() { Text = "Reset-kód kiküldése e-mailben", AutoSize = true, Checked = true };
+    private readonly MaterialSwitch _resetClearTotp = new() { Text = "TOTP (authenticator) is törlése — újra kell beállítania", AutoSize = true };
+
     private Panel BuildPasswordPanel()
     {
         var reset = ViewUi.ToolbarButton("Jelszó reset");
         reset.Click += async (_, _) => await ResetPwAsync();
         var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 12, 12, 8) };
-        body.Controls.Add(new MaterialLabel { Text = "Ideiglenes jelszót generál és kiírja. A felhasználónak a következő belépéskor cserélnie kell.", AutoSize = true, Margin = new Padding(4, 0, 4, 12) });
+        body.Controls.Add(new MaterialLabel { Text = "Ideiglenes jelszót generál és kiírja. A felhasználónak a következő belépéskor cserélnie kell.\nHa van e-mail cím + e-mail-szolgáltatás, reset-kódot is küldhetsz, amivel a user maga állít jelszót.\nHa elhagyta az authenticatort, a TOTP is törölhető — a következő belépéskor újra beállítja.", AutoSize = true, Margin = new Padding(4, 0, 4, 12) });
+        body.Controls.Add(_resetEmailCode);
+        body.Controls.Add(_resetClearTotp);
         body.Controls.Add(reset);
+
+        body.Controls.Add(new MaterialDivider { Width = 420, Margin = new Padding(4, 16, 4, 8) });
+        body.Controls.Add(new MaterialLabel { Text = "TOTP (kétlépcsős hitelesítés)", FontType = MaterialSkinManager.fontType.Subtitle2, AutoSize = true, Margin = new Padding(4, 0, 0, 2) });
+        body.Controls.Add(new MaterialLabel { Text = "Elhagyott authenticator esetén a TOTP külön is törölhető (jelszó-reset nélkül) — a következő belépéskor újra beállítja.", AutoSize = true, Margin = new Padding(4, 0, 4, 8) });
+        var clearTotp = ViewUi.ToolbarButton("TOTP törlése", primary: false);
+        clearTotp.Click += async (_, _) => await ClearTotpAsync();
+        body.Controls.Add(clearTotp);
+
         body.Controls.Add(_passwordStatus);
         return body;
     }
@@ -215,6 +231,7 @@ public sealed class UsersView : UserControl, IContentView
         _editing = u;
         _editorTitle.Text = string.IsNullOrWhiteSpace(u.Name) ? u.Username : $"{u.Name}  ({u.Username})";
         _nameBox.Text = u.Name ?? "";
+        _emailBox.Text = u.Email ?? "";
         _roleCombo.SelectedItem = u.Role == "admin" ? "admin" : "operator";
         _activeSwitch.Checked = u.IsActive;
         _generalStatus.Text = ""; _passwordStatus.Text = "";
@@ -252,11 +269,13 @@ public sealed class UsersView : UserControl, IContentView
         var active = _activeSwitch.Checked;
         if (IsSelf(u) && role == "operator") { _generalStatus.Text = "Saját magad nem fokozhatod le."; return; }
         if (IsSelf(u) && !active) { _generalStatus.Text = "Saját magad nem deaktiválhatod."; return; }
+        var email = _emailBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@')) { _generalStatus.Text = "Adj meg érvényes e-mail címet (kötelező)."; return; }
         try
         {
-            await _api.UpdateUserAsync(u.Id, role, active, _nameBox.Text.Trim());
+            await _api.UpdateUserAsync(u.Id, role, active, _nameBox.Text.Trim(), _emailBox.Text.Trim());
             _generalStatus.Text = "Mentve.";
-            _editing = new UserInfo { Id = u.Id, Username = u.Username, Name = _nameBox.Text.Trim(), Role = role, IsActive = active, HelloCount = u.HelloCount };
+            _editing = new UserInfo { Id = u.Id, Username = u.Username, Name = _nameBox.Text.Trim(), Email = _emailBox.Text.Trim(), Role = role, IsActive = active, HelloCount = u.HelloCount };
             _editorTitle.Text = string.IsNullOrWhiteSpace(_editing.Name) ? u.Username : $"{_editing.Name}  ({u.Username})";
         }
         catch (Exception ex) { _generalStatus.Text = "Hiba: " + ex.Message; }
@@ -268,11 +287,22 @@ public sealed class UsersView : UserControl, IContentView
         if (f.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            var r = await _api.CreateUserAsync(f.Username, f.Email, f.Role, f.Name);
-            using (var dlg = new CredentialDialog("Új felhasználó", r.Username, r.TempPassword)) dlg.ShowDialog(this);
+            var r = await _api.CreateUserAsync(f.Username, f.Email, f.Role, f.FullName, f.EmailCode);
+            using (var dlg = new CredentialDialog("Új felhasználó", r.Username, r.ResetCode,
+                "Jelszó helyreállítási token",
+                "A felhasználó a kliens „Jelszó helyreállítás” ablakában írja be a tokent (30 percig érvényes), és állít be jelszót, majd TOTP-t.")) dlg.ShowDialog(this);
+            _status.Text = r.EmailSent ? "Létrehozva — token e-mailben elküldve." : (f.EmailCode ? "Létrehozva — e-mail NEM ment ki (nincs e-mail-szolgáltatás?)." : "Létrehozva — add át a tokent.");
             await RefreshAsync();
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+    }
+
+    private async Task ClearTotpAsync()
+    {
+        if (_editing is not { } u) return;
+        if (MessageBox.Show($"{u.Username} TOTP-jának (authenticator) törlése?\n\nA következő belépéskor újra be kell állítania. A jelszó NEM változik.", "TOTP törlése", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.ClearTotpAsync(u.Id); _passwordStatus.Text = "TOTP törölve — a következő belépéskor újra beállítja."; }
+        catch (Exception ex) { _passwordStatus.Text = "TOTP törlés hiba: " + ex.Message; }
     }
 
     private async Task ResetPwAsync()
@@ -281,9 +311,12 @@ public sealed class UsersView : UserControl, IContentView
         if (MessageBox.Show($"{u.Username} jelszavának resetelése?", "Jelszó reset", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
         try
         {
-            var r = await _api.ResetPasswordAsync(u.Id);
-            using (var dlg = new CredentialDialog("Jelszó reset", r.Username, r.TempPassword)) dlg.ShowDialog(this);
-            _passwordStatus.Text = "Jelszó resetelve.";
+            var r = await _api.ResetPasswordAsync(u.Id, _resetEmailCode.Checked, _resetClearTotp.Checked);
+            using (var dlg = new CredentialDialog("Jelszó helyreállítás", r.Username, r.ResetCode,
+                "Jelszó helyreállítási token",
+                "A felhasználó a kliens „Jelszó helyreállítás” ablakában írja be a tokent (30 percig érvényes), és állít be új jelszót.")) dlg.ShowDialog(this);
+            var totpNote = _resetClearTotp.Checked ? " TOTP törölve." : "";
+            _passwordStatus.Text = (r.EmailSent ? "Resetelve — token e-mailben elküldve." : (_resetEmailCode.Checked ? "Resetelve — e-mail NEM ment ki (nincs e-mail-szolgáltatás / e-mail?)." : "Resetelve — add át a tokent.")) + totpNote;
         }
         catch (Exception ex) { _passwordStatus.Text = "Hiba: " + ex.Message; }
     }

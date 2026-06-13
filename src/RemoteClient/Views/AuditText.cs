@@ -16,9 +16,15 @@ internal static class AuditText
         "access-locked" => "Letiltott gép (helyi zár)",
         "device.enrolled" => "Gép beléptetve",
         "device-update" => "Eszköz módosítva",
+        "device-unlock" => "Belépés-zárolás feloldva",
         "user-create" => "Felhasználó létrehozva",
         "user-update" => "Felhasználó módosítva",
         "user-reset-password" => "Jelszó resetelve",
+        "user-password-reset-self" => "Jelszó helyreállítva",
+        "user-totp-clear" => "TOTP törölve",
+        "password-code-requested" => "Helyreállítási token kérve",
+        "password-code-failed" => "Helyreállítási token kérése sikertelen",
+        "password-reset-failed" => "Hibás helyreállítási token",
         "user-revoke-sessions" => "Kiléptetés (sessionök törölve)",
         "rollout" => "Rollout",
         "promote" => "Promótálás (csatorna)",
@@ -28,12 +34,15 @@ internal static class AuditText
         "token-revoke" => "Token visszavonva",
         "token-delete" => "Token törölve",
         "token-edit" => "Token módosítva",
+        "settings-update" => "Szerver beállítások módosítva",
+        "settings-test-email" => "Teszt e-mail küldve",
         _ => action,
     };
 
     /// <summary>Elutasítás/blokk jellegű esemény (pirossal jelezzük).</summary>
     public static bool IsNegative(string action) =>
-        action is "access-denied" or "access-timeout" or "access-no-user" or "access-locked";
+        action is "access-denied" or "access-timeout" or "access-no-user" or "access-locked"
+            or "password-code-failed" or "password-reset-failed";
 
     /// <summary>Hozzájárulás NÉLKÜL történt sikeres belépés — figyelemfelhívó (narancs).</summary>
     public static bool IsNoConsent(string action) => action == "connect-auto";

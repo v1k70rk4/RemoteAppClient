@@ -32,6 +32,7 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row("Boot idő", d.BootTimeUtc?.LocalDateTime.ToString("g"));
         Row("Üzemidő (uptime)", Uptime(d.BootTimeUtc));
         Row("Helyi zár", d.VncLocked ? "LETILTVA" : "—");
+        Row("Belépés-zárolás", d.LoginLocked ? $"ZÁROLVA ({d.LoginFailCount} sikertelen)" : (d.LoginFailCount > 0 ? $"{d.LoginFailCount} sikertelen próba" : "—"));
         Row("Agent / Helper / VNC", $"{S(d.AgentVersion)} / {S(d.HelperVersion)} / {S(d.VncVersion)}");
         Row("Kliens / OS", $"{S(d.ClientVersion)} / {S(d.OsVersion)}");
         Row("Agent-restartok", d.AgentRestarts.ToString());

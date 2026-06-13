@@ -78,6 +78,7 @@ public sealed class DevicesView : UserControl, IContentView
         // RightToLeft → a legelőször hozzáadott a legjobboldalibb, ezért fordított sorrendben adjuk.
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
         void RightBtn(string text, EventHandler onClick) { var b = ViewUi.ToolbarButton(text); b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; actions.Controls.Add(b); }
+        if (_isAdmin) RightBtn("Belépés feloldása", async (_, _) => await UnlockSelectedAsync());
         if (_isAdmin) RightBtn("Jóváhagyás", async (_, _) => await ApproveSelectedAsync());
         if (_isAdmin) RightBtn("Telemetria", async (_, _) => await EditSelectedAsync("telemetry"));
         if (_isAdmin) RightBtn("Tulajdonságok", async (_, _) => await EditSelectedAsync());
@@ -140,7 +141,10 @@ public sealed class DevicesView : UserControl, IContentView
         foreach (var d in items)
         {
             // Oszlopsorrend: Gép | Csoport | Megjegyzés | Online | Felhasználó | Utoljára online | Publikus IP
-            var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? "(névtelen)" : d.Hostname) { Tag = d, UseItemStyleForSubItems = false };
+            var name = string.IsNullOrEmpty(d.Hostname) ? "(névtelen)" : d.Hostname;
+            if (d.LoginLocked) name = "🔒 " + name;
+            var item = new ListViewItem(name) { Tag = d, UseItemStyleForSubItems = false };
+            if (d.LoginLocked) item.ToolTipText = $"Belépés-zárolt ({d.LoginFailCount} sikertelen próba) — Belépés feloldása";
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.Note) ? "—" : d.Note);
             var online = item.SubItems.Add(d.Online ? "● online" : "○ offline");
@@ -281,6 +285,15 @@ public sealed class DevicesView : UserControl, IContentView
         }
         catch (Exception ex) { SetStatus("Csatlakozási hiba: " + ex.Message); }
         finally { _connectBtn.Enabled = true; }
+    }
+
+    private async Task UnlockSelectedAsync()
+    {
+        if (SelectedDevice() is not { } sel) { SetStatus("Válassz egy gépet."); return; }
+        if (!sel.LoginLocked) { SetStatus($"{sel.Hostname} nincs belépés-zárolva."); return; }
+        if (MessageBox.Show($"Feloldod a belépés-zárolást ezen a gépen?\n\n{sel.Hostname}", "Belépés feloldása", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try { await _api.UnlockDeviceAsync(sel.DeviceId); SetStatus($"{sel.Hostname} belépés-zárolása feloldva."); await RefreshAsync(); }
+        catch (Exception ex) { SetStatus("Feloldás hiba: " + ex.Message); }
     }
 
     private async Task ApproveSelectedAsync()

@@ -12,7 +12,7 @@ CREATE TABLE `AuditLogs` (
     `Actor` longtext CHARACTER SET utf8mb4 NOT NULL,
     `Action` longtext CHARACTER SET utf8mb4 NOT NULL,
     `TargetDeviceId` char(36) COLLATE ascii_general_ci NULL,
-    `DetailJson` json NULL,
+    `DetailJson` longtext CHARACTER SET utf8mb4 NULL,
     `Ip` longtext CHARACTER SET utf8mb4 NULL,
     `CreatedAt` datetime(6) NOT NULL,
     CONSTRAINT `PK_AuditLogs` PRIMARY KEY (`Id`)
@@ -320,6 +320,25 @@ ALTER TABLE `ServerSettings` ADD `SecretExpiryNotifiedAt` datetime(6) NULL;
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260613201701_SecretExpiry', '9.0.0');
+
+ALTER TABLE `AuditLogs` MODIFY COLUMN `DetailJson` longtext CHARACTER SET utf8mb4 NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613210917_AuditDetailText', '9.0.0');
+
+ALTER TABLE `Users` ADD `ResetCodeHash` longtext CHARACTER SET utf8mb4 NULL;
+
+ALTER TABLE `Users` ADD `ResetCodeExpiresAt` datetime(6) NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613214429_UserResetCode', '9.0.0');
+
+ALTER TABLE `Devices` ADD `LoginFailCount` int NOT NULL DEFAULT 0;
+
+ALTER TABLE `Devices` ADD `LoginLockedAt` datetime(6) NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613222040_DeviceLoginLock', '9.0.0');
 
 COMMIT;
 

@@ -26,6 +26,8 @@ public sealed class CreateUserRequest
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("email")] public string? Email { get; set; }
     [JsonPropertyName("role")] public string Role { get; set; } = "operator"; // admin | operator
+    /// <summary>Ha igaz (és van e-mail-szolgáltatás + a usernek e-mailje): reset-kódot küld e-mailben.</summary>
+    [JsonPropertyName("emailCode")] public bool EmailCode { get; set; }
 }
 
 public sealed class CreateUserResponse
@@ -33,12 +35,34 @@ public sealed class CreateUserResponse
     [JsonPropertyName("id")] public Guid Id { get; set; }
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
     [JsonPropertyName("tempPassword")] public string TempPassword { get; set; } = string.Empty;
+    /// <summary>Jelszó-helyreállítási token (a helyreállító oldalon írható be). Az admin felület ezt mutatja.</summary>
+    [JsonPropertyName("resetCode")] public string ResetCode { get; set; } = string.Empty;
+    /// <summary>Igaz, ha a tokent sikerült e-mailben is kiküldeni.</summary>
+    [JsonPropertyName("emailSent")] public bool EmailSent { get; set; }
+}
+
+/// <summary>Jelszó-emlékeztető: kód kérése (felhasználónév + e-mail). Anti-enumeration: a válasz mindig OK.</summary>
+public sealed class PasswordCodeRequest
+{
+    [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
+    [JsonPropertyName("email")] public string Email { get; set; } = string.Empty;
+    [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
+}
+
+/// <summary>Jelszó-emlékeztető: új jelszó beállítása a kapott kóddal.</summary>
+public sealed class PasswordResetRequest
+{
+    [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
+    [JsonPropertyName("code")] public string Code { get; set; } = string.Empty;
+    [JsonPropertyName("newPassword")] public string NewPassword { get; set; } = string.Empty;
+    [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
 }
 
 /// <summary>User módosítása (név / szerep / aktív). A null mezők változatlanok.</summary>
 public sealed class UserUpdate
 {
     [JsonPropertyName("name")] public string? Name { get; set; }
+    [JsonPropertyName("email")] public string? Email { get; set; }
     [JsonPropertyName("role")] public string? Role { get; set; }
     [JsonPropertyName("isActive")] public bool? IsActive { get; set; }
 }

@@ -98,7 +98,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<AuditLog>(e =>
         {
             e.HasIndex(x => x.CreatedAt);
-            e.Property(x => x.DetailJson).HasColumnType("json");
+            // A detail ember-olvasható szabad szöveg (nem JSON) — longtext, hogy a MariaDB
+            // json_valid CHECK ne utasítsa el. (Korábban json volt → minden detailes audit elbukott.)
+            e.Property(x => x.DetailJson).HasColumnType("longtext");
         });
     }
 }

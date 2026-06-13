@@ -26,6 +26,9 @@ public sealed class AdminApi : IDisposable
     private volatile int _port; // az aktuális helyi forward-port; 0 = még nincs / újra kell nyitni
     private readonly HttpClient _http;
 
+    /// <summary>A helyi agent gépazonosítója (a status-pipe-ból). A login/reset kéréshez küldjük (gép-szintű fail-counter).</summary>
+    public string? DeviceId { get; set; }
+
     public AdminApi(Func<CancellationToken, Task<int>> openForward)
     {
         _openForward = openForward;
@@ -101,7 +104,7 @@ public sealed class AdminApi : IDisposable
         string? clientVersion = null, string? channel = null, CancellationToken ct = default)
     {
         using var content = JsonContent.Create(
-            new LoginRequest { Username = username, Password = password, Totp = totp, ClientVersion = clientVersion, Channel = channel },
+            new LoginRequest { Username = username, Password = password, Totp = totp, ClientVersion = clientVersion, Channel = channel, DeviceId = DeviceId },
             AgentJsonContext.Default.LoginRequest);
         using var resp = await _http.PostAsync("/auth/login", content, ct);
         if (!resp.IsSuccessStatusCode)
@@ -257,6 +260,13 @@ public sealed class AdminApi : IDisposable
     public Task ApproveDeviceAsync(string deviceId, CancellationToken ct = default) =>
         UpdateDeviceAsync(deviceId, new DeviceUpdate { Status = "Approved" }, ct);
 
+    /// <summary>Gép belépés-zárolásának feloldása (számláló nullázása).</summary>
+    public async Task UnlockDeviceAsync(string deviceId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/unlock", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Bootstrap blob generálása (site-token + szerver-URL egy stringben), opcionálisan csoportra + lejárattal. A blobot adja vissza.</summary>
     public async Task<string?> CreateBootstrapAsync(int maxUses, int? expiresInHours, Guid? groupId = null, CancellationToken ct = default)
     {
@@ -389,24 +399,49 @@ public sealed class AdminApi : IDisposable
     public async Task<List<UserInfo>> GetUsersAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/users", AgentJsonContext.Default.ListUserInfo, ct) ?? [];
 
-    public async Task<CreateUserResponse> CreateUserAsync(string username, string? email, string role, string? name = null, CancellationToken ct = default)
+    public async Task<CreateUserResponse> CreateUserAsync(string username, string? email, string role, string? name = null, bool emailCode = false, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new CreateUserRequest { Username = username, Email = email, Role = role, Name = name }, AgentJsonContext.Default.CreateUserRequest);
+        using var content = JsonContent.Create(new CreateUserRequest { Username = username, Email = email, Role = role, Name = name, EmailCode = emailCode }, AgentJsonContext.Default.CreateUserRequest);
         using var resp = await _http.PostAsync("/admin/users", content, ct);
         resp.EnsureSuccessStatusCode();
         return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.CreateUserResponse, ct))!;
     }
 
-    public async Task UpdateUserAsync(Guid id, string? role, bool? isActive, string? name = null, CancellationToken ct = default)
+    /// <summary>Jelszó-emlékeztető kód kérése (publikus, login előtt). A válasz mindig OK (anti-enumeration).</summary>
+    public async Task RequestPasswordCodeAsync(string username, string email, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new UserUpdate { Role = role, IsActive = isActive, Name = name }, AgentJsonContext.Default.UserUpdate);
+        using var content = JsonContent.Create(new PasswordCodeRequest { Username = username, Email = email, DeviceId = DeviceId }, AgentJsonContext.Default.PasswordCodeRequest);
+        using var resp = await _http.PostAsync("/auth/password/request-code", content, ct);
+        // szándékosan nem dobunk: az anti-enumeration miatt a hívó nem kap visszajelzést a találatról
+    }
+
+    /// <summary>Új jelszó beállítása a kapott kóddal. (ok, error).</summary>
+    public async Task<(bool Ok, string? Error)> ResetPasswordWithCodeAsync(string username, string code, string newPassword, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new PasswordResetRequest { Username = username, Code = code, NewPassword = newPassword, DeviceId = DeviceId }, AgentJsonContext.Default.PasswordResetRequest);
+        using var resp = await _http.PostAsync("/auth/password/reset", content, ct);
+        if (resp.IsSuccessStatusCode) return (true, null);
+        string code2 = ""; try { var e = await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.AuthError, ct); code2 = e?.Error ?? ""; } catch { }
+        return (false, code2);
+    }
+
+    public async Task UpdateUserAsync(Guid id, string? role, bool? isActive, string? name = null, string? email = null, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(new UserUpdate { Role = role, IsActive = isActive, Name = name, Email = email }, AgentJsonContext.Default.UserUpdate);
         using var resp = await _http.PutAsync($"/admin/users/{id}", content, ct);
         resp.EnsureSuccessStatusCode();
     }
 
-    public async Task<CreateUserResponse> ResetPasswordAsync(Guid id, CancellationToken ct = default)
+    /// <summary>TOTP (authenticator) törlése önmagában — jelszó-reset nélkül.</summary>
+    public async Task ClearTotpAsync(Guid id, CancellationToken ct = default)
     {
-        using var resp = await _http.PostAsync($"/admin/users/{id}/reset-password", content: null, ct);
+        using var resp = await _http.PostAsync($"/admin/users/{id}/clear-totp", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<CreateUserResponse> ResetPasswordAsync(Guid id, bool emailCode = false, bool clearTotp = false, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/users/{id}/reset-password?emailCode={(emailCode ? "true" : "false")}&clearTotp={(clearTotp ? "true" : "false")}", content: null, ct);
         resp.EnsureSuccessStatusCode();
         return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.CreateUserResponse, ct))!;
     }

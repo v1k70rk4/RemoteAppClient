@@ -10,12 +10,14 @@ public sealed class SettingsView : UserControl, IContentView
     private readonly LocalLockView _lock = new();
     private readonly MaterialComboBox _theme = new() { Hint = "Téma", Width = 260 };
     private readonly Action<string> _onTheme;
+    private readonly bool _isAdmin;
 
     private sealed record ThemeItem(string Mode, string Name) { public override string ToString() => Name; }
 
-    public SettingsView(string currentMode, Action<string> onTheme)
+    public SettingsView(string currentMode, Action<string> onTheme, bool isAdmin)
     {
         _onTheme = onTheme;
+        _isAdmin = isAdmin;
         Dock = DockStyle.Fill;
 
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(24, 18, 24, 8) };
@@ -27,8 +29,8 @@ public sealed class SettingsView : UserControl, IContentView
         top.Controls.Add(_theme);
         top.Controls.Add(new MaterialDivider { Width = 460, Margin = new Padding(0, 16, 0, 0) });
 
-        Controls.Add(_lock); // Fill — a Helyi zár szekció (saját címmel)
-        Controls.Add(top);   // Top — Megjelenés
+        if (_isAdmin) Controls.Add(_lock); // Fill — a Helyi zár CSAK adminnak
+        Controls.Add(top);                 // Top — Megjelenés
     }
 
     private void SelectMode(string mode)
@@ -38,6 +40,6 @@ public sealed class SettingsView : UserControl, IContentView
         _theme.SelectedIndex = 1; // dark
     }
 
-    public async Task OnShownAsync() => await _lock.OnShownAsync();
-    public void ApplyTheme() { ThemeManager.StyleView(this); _lock.ApplyTheme(); }
+    public async Task OnShownAsync() { if (_isAdmin) await _lock.OnShownAsync(); }
+    public void ApplyTheme() { ThemeManager.StyleView(this); if (_isAdmin) _lock.ApplyTheme(); }
 }

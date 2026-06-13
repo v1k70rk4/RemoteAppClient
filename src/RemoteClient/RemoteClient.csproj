@@ -14,7 +14,7 @@
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
 
     <!-- Verzió: ezt olvassa ki az önfrissítés (és a feltöltőben az exe verziója). Kiadáskor bumpold. -->
-    <Version>1.1.1.0</Version>
+    <Version>1.2.0.0</Version>
 
     <!-- Önfrissítés: EGYETLEN exe legyen (egy DLL-t nem lehet futás közben cserélni),
          self-contained (nem kell .NET a gépre). A publish ezt az egy exét adja. -->

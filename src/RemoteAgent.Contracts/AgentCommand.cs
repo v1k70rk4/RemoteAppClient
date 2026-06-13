@@ -141,4 +141,6 @@ public static class CommandTypes
 [JsonSerializable(typeof(Admin.ServerSettingsInfo))]
 [JsonSerializable(typeof(Admin.TestEmailRequest))]
 [JsonSerializable(typeof(Admin.BrandingInfo))]
+[JsonSerializable(typeof(Admin.PasswordCodeRequest))]
+[JsonSerializable(typeof(Admin.PasswordResetRequest))]
 public sealed partial class AgentJsonContext : JsonSerializerContext;

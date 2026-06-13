@@ -32,4 +32,7 @@ public sealed class StatusReport
 
     /// <summary>Utolsó sikeres szerver-kontakt (C2 csatlakozás vagy telemetria) ideje.</summary>
     [JsonPropertyName("lastServerContactUtc")] public DateTimeOffset? LastServerContactUtc { get; set; }
+
+    /// <summary>A helyi agent gépazonosítója (a kliens ezt küldi a login/reset kérésben a gép-szintű fail-counterhez).</summary>
+    [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
 }

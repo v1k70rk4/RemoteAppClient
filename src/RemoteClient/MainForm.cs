@@ -43,6 +43,7 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialButton _loginBtn = new() { Text = "Belépés" };
     private readonly MaterialButton _helloBtn = new() { Text = "Belépés Windows Hello-val", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Visible = false };
     private readonly MaterialLabel _loginStatus = new() { Visible = true };
+    private readonly MaterialLabel _forgotLink = new() { Text = "Elfelejtett jelszó?", AutoSize = true, ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
     private bool _loggedInViaHello;
     // Setup
     private readonly MaterialTextBox2 _newPass = new() { Hint = "Új jelszó (min. 10)", UseSystemPasswordChar = true };
@@ -160,6 +161,7 @@ public sealed class MainForm : MaterialForm
         try
         {
             var s = await StatusClient.QueryAgentAsync();
+            if (_api is not null && !string.IsNullOrWhiteSpace(s?.DeviceId)) _api.DeviceId = s!.DeviceId;
             string text; Color color;
             if (s is null) { text = "● Agent nem elérhető"; color = Color.Gray; }
             else if (!s.C2Connected) { text = "● Szerver: nincs kapcsolat"; color = Color.IndianRed; }
@@ -282,6 +284,13 @@ public sealed class MainForm : MaterialForm
         catch { _helloBtn.Visible = false; }
     }
 
+    private void OpenForgotPassword()
+    {
+        if (_api is null) { SetLoginStatus("Nincs kapcsolat a szerverrel — előbb épüljön fel a tunnel."); return; }
+        using var f = new ForgotPasswordForm(_api);
+        f.ShowDialog(this);
+    }
+
     private static string HelloKeyName(string username) => "RemoteAppClient-" + username;
 
     // ---------------- Nézetek építése ----------------
@@ -323,7 +332,7 @@ public sealed class MainForm : MaterialForm
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _loginCard.Anchor = AnchorStyles.None;
         _setupCard.Anchor = AnchorStyles.None;
-        _loginCard.Size = new Size(360, 380);
+        _loginCard.Size = new Size(360, 420);
         var lt = new MaterialLabel { Text = "Bejelentkezés", Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _user.SetBounds(20, 56, 320, 48);
         _pass.SetBounds(20, 110, 320, 48);
@@ -332,8 +341,10 @@ public sealed class MainForm : MaterialForm
         _loginBtn.Click += async (_, _) => await DoLoginAsync();
         _helloBtn.SetBounds(20, 268, 320, 40);
         _helloBtn.Click += async (_, _) => await DoHelloLoginAsync();
-        _loginStatus.SetBounds(20, 316, 320, 50); _loginStatus.ForeColor = Color.IndianRed;
-        _loginCard.Controls.AddRange([lt, _user, _pass, _totp, _loginBtn, _helloBtn, _loginStatus]);
+        _forgotLink.Location = new Point(20, 316);
+        _forgotLink.Click += (_, _) => OpenForgotPassword();
+        _loginStatus.SetBounds(20, 344, 320, 60); _loginStatus.ForeColor = Color.IndianRed;
+        _loginCard.Controls.AddRange([lt, _user, _pass, _totp, _loginBtn, _helloBtn, _forgotLink, _loginStatus]);
         AcceptButton = _loginBtn;
 
         // Setup kártya (első belépés) — kezdetben rejtett
@@ -477,6 +488,7 @@ public sealed class MainForm : MaterialForm
                 "totp_required" => "Add meg a TOTP kódot.",
                 "totp_invalid" => "Hibás TOTP kód.",
                 "invalid_credentials" => "Hibás felhasználónév vagy jelszó.",
+                "device_locked" => "Ez a gép a sok sikertelen próba miatt belépés-zárolt. Hívd a support-ot a feloldáshoz.",
                 _ => "Bejelentkezés sikertelen: " + ex.Code,
             });
         }
@@ -663,7 +675,7 @@ public sealed class MainForm : MaterialForm
         }
 
         // Beállítások + Névjegy MINDENKINEK (lokális beállítások; nem admin-függő).
-        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode);
+        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin");
         _aboutView = new AboutView(_cfg);
         AddNav("Beállítások", _settingsView);
         AddNav("Névjegy", _aboutView);

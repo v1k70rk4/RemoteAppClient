@@ -101,7 +101,7 @@ app.Use(async (ctx, next) =>
 app.MapGet("/", () => "RemoteServer up.");
 
 // === Bejelentkezés / 2FA (a gép SSH-tunneljén át érhető el; maguk validálnak) ===
-app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IOptions<ServerOptions> opt, CancellationToken ct) =>
+app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IEmailSender email, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     LoginRequest? req;
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.LoginRequest, ct); }
@@ -112,20 +112,34 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
         return Results.Json(gate, AgentJsonContext.Default.LoginResponse);
 
+    // Gép-szintű belépés-zárolás: ha a gép zárolva, semmilyen belépés nem megy (csak admin oldja fel).
+    var device = await FindDeviceAsync(db, req.DeviceId, ct);
+    if (device?.LoginLockedAt is not null)
+        return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
+
     var user = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
         .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
     if (user is null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
+    {
+        await RegisterLoginFailAsync(db, email, device, req.Username, PublicIpOf(ctx), ct);
         return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+    }
 
     // Ha már be van állítva a TOTP, kötelező a kód.
     if (user.TotpConfirmed)
     {
         var secret = protector.TryUnprotect(user.TotpSecret);
         if (secret is null || !TotpService.Verify(secret, req.Totp ?? ""))
+        {
+            // A hibás TOTP is sikertelen próba — de a „totp_required" (még nem írt be kódot) nem.
+            if (!string.IsNullOrWhiteSpace(req.Totp))
+                await RegisterLoginFailAsync(db, email, device, req.Username, PublicIpOf(ctx), ct);
             return Results.Json(new AuthError { Error = string.IsNullOrWhiteSpace(req.Totp) ? "totp_required" : "totp_invalid" },
                 AgentJsonContext.Default.AuthError, statusCode: 401);
+        }
     }
 
+    await ResetLoginFailAsync(db, device, ct); // sikeres belépés → számláló nullázása
     var token = await auth.CreateSessionAsync(user, ct);
     user.LastLoginAt = DateTimeOffset.UtcNow;
 
@@ -272,6 +286,77 @@ app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, Au
     user.MustChangePassword = false;
     user.PasswordChangedAt = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
+// === Jelszó-emlékeztető (publikus, a tunnelen át, bejelentkezés ELŐTT) ===
+// Kód kérése: a válasz MINDIG OK (anti-enumeration). Csak akkor küld kódot, ha a
+// felhasználónév + e-mail egy aktív userre illik.
+app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext db, IEmailSender email, CancellationToken ct) =>
+{
+    PasswordCodeRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.PasswordCodeRequest, ct); }
+    catch (JsonException) { return Results.NoContent(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Email))
+        return Results.NoContent();
+
+    var uname = req.Username.Trim();
+    var mail = req.Email.Trim();
+    var device = await FindDeviceAsync(db, req.DeviceId, ct);
+    if (device?.LoginLockedAt is not null) return Results.NoContent(); // zárolt gép → némán nem küld
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Username == uname && u.IsActive, ct);
+    if (user is not null && string.Equals(user.Email, mail, StringComparison.OrdinalIgnoreCase))
+    {
+        var code = SetResetCode(user);
+        await db.SaveChangesAsync(ct);
+        await EmailResetCodeAsync(email, user, code, ct);
+        await AuditAsync(db, ctx, "password-code-requested", null, null, actorOverride: user.Username);
+    }
+    else
+    {
+        // Nem stimmel (rossz e-mail vagy nincs ilyen user) → sikertelen próba a gépen (counter).
+        if (user is not null) await AuditAsync(db, ctx, "password-code-failed", null, "e-mail nem egyezett", actorOverride: user.Username);
+        await RegisterLoginFailAsync(db, email, device, uname, PublicIpOf(ctx), ct);
+    }
+    // A válasz mindig OK (anti-enumeration).
+    return Results.NoContent();
+});
+
+// Új jelszó beállítása a kapott kóddal.
+app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, AuthService auth, IEmailSender email, CancellationToken ct) =>
+{
+    PasswordResetRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.PasswordResetRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Code))
+        return Results.Json(new AuthError { Error = "invalid_code" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+    if ((req.NewPassword?.Length ?? 0) < 10)
+        return Results.Json(new AuthError { Error = "weak_password" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+
+    var device = await FindDeviceAsync(db, req.DeviceId, ct);
+    if (device?.LoginLockedAt is not null)
+        return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
+
+    var uname = req.Username.Trim();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Username == uname && u.IsActive, ct);
+    if (user is null || user.ResetCodeHash is null || user.ResetCodeExpiresAt is null
+        || user.ResetCodeExpiresAt < DateTimeOffset.UtcNow
+        || !string.Equals(user.ResetCodeHash, Sha256Hex(req.Code.Trim().ToUpperInvariant()), StringComparison.Ordinal))
+    {
+        if (user is not null) await AuditAsync(db, ctx, "password-reset-failed", null, "érvénytelen vagy lejárt kód", actorOverride: user.Username);
+        await RegisterLoginFailAsync(db, email, device, uname, PublicIpOf(ctx), ct);
+        return Results.Json(new AuthError { Error = "invalid_code" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+    }
+
+    user.PasswordHash = PasswordHasher.Hash(req.NewPassword!);
+    user.MustChangePassword = false;          // a user maga állította be
+    user.PasswordChangedAt = DateTimeOffset.UtcNow;
+    user.ResetCodeHash = null; user.ResetCodeExpiresAt = null;
+    await auth.RevokeAllForUserAsync(user.Id, ct);
+    await db.SaveChangesAsync(ct);
+    await ResetLoginFailAsync(db, device, ct); // sikeres self-reset → számláló nullázása
+    await AuditAsync(db, ctx, "user-password-reset-self", null, null, actorOverride: user.Username);
     return Results.NoContent();
 });
 
@@ -444,6 +529,8 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         WifiSsid = d.WifiSsid,
         VpnActive = d.VpnActive,
         LoggedInUser = d.LoggedInUser,
+        LoginFailCount = d.LoginFailCount,
+        LoginLocked = d.LoginLockedAt is not null,
         Note = protector.TryUnprotect(d.Note),
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);
@@ -927,10 +1014,21 @@ app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretPro
     if (s.GraphSecretExpiresAt != prevExpiry) s.SecretExpiryNotifiedAt = null;
 
     await db.SaveChangesAsync(ct);
-    await AuditAsync(db, ctx, "settings-update", null, null);
+
+    // Napló-detail: a mentett (nem-titkos) értékek pillanatképe; titkoknál csak a tény, az érték SOHA.
+    var detail = $"provider={s.EmailProvider}; owner={Q(s.OwnerName)}; phone={Q(s.SupportPhone)}; email={Q(s.SupportEmail)}";
+    if (s.EmailProvider == "smtp")
+        detail += $"; smtp={Q(s.SmtpHost)}:{s.SmtpPort} tls={s.SmtpUseTls} user={Q(s.SmtpUser)} from={Q(s.SmtpFrom)}";
+    if (s.EmailProvider == "graph")
+        detail += $"; graph tenant={Q(s.GraphTenantId)} client={Q(s.GraphClientId)} sender={Q(s.GraphSender)} expires={s.GraphSecretExpiresAt:yyyy-MM-dd}";
+    if (!string.IsNullOrEmpty(upd.SmtpPassword)) detail += "; smtpPassword=változott";
+    if (!string.IsNullOrEmpty(upd.GraphClientSecret)) detail += "; graphSecret=változott";
+
+    await AuditAsync(db, ctx, "settings-update", null, detail);
     return Results.NoContent();
 
     static string? Nz(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+    static string Q(string? v) => string.IsNullOrWhiteSpace(v) ? "-" : v;
 });
 
 app.MapPost("/admin/settings/test-email", async (HttpContext ctx, AppDbContext db, IEmailSender email, CancellationToken ct) =>
@@ -1045,24 +1143,29 @@ app.MapGet("/admin/users", async (AppDbContext db, CancellationToken ct) =>
     return Results.Json(list, AgentJsonContext.Default.ListUserInfo);
 });
 
-app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, IEmailSender email, CancellationToken ct) =>
 {
     CreateUserRequest? req;
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.CreateUserRequest, ct); }
     catch (JsonException) { return Results.BadRequest(); }
     if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest(new { error = "username_required" });
+    if (string.IsNullOrWhiteSpace(req.Email)) return Results.BadRequest(new { error = "email_required" });
 
     var role = req.Role == "admin" ? "admin" : "operator";
     if (await db.Users.AnyAsync(u => u.Username == req.Username, ct)) return Results.Conflict(new { error = "username_taken" });
 
     var temp = TempPw();
-    var user = new User { Username = req.Username.Trim(), Name = string.IsNullOrWhiteSpace(req.Name) ? null : req.Name.Trim(), Email = req.Email, PasswordHash = PasswordHasher.Hash(temp), MustChangePassword = true };
+    var user = new User { Username = req.Username.Trim(), Name = string.IsNullOrWhiteSpace(req.Name) ? null : req.Name.Trim(), Email = req.Email.Trim(), PasswordHash = PasswordHasher.Hash(temp), MustChangePassword = true };
+    var code = SetResetCode(user);   // mindig adunk helyreállítási tokent (az admin felület ezt mutatja)
     db.Users.Add(user);
     await db.SaveChangesAsync(ct);
     await SetRoleAsync(db, user.Id, role, ct);
     await db.SaveChangesAsync(ct);
-    await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}");
-    return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp }, AgentJsonContext.Default.CreateUserResponse);
+
+    bool emailSent = req.EmailCode && await EmailResetCodeAsync(email, user, code, ct);
+
+    await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}{(emailSent ? " · token e-mailben" : "")}");
+    return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
 });
 
 app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
@@ -1082,6 +1185,7 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
 
     if (upd.Role is "admin" or "operator") await SetRoleAsync(db, id, upd.Role, ct);
     if (upd.Name is not null) user.Name = upd.Name.Trim().Length == 0 ? null : upd.Name.Trim();
+    if (upd.Email is not null) user.Email = upd.Email.Trim().Length == 0 ? null : upd.Email.Trim();
     if (upd.IsActive is { } act)
     {
         user.IsActive = act;
@@ -1092,7 +1196,19 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
     return Results.NoContent();
 });
 
-app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+// Gép belépés-zárolásának feloldása (admin): számláló nullázása + zár törlése.
+app.MapPost("/admin/devices/{deviceId}/unlock", async (string deviceId, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    device.LoginFailCount = 0;
+    device.LoginLockedAt = null;
+    await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "device-unlock", device.Id, device.Hostname);
+    return Results.NoContent();
+});
+
+app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, bool? emailCode, bool? clearTotp, HttpContext ctx, AppDbContext db, AuthService auth, IEmailSender email, CancellationToken ct) =>
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
     if (user is null) return Results.NotFound();
@@ -1100,10 +1216,28 @@ app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, HttpContext
     var temp = TempPw();
     user.PasswordHash = PasswordHasher.Hash(temp);
     user.MustChangePassword = true;
+    var code = SetResetCode(user);   // a régi jelszót érvényteleníti; a user a tokennel áll be új jelszót
+    if (clearTotp == true) { user.TotpSecret = null; user.TotpConfirmed = false; } // elveszett authenticator → újra-enroll
     await auth.RevokeAllForUserAsync(id, ct);
     await db.SaveChangesAsync(ct);
-    await AuditAsync(db, ctx, "user-reset-password", null, user.Username);
-    return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp }, AgentJsonContext.Default.CreateUserResponse);
+
+    bool emailSent = emailCode == true && await EmailResetCodeAsync(email, user, code, ct);
+
+    await AuditAsync(db, ctx, "user-reset-password", null, $"{user.Username}{(emailSent ? " · token e-mailben" : "")}{(clearTotp == true ? " · TOTP törölve" : "")}");
+    return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
+});
+
+// TOTP törlése ÖNMAGÁBAN (jelszó-reset nélkül): elveszett authenticator esetén újra-enroll.
+app.MapPost("/admin/users/{id:guid}/clear-totp", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+    if (user is null) return Results.NotFound();
+    user.TotpSecret = null;
+    user.TotpConfirmed = false;
+    await auth.RevokeAllForUserAsync(id, ct); // kiléptetés → a következő belépéskor újra beállítja
+    await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "user-totp-clear", null, user.Username);
+    return Results.NoContent();
 });
 
 app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
@@ -1210,11 +1344,11 @@ using (var scope = app.Services.CreateScope())
 app.Run();
 
 // Audit-bejegyzés írása (best-effort; az audit ne bontsa el a műveletet). Az actor a bejelentkezett user.
-static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Guid? target = null, string? detail = null)
+static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Guid? target = null, string? detail = null, string? actorOverride = null)
 {
     try
     {
-        var actor = (ctx.Items["user"] as RemoteServer.Data.Entities.User)?.Username ?? "system";
+        var actor = actorOverride ?? (ctx.Items["user"] as RemoteServer.Data.Entities.User)?.Username ?? "system";
         db.AuditLogs.Add(new RemoteServer.Data.Entities.AuditLog
         {
             Actor = actor, Action = action, TargetDeviceId = target, DetailJson = detail,
@@ -1222,7 +1356,11 @@ static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Gu
         });
         await db.SaveChangesAsync(ctx.RequestAborted);
     }
-    catch { /* az audit hiba ne befolyásolja a választ */ }
+    catch (Exception ex)
+    {
+        // Az audit hiba ne befolyásolja a választ — de legalább naplózzuk (eddig néma volt).
+        try { ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("Audit").LogWarning(ex, "Audit írás hiba: {Action}", action); } catch { }
+    }
 }
 
 // A Bearer session-token kiolvasása az Authorization fejlécből.
@@ -1272,6 +1410,76 @@ static async Task SetRoleAsync(AppDbContext db, Guid userId, string roleName, Ca
 // Rövid, URL-biztos ideiglenes jelszó.
 static string TempPw() =>
     Convert.ToBase64String(RandomNumberGenerator.GetBytes(9)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+// 8 karakteres, könnyen begépelhető reset-kód (nincs 0/O/1/I, csupa nagybetű/szám).
+static string ResetCode()
+{
+    const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    var bytes = RandomNumberGenerator.GetBytes(8);
+    var sb = new System.Text.StringBuilder(8);
+    foreach (var b in bytes) sb.Append(alphabet[b % alphabet.Length]);
+    return sb.ToString();
+}
+
+static string Sha256Hex(string s) =>
+    Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s)));
+
+// === Gép-szintű belépés-zárolás (brute-force) ===
+const int LoginFailLockThreshold = 5;
+
+static async Task<RemoteServer.Data.Entities.Device?> FindDeviceAsync(AppDbContext db, string? deviceId, CancellationToken ct) =>
+    string.IsNullOrWhiteSpace(deviceId) ? null : await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+
+/// <summary>Sikertelen próba a gépen: növeli a számlálót; az 5. próbánál zárol + e-mailt küld az adminnak.</summary>
+static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, RemoteServer.Data.Entities.Device? device, string username, string? ip, CancellationToken ct)
+{
+    if (device is null) return;
+    device.LoginFailCount++;
+    bool justLocked = device.LoginFailCount >= LoginFailLockThreshold && device.LoginLockedAt is null;
+    if (justLocked) device.LoginLockedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
+
+    if (justLocked)
+    {
+        var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+        var to = s?.SupportEmail;
+        if (!string.IsNullOrWhiteSpace(to))
+        {
+            var body = $"A(z) „{device.Hostname}” gépről {LoginFailLockThreshold} sikertelen belépési/jelszó-próba történt — a gép BELÉPÉS-ZÁROLVA.\n\n" +
+                       $"Utolsó próbált felhasználónév: {username}\nForrás IP: {ip ?? "-"}\nIdő: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC\n\n" +
+                       "Feloldás: a kliensben Eszközök → a gép → Tulajdonságok → „Belépés feloldása” (csak admin).";
+            await email.SendAsync(to!, "RemoteAppClient – gép belépés-zárolva (sikertelen próbák)", body, ct);
+        }
+    }
+}
+
+static async Task ResetLoginFailAsync(AppDbContext db, RemoteServer.Data.Entities.Device? device, CancellationToken ct)
+{
+    if (device is null || (device.LoginFailCount == 0 && device.LoginLockedAt is null)) return;
+    device.LoginFailCount = 0;
+    device.LoginLockedAt = null;
+    await db.SaveChangesAsync(ct);
+}
+
+/// <summary>Jelszó-helyreállítási tokent állít a userre (hash + 30 perc lejárat). A nyers tokent adja vissza (NEM ment — a hívó ment).</summary>
+static string SetResetCode(RemoteServer.Data.Entities.User user)
+{
+    var code = ResetCode();
+    user.ResetCodeHash = Sha256Hex(code);
+    user.ResetCodeExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30);
+    return code;
+}
+
+/// <summary>A helyreállítási tokent e-mailben kiküldi a usernek. true = sikerült.</summary>
+static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Data.Entities.User user, string code, CancellationToken ct)
+{
+    if (string.IsNullOrWhiteSpace(user.Email)) return false;
+    var body = $"Jelszó-helyreállítási token a(z) {user.Username} fiókhoz: {code}\n\n" +
+               "A token 30 percig érvényes. Írd be a kliens „Jelszó helyreállítás” ablakába, és állíts be új jelszót.\n" +
+               "Ha nem te kérted, hagyd figyelmen kívül ezt a levelet.";
+    var (ok, _) = await email.SendAsync(user.Email!, "RemoteAppClient – jelszó-helyreállítási token", body, ct);
+    return ok;
+}
 
 // A device-azonosító feloldása. Éles üzemben az nginx validálja a kliens-certet
 // (mTLS) és a CN-t headerben adja át; a backend csak localhostról (nginx) érhető el,

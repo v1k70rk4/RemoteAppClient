@@ -82,6 +82,10 @@ public sealed class DeviceInfo
     [JsonPropertyName("wifiSsid")] public string? WifiSsid { get; set; }
     [JsonPropertyName("vpnActive")] public bool VpnActive { get; set; }
     [JsonPropertyName("loggedInUser")] public string? LoggedInUser { get; set; }
+
+    /// <summary>Belépés-zárolás (5 sikertelen próba a gépről). Csak admin oldja fel.</summary>
+    [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }
+    [JsonPropertyName("loginLocked")] public bool LoginLocked { get; set; }
 }
 
 /// <summary>Egy eszköz admin-mezőinek módosítása (PUT). A null mezők változatlanok maradnak.</summary>

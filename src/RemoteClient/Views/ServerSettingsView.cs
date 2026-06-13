@@ -125,10 +125,18 @@ public sealed class ServerSettingsView : UserControl, IContentView
         _graphBox.Dock = DockStyle.Top; _graphBox.Controls.Add(f);
     }
 
-    /// <summary>Kis info-ikon: buborék-tooltip (súgó) + kattintásra böngészőben nyit.</summary>
-    private MaterialLabel InfoIcon(string tooltip, string url)
+    /// <summary>Kis info-ikon (Segoe MDL2 Assets): buborék-tooltip (súgó) + kattintásra böngészőben nyit.</summary>
+    private Label InfoIcon(string tooltip, string url)
     {
-        var l = new MaterialLabel { Text = "ⓘ", AutoSize = true, ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand, Margin = new Padding(8, 14, 0, 0), Font = new Font("Segoe UI", 12F, FontStyle.Bold) };
+        var l = new Label
+        {
+            Text = "", // Segoe MDL2 Assets: Info
+            Font = new Font("Segoe MDL2 Assets", 13F),
+            AutoSize = true,
+            ForeColor = Color.DodgerBlue,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(10, 16, 0, 0),
+        };
         _tips.SetToolTip(l, tooltip);
         l.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { /* nincs böngésző */ } };
         return l;

@@ -77,6 +77,11 @@ public sealed class Device
     public string? IpAddress { get; set; }
     /// <summary>A publikus IP, ahonnan az agent csatlakozik (a telemetria-kérés forrás-IP-je).</summary>
     public string? PublicIpAddress { get; set; }
+
+    // Sikertelen-belépés számláló + zárolás (brute-force védelem; gép-szinten).
+    public int LoginFailCount { get; set; }
+    /// <summary>Ha nem null: a gépről le van tiltva a belépés (5 sikertelen próba). Csak admin oldja fel.</summary>
+    public DateTimeOffset? LoginLockedAt { get; set; }
     public string? WifiSsid { get; set; }
     public bool VpnActive { get; set; }
     public string? LoggedInUser { get; set; }
