@@ -82,6 +82,7 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
 builder.Services.AddSingleton<CommandBus>();
 builder.Services.AddSingleton<TunnelState>();
 builder.Services.AddSingleton<AgentStatusState>();
+builder.Services.AddSingleton<AgentUplink>();
 builder.Services.AddSingleton<CommandVerifier>();
 builder.Services.AddSingleton<SystemInfoCollector>();
 builder.Services.AddSingleton<RemoteAgent.Update.UpdateInstaller>();

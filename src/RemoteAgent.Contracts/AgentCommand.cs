@@ -4,6 +4,20 @@ using RemoteAgent.Telemetry;
 namespace RemoteAgent.Commands;
 
 /// <summary>
+/// Agent → szerver üzenet a perzisztens WSS-en visszafelé (pl. a tunnel-nyitás/hozzájárulás eredménye).
+/// A szerver a <see cref="Nonce"/> alapján párosítja a kiadott parancshoz, és a konzol erre vár.
+/// </summary>
+public sealed class AgentUplinkMessage
+{
+    /// <summary>Üzenet típusa, pl. "access-result".</summary>
+    [JsonPropertyName("type")] public string Type { get; set; } = string.Empty;
+    /// <summary>A kiadott parancs nonce-a (korreláció).</summary>
+    [JsonPropertyName("nonce")] public string Nonce { get; set; } = string.Empty;
+    /// <summary>Kimenetel: "auto" | "granted" | "denied" | "timeout" | "no-user" | "locked".</summary>
+    [JsonPropertyName("outcome")] public string Outcome { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// A szerverről érkező, aláírt parancs. A <see cref="Signature"/> a payload
 /// kanonikus formája feletti ECDSA aláírás (lásd <see cref="CommandSignature"/>);
 /// a <see cref="Nonce"/> és <see cref="IssuedAt"/> a replay-védelem.
@@ -55,6 +69,17 @@ public sealed class CommandData
     /// </summary>
     [JsonPropertyName("target")]
     public string? UpdateTarget { get; set; }
+
+    // Tunnel-nyitásnál a hozzáférés-policy (a szerver tölti ki). Az aláírás-kanonizálás része,
+    // tehát a gép csak a szervertől származó, hiteles policy-t fogadja el.
+    // Hiányzó (null) = mai viselkedés: nincs consent, unattended OK.
+    /// <summary>Kell-e a gépnél ülő felhasználó hozzájárulása a csatlakozáshoz. null = nem.</summary>
+    [JsonPropertyName("consentRequired")]
+    public bool? ConsentRequired { get; set; }
+
+    /// <summary>Engedélyezett-e a felügyelet nélküli (senki nincs bejelentkezve) hozzáférés. null = igen.</summary>
+    [JsonPropertyName("unattendedAllowed")]
+    public bool? UnattendedAllowed { get; set; }
 }
 
 /// <summary>Ismert parancstípusok. Tetszőleges stringet nem dolgozunk fel.</summary>
@@ -102,6 +127,8 @@ public static class CommandTypes
 [JsonSerializable(typeof(Admin.HelloLoginRequest))]
 [JsonSerializable(typeof(Admin.StatusReport))]
 [JsonSerializable(typeof(Admin.EditTokenRequest))]
+[JsonSerializable(typeof(AgentUplinkMessage))]
+[JsonSerializable(typeof(Admin.AccessResultInfo))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.HelloCredentialInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.UserInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.GrantInfo>))]

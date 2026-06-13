@@ -42,6 +42,7 @@ builder.Services.AddScoped<EnrollmentService>();
 builder.Services.AddSingleton<MsiBuilder>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton<HelloChallengeStore>();
+builder.Services.AddSingleton<AccessResultStore>();
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -309,7 +310,7 @@ app.MapGet("/auth/me", async (HttpContext ctx, AuthService auth, CancellationTok
 // Az agent ide tartja a kimenő kapcsolatot; a szerver ezen push-ol aláírt parancsot.
 // Éles üzemben nginx terminálja a TLS-t és validálja a kliens-certet (mTLS),
 // a device-azonosító a cert CN-jéből jön. Cert nélkül a ?deviceId= a fallback (dev).
-app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, ILoggerFactory lf) =>
+app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, AccessResultStore accessResults, ILoggerFactory lf) =>
 {
     if (!ctx.WebSockets.IsWebSocketRequest)
     {
@@ -339,7 +340,7 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, ILog
 
     try
     {
-        await PumpIncomingAsync(socket, deviceId, log, ctx.RequestAborted);
+        await PumpIncomingAsync(socket, deviceId, accessResults, log, ctx.RequestAborted);
     }
     catch (OperationCanceledException) { /* leállás/lekapcsolódás */ }
     catch (WebSocketException ex) { log.LogDebug(ex, "WS lezárult: {Device}", deviceId); }
@@ -703,14 +704,28 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
 
     var port = remotePort is > 0 ? remotePort.Value
              : device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback régi (port nélküli) géphez
+
+    // Effektív hozzáférés-policy: gép-szintű override, különben a csoport, különben alapértelmezés
+    // (nincs consent / unattended engedett). Az agent ez alapján kérdez/dönt a tunnel-nyitás előtt.
+    var grp = device.GroupId is { } gid ? await db.DeviceGroups.FirstOrDefaultAsync(x => x.Id == gid, ct) : null;
+    bool consentRequired = device.ConsentRequired ?? grp?.ConsentRequired ?? false;
+    bool unattendedAllowed = device.UnattendedAllowed ?? grp?.UnattendedAllowed ?? true;
+
     var cmd = await commands.EnqueueAsync(
-        deviceId, CommandTypes.OpenTunnel, new CommandData { RemotePort = port }, createdBy: null, ct);
+        deviceId, CommandTypes.OpenTunnel,
+        new CommandData { RemotePort = port, ConsentRequired = consentRequired, UnattendedAllowed = unattendedAllowed },
+        createdBy: null, ct);
     return cmd is null
         ? Results.NotFound()
         : Results.Json(
-            new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, Status = cmd.Status.ToString() },
+            new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" },
             AgentJsonContext.Default.OpenTunnelResult);
 });
+
+// A hozzáférés-kérés eredménye (a konzol pollozza nonce alapján a tunnel-nyitás után).
+// Üres outcome = még nincs válasz (az agent dolgozik / a felhasználót kérdezi).
+app.MapGet("/admin/devices/access-result/{nonce}", (string nonce, AccessResultStore accessResults) =>
+    Results.Json(new AccessResultInfo { Outcome = accessResults.Get(nonce) ?? "" }, AgentJsonContext.Default.AccessResultInfo));
 
 // === Beléptetés ===
 // A gép CSR-t + tokent küld; siker esetén aláírt cert + CA jön vissza.
@@ -1146,17 +1161,35 @@ static string? ExtractCn(string dn)
 }
 
 // Bejövő üzenetek (ACK-ok, státusz) olvasása. Most logol; később a commands.result-ba megy.
-static async Task PumpIncomingAsync(WebSocket socket, string deviceId, ILogger log, CancellationToken ct)
+static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessResultStore accessResults, ILogger log, CancellationToken ct)
 {
     var buffer = new byte[4096];
+    var message = new MemoryStream();
     while (socket.State == WebSocketState.Open && !ct.IsCancellationRequested)
     {
-        var result = await socket.ReceiveAsync(buffer, ct);
-        if (result.MessageType == WebSocketMessageType.Close)
+        message.SetLength(0);
+        WebSocketReceiveResult result;
+        do
         {
-            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", ct);
-            return;
+            result = await socket.ReceiveAsync(buffer, ct);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", ct);
+                return;
+            }
+            message.Write(buffer, 0, result.Count);
+        } while (!result.EndOfMessage);
+
+        // Agent → szerver üzenet: jelenleg a tunnel-nyitás/hozzájárulás eredménye (nonce-hoz kötve).
+        try
+        {
+            var msg = JsonSerializer.Deserialize(message.ToArray(), AgentJsonContext.Default.AgentUplinkMessage);
+            if (msg is { Type: "access-result" } && !string.IsNullOrEmpty(msg.Nonce))
+            {
+                accessResults.Set(msg.Nonce, msg.Outcome);
+                log.LogInformation("Hozzáférés-eredmény {Device}: {Outcome} (nonce {Nonce})", deviceId, msg.Outcome, msg.Nonce);
+            }
         }
-        log.LogDebug("Agent üzenet {Device}: {Bytes} bájt", deviceId, result.Count);
+        catch (JsonException) { log.LogDebug("Értelmezhetetlen agent-üzenet {Device}.", deviceId); }
     }
 }

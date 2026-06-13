@@ -20,6 +20,7 @@ public sealed class CommandChannelService(
     CommandVerifier verifier,
     CommandBus bus,
     AgentStatusState status,
+    AgentUplink uplink,
     ILogger<CommandChannelService> logger) : BackgroundService
 {
     private readonly CommandChannelOptions _opt = options.Value.CommandChannel;
@@ -82,10 +83,13 @@ public sealed class CommandChannelService(
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
         logger.LogInformation("Parancscsatorna él.");
         status.SetC2Connected(true); // a status-pipe ezt jelzi a kliensnek
+        uplink.SetSocket(ws);        // innentől tudunk visszafelé is írni (eredmény-jelzés)
 
         var buffer = new byte[8192];
         var message = new MemoryStream();
 
+        try
+        {
         while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
         {
             message.SetLength(0);
@@ -103,6 +107,8 @@ public sealed class CommandChannelService(
 
             await HandleMessageAsync(message.ToArray(), ct);
         }
+        }
+        finally { uplink.Clear(ws); }
     }
 
     private async Task HandleMessageAsync(byte[] raw, CancellationToken ct)

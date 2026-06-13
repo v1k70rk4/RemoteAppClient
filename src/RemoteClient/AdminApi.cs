@@ -198,6 +198,13 @@ public sealed class AdminApi : IDisposable
         return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct);
     }
 
+    /// <summary>A hozzáférés-kérés kimenetele (nonce alapján). Üres = még nincs válasz (várj tovább).</summary>
+    public async Task<string> GetAccessResultAsync(string nonce, CancellationToken ct = default)
+    {
+        var r = await _http.GetFromJsonAsync($"/admin/devices/access-result/{nonce}", AgentJsonContext.Default.AccessResultInfo, ct);
+        return r?.Outcome ?? "";
+    }
+
     public async Task<List<GroupInfo>> GetGroupsAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/groups", AgentJsonContext.Default.ListGroupInfo, ct) ?? [];
 

@@ -19,7 +19,8 @@ public static class CommandSignature
     /// </summary>
     public static string Canonicalize(AgentCommand cmd) =>
         $"{cmd.Type}|{cmd.Nonce}|{cmd.IssuedAt}|{cmd.Data?.RemotePort ?? 0}" +
-        $"|{cmd.Data?.UpdateVersion}|{cmd.Data?.UpdateUrl}|{cmd.Data?.UpdateSha256}|{cmd.Data?.UpdateTarget}";
+        $"|{cmd.Data?.UpdateVersion}|{cmd.Data?.UpdateUrl}|{cmd.Data?.UpdateSha256}|{cmd.Data?.UpdateTarget}" +
+        $"|{cmd.Data?.ConsentRequired ?? false}|{cmd.Data?.UnattendedAllowed ?? true}";
 
     /// <summary>Aláírja a parancsot a szerver privát kulcsával, és beállítja a Signature mezőt.</summary>
     public static void Sign(AgentCommand cmd, ECDsa privateKey)

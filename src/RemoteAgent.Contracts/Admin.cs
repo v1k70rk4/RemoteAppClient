@@ -225,4 +225,16 @@ public sealed class OpenTunnelResult
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>A kiadott parancs nonce-a — ezzel kérdezi le a konzol a hozzájárulás eredményét.</summary>
+    [JsonPropertyName("nonce")]
+    public string Nonce { get; set; } = string.Empty;
+}
+
+/// <summary>A hozzáférés-kérés állapota (a konzol pollozza a tunnel-nyitás után).</summary>
+public sealed class AccessResultInfo
+{
+    /// <summary>"" / "pending" = még várunk; egyébként: auto | granted | denied | timeout | no-user | locked.</summary>
+    [JsonPropertyName("outcome")]
+    public string Outcome { get; set; } = string.Empty;
 }

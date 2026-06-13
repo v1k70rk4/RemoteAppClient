@@ -154,6 +154,24 @@ public sealed class DevicesView : UserControl, IContentView
 
     private static string Short(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
 
+    /// <summary>
+    /// Megvárja a hozzáférés kimenetelét. Először ~2,5 mp-ig csendben (auto/unattended esetén nincs
+    /// felugró ablak), utána — ha még várunk — látható „várakozás a válaszra" ablakkal a hátralévő időre.
+    /// </summary>
+    private async Task<string> WaitAccessAsync(string? nonce)
+    {
+        if (string.IsNullOrEmpty(nonce)) return "auto"; // nincs nonce → nincs mire várni
+        for (int i = 0; i < 4; i++)
+        {
+            try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
+            catch { /* tranziens */ }
+            await Task.Delay(600);
+        }
+        using var w = new ConsentWaitForm(_api, nonce);
+        w.ShowDialog(this);
+        return w.Outcome;
+    }
+
     private async Task ConnectSelectedAsync()
     {
         if (SelectedDevice() is not { } sel) { SetStatus("Válassz egy gépet."); return; }
@@ -170,6 +188,26 @@ public sealed class DevicesView : UserControl, IContentView
             SetStatus($"Tunnel nyitása: {d.Hostname}…");
             var result = await _api.OpenTunnelAsync(d.DeviceId);
             if (result is null) { SetStatus("A tunnel-kérés sikertelen."); return; }
+
+            // Megvárjuk a gép válaszát (hozzájárulás/auto). Csak akkor megyünk tovább, ha engedélyezve.
+            SetStatus("Várakozás a távoli gép válaszára…");
+            var outcome = await WaitAccessAsync(result.Nonce);
+            if (outcome is not ("auto" or "granted"))
+            {
+                var (title, text) = outcome switch
+                {
+                    "denied"    => ("Elutasítva", "A gépnél lévő felhasználó elutasította a csatlakozást."),
+                    "timeout"   => ("Nincs válasz", "A felhasználó a megadott időn belül nem válaszolt a kérésre."),
+                    "no-user"   => ("Nincs felhasználó", "Senki nincs bejelentkezve, és a felügyelet nélküli hozzáférés tiltott ezen a gépen."),
+                    "locked"    => ("Letiltva", "A gépen a távoli elérés helyileg le van tiltva."),
+                    "cancelled" => ("Megszakítva", ""),
+                    _           => ("Sikertelen", "A csatlakozás nem jött létre."),
+                };
+                SetStatus(title);
+                if (!string.IsNullOrEmpty(text))
+                    MessageBox.Show(text, title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
 
             SetStatus("Bástya-port elérése a helyi agenten át…");
             await Task.Delay(1500);
