@@ -4,20 +4,37 @@ namespace RemoteServer.Services;
 
 /// <summary>
 /// A tunnel-nyitás/hozzájárulás kimenetelének rövid életű tárolója, a parancs nonce-ához kötve.
-/// Az agent a WSS-en visszajelzi az eredményt (PumpIncoming), a konzol pedig nonce alapján pollozza.
-/// Memóriában, 2 perc TTL (egyetlen szerver-instance).
+/// A nyitáskor rögzítjük a kontextust (ki, melyik gép), az agent a WSS-en visszajelzi a kimenetelt
+/// (PumpIncoming), a konzol pedig nonce alapján pollozza. Memóriában, 2 perc TTL.
 /// </summary>
 public sealed class AccessResultStore
 {
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(2);
-    private readonly ConcurrentDictionary<string, (string Outcome, DateTimeOffset Expires)> _map = new();
 
-    /// <summary>Az agenttől érkezett kimenetel rögzítése (nonce → outcome).</summary>
-    public void Set(string nonce, string outcome)
+    public sealed record Entry(string Actor, Guid? DeviceId, string Hostname)
+    {
+        public string? Outcome { get; set; }
+        public DateTimeOffset Expires { get; set; } = DateTimeOffset.UtcNow + Ttl;
+    }
+
+    private readonly ConcurrentDictionary<string, Entry> _map = new();
+
+    /// <summary>Nyitáskor: ki (actor) melyik gépre (deviceId/hostname) kért hozzáférést — még nincs kimenetel.</summary>
+    public void SetPending(string nonce, string actor, Guid? deviceId, string hostname)
     {
         if (string.IsNullOrEmpty(nonce)) return;
-        _map[nonce] = (outcome, DateTimeOffset.UtcNow + Ttl);
+        _map[nonce] = new Entry(actor, deviceId, hostname);
         Prune();
+    }
+
+    /// <summary>Az agenttől érkezett kimenetel rögzítése; visszaadja a kontextust (audithoz), ha ismert.</summary>
+    public Entry? RecordOutcome(string nonce, string outcome)
+    {
+        if (string.IsNullOrEmpty(nonce)) return null;
+        if (_map.TryGetValue(nonce, out var e)) { e.Outcome = outcome; e.Expires = DateTimeOffset.UtcNow + Ttl; return e; }
+        var fresh = new Entry("?", null, "") { Outcome = outcome };
+        _map[nonce] = fresh;
+        return fresh;
     }
 
     /// <summary>A kimenetel lekérése; null, ha még nincs (a konzol tovább vár).</summary>

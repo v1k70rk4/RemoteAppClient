@@ -66,6 +66,7 @@ public sealed class MainForm : MaterialForm
     private ChannelsView? _channelsView;
     private BootstrapView? _bootstrapView;
     private LocalLockView? _localLockView;
+    private LogView? _logView;
 
     public MainForm()
     {
@@ -555,10 +556,12 @@ public sealed class MainForm : MaterialForm
             _channelsView = new ChannelsView(_api!);
             _bootstrapView = new BootstrapView(_api!);
             _localLockView = new LocalLockView();
+            _logView = new LogView(_api!);
             AddNav("Felhasználók", _usersView);
             AddNav("Csoportok", _groupsView);
             AddNav("Csatornák / MSI", _channelsView);
             AddNav("Bootstrap", _bootstrapView);
+            AddNav("Napló", _logView);
             AddNav("Helyi zár", _localLockView);
         }
 

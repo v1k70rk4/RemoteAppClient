@@ -340,7 +340,8 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
 
     try
     {
-        await PumpIncomingAsync(socket, deviceId, accessResults, log, ctx.RequestAborted);
+        var scopes = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>();
+        await PumpIncomingAsync(socket, deviceId, accessResults, scopes, log, ctx.RequestAborted);
     }
     catch (OperationCanceledException) { /* leállás/lekapcsolódás */ }
     catch (WebSocketException ex) { log.LogDebug(ex, "WS lezárult: {Device}", deviceId); }
@@ -456,6 +457,7 @@ app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx,
     if (upd.Status is not null && Enum.TryParse<DeviceStatus>(upd.Status, ignoreCase: true, out var st)) device.Status = st;
 
     await db.SaveChangesAsync(ctx.RequestAborted);
+    await AuditAsync(db, ctx, "device-update", device.Id, device.Hostname);
     return Results.NoContent();
 });
 
@@ -574,6 +576,7 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
         FileName = fileName, Sha256 = sha, SizeBytes = size,
     });
     await db.SaveChangesAsync(ctx.RequestAborted);
+    await AuditAsync(db, ctx, "package-upload", null, $"{component} · {channel} · {version}");
 
     return Results.Ok(new { channel, component, version, fileName, url = $"/api/updates/{fileName}", sha256 = sha });
 
@@ -603,7 +606,7 @@ app.MapGet("/admin/channels", async (AppDbContext db, CancellationToken ct) =>
 
 // Rollout: egy csatorna AKTUÁLIS csomagját kiadja minden ott lévő, frissíthető, jóváhagyott gépnek.
 app.MapPost("/admin/channels/{channel}/rollout", async (
-    string channel, string? component, AppDbContext db, CommandService commands, CancellationToken ct) =>
+    string channel, string? component, HttpContext ctx, AppDbContext db, CommandService commands, CancellationToken ct) =>
 {
     channel = channel.Trim().ToLowerInvariant();
     var comp = string.IsNullOrWhiteSpace(component) ? "agent" : component.Trim().ToLowerInvariant();
@@ -631,12 +634,13 @@ app.MapPost("/admin/channels/{channel}/rollout", async (
         var cmd = await commands.EnqueueAsync(d.DeviceId, CommandTypes.Update, data, createdBy: null, ct);
         if (cmd is not null) sent++;
     }
+    await AuditAsync(db, ctx, "rollout", null, $"{comp} · {channel} · {pkg.Version} → {sent} gép");
     return Results.Ok(new { channel, component = comp, version = pkg.Version, devices = devices.Count, sent, skipped });
 });
 
 // Promótálás: egy csatorna aktuális csomagját a cél-csatorna aktuálisává teszi (UGYANAZ a fájl, nincs újra-feltöltés).
 app.MapPost("/admin/channels/{channel}/promote", async (
-    string channel, string? component, string? to, AppDbContext db, CancellationToken ct) =>
+    string channel, string? component, string? to, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
 {
     var from = channel.Trim().ToLowerInvariant();
     var comp = string.IsNullOrWhiteSpace(component) ? "agent" : component.Trim().ToLowerInvariant();
@@ -653,6 +657,7 @@ app.MapPost("/admin/channels/{channel}/promote", async (
         FileName = pkg.FileName, Sha256 = pkg.Sha256, SizeBytes = pkg.SizeBytes,
     });
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "promote", null, $"{comp} · {from} → {toChannel} · {pkg.Version}");
     return Results.Ok(new { promoted = pkg.Version, component = comp, from, to = toChannel, fileName = pkg.FileName });
 });
 
@@ -688,7 +693,7 @@ app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> 
 
 // Tunnel nyitása: a gép STABIL portját használja (enrollkor kiosztva); felülírható a query-ből.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
-    string deviceId, int? remotePort, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, CancellationToken ct) =>
+    string deviceId, int? remotePort, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();
@@ -715,17 +720,47 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
         deviceId, CommandTypes.OpenTunnel,
         new CommandData { RemotePort = port, ConsentRequired = consentRequired, UnattendedAllowed = unattendedAllowed },
         createdBy: null, ct);
-    return cmd is null
-        ? Results.NotFound()
-        : Results.Json(
-            new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" },
-            AgentJsonContext.Default.OpenTunnelResult);
+    if (cmd is null) return Results.NotFound();
+
+    // A nonce-hoz kötjük: ki (Actor) melyik gépre kért hozzáférést → az agent kimenetelekor naplózzuk.
+    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+
+    return Results.Json(
+        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" },
+        AgentJsonContext.Default.OpenTunnelResult);
 });
 
 // A hozzáférés-kérés eredménye (a konzol pollozza nonce alapján a tunnel-nyitás után).
 // Üres outcome = még nincs válasz (az agent dolgozik / a felhasználót kérdezi).
 app.MapGet("/admin/devices/access-result/{nonce}", (string nonce, AccessResultStore accessResults) =>
     Results.Json(new AccessResultInfo { Outcome = accessResults.Get(nonce) ?? "" }, AgentJsonContext.Default.AccessResultInfo));
+
+// Napló (audit) lekérdezés szűrőkkel: action (kulcs), actor (felhasználónév), deviceId (gép), limit.
+app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceId, int? limit, AppDbContext db, CancellationToken ct) =>
+{
+    Guid? devGuid = null;
+    if (!string.IsNullOrWhiteSpace(deviceId))
+        devGuid = await db.Devices.Where(d => d.DeviceId == deviceId).Select(d => (Guid?)d.Id).FirstOrDefaultAsync(ct);
+
+    var q = db.AuditLogs.AsQueryable();
+    if (!string.IsNullOrWhiteSpace(action)) q = q.Where(a => a.Action == action);
+    if (!string.IsNullOrWhiteSpace(actor)) q = q.Where(a => a.Actor == actor);
+    if (devGuid is { } dg) q = q.Where(a => a.TargetDeviceId == dg);
+
+    var rows = await q.OrderByDescending(a => a.CreatedAt).Take(Math.Clamp(limit ?? 200, 1, 1000)).ToListAsync(ct);
+
+    var devIds = rows.Where(r => r.TargetDeviceId != null).Select(r => r.TargetDeviceId!.Value).Distinct().ToList();
+    var hosts = devIds.Count == 0 ? new Dictionary<Guid, string>()
+        : await db.Devices.Where(d => devIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, d => d.Hostname, ct);
+
+    var list = rows.Select(a => new AuditEntryInfo
+    {
+        CreatedAt = a.CreatedAt, Actor = a.Actor, Action = a.Action,
+        Target = a.TargetDeviceId is { } t && hosts.TryGetValue(t, out var h) ? h : null,
+        Detail = a.DetailJson,
+    }).ToList();
+    return Results.Json(list, AgentJsonContext.Default.ListAuditEntryInfo);
+});
 
 // === Beléptetés ===
 // A gép CSR-t + tokent küld; siker esetén aláírt cert + CA jön vissza.
@@ -760,7 +795,7 @@ app.MapPost("/admin/tokens", async (EnrollmentService enroll, int? maxUses, int?
 // === Bootstrap blob: token nélküli ön-telepítéshez (site-token + szerver-URL egy stringben) ===
 // A létrejövő token AutoApprove=false → a vele beléptetett gép Pending-be kerül (jóváhagyásra vár).
 app.MapPost("/admin/bootstrap", async (
-    EnrollmentService enroll, IOptions<ServerOptions> opt,
+    HttpContext ctx, AppDbContext db, EnrollmentService enroll, IOptions<ServerOptions> opt,
     string? serverUrl, Guid? groupId, int? maxUses, int? expiresInHours, CancellationToken ct) =>
 {
     var url = !string.IsNullOrWhiteSpace(serverUrl) ? serverUrl : opt.Value.PublicUrl;
@@ -769,6 +804,7 @@ app.MapPost("/admin/bootstrap", async (
 
     var (raw, _) = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = raw });
+    await AuditAsync(db, ctx, "bootstrap-create", null, $"max {(maxUses ?? 100000)}");
     return Results.Ok(new { blob, url = url.TrimEnd('/'), token = raw, groupId, maxUses = maxUses ?? 100000, expiresInHours });
 });
 
@@ -787,12 +823,13 @@ app.MapGet("/admin/tokens-list", async (AppDbContext db, CancellationToken ct) =
     return Results.Json(list, AgentJsonContext.Default.ListBootstrapTokenInfo);
 });
 
-app.MapPost("/admin/tokens-list/{id:guid}/revoke", async (Guid id, AppDbContext db, CancellationToken ct) =>
+app.MapPost("/admin/tokens-list/{id:guid}/revoke", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
 {
     var token = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
     if (token is null) return Results.NotFound();
     token.RevokedAt ??= DateTimeOffset.UtcNow;
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "token-revoke", null, id.ToString("N")[..8]);
     return Results.NoContent();
 });
 
@@ -818,22 +855,24 @@ app.MapPut("/admin/tokens-list/{id:guid}", async (Guid id, HttpContext ctx, AppD
     else if (req.ExpiresInHours is { } h) token.ExpiresAt = DateTimeOffset.UtcNow.AddHours(h);
 
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "token-edit", null, id.ToString("N")[..8]);
     return Results.NoContent();
 });
 
-app.MapDelete("/admin/tokens-list/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+app.MapDelete("/admin/tokens-list/{id:guid}", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
 {
     var token = await db.EnrollmentTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
     if (token is null) return Results.NotFound();
     db.EnrollmentTokens.Remove(token);
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "token-delete", null, id.ToString("N")[..8]);
     return Results.NoContent();
 });
 
 // === MSI-gyártás: egy csoporthoz, egy csatorna aktuális exéiből (wixl) ===
 // Lerakja az agent+updater exét + a group bootstrap.dat-ját, és install-service-szel telepít.
 app.MapPost("/admin/msi", async (
-    string? group, string? channel, bool? client, bool? shortcut, AppDbContext db, EnrollmentService enroll,
+    string? group, string? channel, bool? client, bool? shortcut, HttpContext ctx, AppDbContext db, EnrollmentService enroll,
     MsiBuilder msi, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     var ch = string.IsNullOrWhiteSpace(channel) ? "rtm" : channel.Trim().ToLowerInvariant();
@@ -886,6 +925,7 @@ app.MapPost("/admin/msi", async (
     // A blobot a generált MSI-hez kötjük → a bootstrap nézet megmutatja, melyik MSI-hez tartozik.
     tokenEntity.MsiFileName = res.FileName;
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "msi-build", null, $"{label} · {ch} · {agentPkg.Version}");
 
     return Results.Ok(new
     {
@@ -936,6 +976,7 @@ app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, Cancellatio
     await db.SaveChangesAsync(ct);
     await SetRoleAsync(db, user.Id, role, ct);
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}");
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp }, AgentJsonContext.Default.CreateUserResponse);
 });
 
@@ -962,10 +1003,11 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
         if (!act) await auth.RevokeAllForUserAsync(id, ct); // deaktiválás = azonnali kiléptetés
     }
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "user-update", null, user.Username);
     return Results.NoContent();
 });
 
-app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, AppDbContext db, AuthService auth, CancellationToken ct) =>
+app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
     if (user is null) return Results.NotFound();
@@ -975,15 +1017,18 @@ app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, AppDbContex
     user.MustChangePassword = true;
     await auth.RevokeAllForUserAsync(id, ct);
     await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "user-reset-password", null, user.Username);
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp }, AgentJsonContext.Default.CreateUserResponse);
 });
 
-app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, HttpContext ctx, AuthService auth, CancellationToken ct) =>
+app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
 {
     // Önkizárás-védelem: ne tudja a hívó admin saját magát azonnal kiléptetni.
     var me = (User)ctx.Items["user"]!;
     if (id == me.Id) return Results.BadRequest(new { error = "self_revoke" });
+    var uname = (await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct))?.Username ?? id.ToString();
     await auth.RevokeAllForUserAsync(id, ct);
+    await AuditAsync(db, ctx, "user-revoke-sessions", null, uname);
     return Results.NoContent();
 });
 
@@ -1079,6 +1124,22 @@ using (var scope = app.Services.CreateScope())
 
 app.Run();
 
+// Audit-bejegyzés írása (best-effort; az audit ne bontsa el a műveletet). Az actor a bejelentkezett user.
+static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Guid? target = null, string? detail = null)
+{
+    try
+    {
+        var actor = (ctx.Items["user"] as RemoteServer.Data.Entities.User)?.Username ?? "system";
+        db.AuditLogs.Add(new RemoteServer.Data.Entities.AuditLog
+        {
+            Actor = actor, Action = action, TargetDeviceId = target, DetailJson = detail,
+            Ip = ctx.Connection.RemoteIpAddress?.ToString(),
+        });
+        await db.SaveChangesAsync(ctx.RequestAborted);
+    }
+    catch { /* az audit hiba ne befolyásolja a választ */ }
+}
+
 // A Bearer session-token kiolvasása az Authorization fejlécből.
 static string? BearerToken(HttpContext ctx)
 {
@@ -1162,7 +1223,7 @@ static string? ExtractCn(string dn)
 }
 
 // Bejövő üzenetek (ACK-ok, státusz) olvasása. Most logol; később a commands.result-ba megy.
-static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessResultStore accessResults, ILogger log, CancellationToken ct)
+static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessResultStore accessResults, IServiceScopeFactory scopes, ILogger log, CancellationToken ct)
 {
     var buffer = new byte[4096];
     var message = new MemoryStream();
@@ -1187,8 +1248,35 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
             var msg = JsonSerializer.Deserialize(message.ToArray(), AgentJsonContext.Default.AgentUplinkMessage);
             if (msg is { Type: "access-result" } && !string.IsNullOrEmpty(msg.Nonce))
             {
-                accessResults.Set(msg.Nonce, msg.Outcome);
+                var entry = accessResults.RecordOutcome(msg.Nonce, msg.Outcome);
                 log.LogInformation("Hozzáférés-eredmény {Device}: {Outcome} (nonce {Nonce})", deviceId, msg.Outcome, msg.Nonce);
+
+                // Naplózás: a kimenetelt audit-sorrá írjuk (ki, melyik gép, eredmény).
+                var action = msg.Outcome switch
+                {
+                    "granted" => "connect",        // a felhasználó kifejezetten engedélyezte (Igen)
+                    "auto" => "connect-auto",       // hozzájárulás NÉLKÜL (consent kikapcsolva vagy nincs jelen user)
+                    "denied" => "access-denied",
+                    "timeout" => "access-timeout",
+                    "no-user" => "access-no-user",
+                    "locked" => "access-locked",
+                    _ => "access-" + msg.Outcome,
+                };
+                try
+                {
+                    using var scope = scopes.CreateScope();
+                    var adb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    adb.AuditLogs.Add(new AuditLog
+                    {
+                        Actor = entry?.Actor ?? "?",
+                        Action = action,
+                        TargetDeviceId = entry?.DeviceId,
+                        // ha nincs Guid (ritka), a hostname fallback a Detailben; egyébként null (a Target hordozza)
+                        DetailJson = entry?.DeviceId is null && !string.IsNullOrEmpty(entry?.Hostname) ? entry!.Hostname : null,
+                    });
+                    await adb.SaveChangesAsync(ct);
+                }
+                catch (Exception ex) { log.LogWarning(ex, "Audit-írás (access) sikertelen."); }
             }
         }
         catch (JsonException) { log.LogDebug("Értelmezhetetlen agent-üzenet {Device}.", deviceId); }

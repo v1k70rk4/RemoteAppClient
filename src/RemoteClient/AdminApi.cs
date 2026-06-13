@@ -198,6 +198,16 @@ public sealed class AdminApi : IDisposable
         return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct);
     }
 
+    /// <summary>Napló (audit) lekérdezés szűrőkkel. Üres szűrő = mind. action/actor/deviceId opcionális.</summary>
+    public async Task<List<AuditEntryInfo>> GetAuditAsync(string? action = null, string? actor = null, string? deviceId = null, int limit = 200, CancellationToken ct = default)
+    {
+        var q = new List<string> { $"limit={limit}" };
+        if (!string.IsNullOrWhiteSpace(action)) q.Add($"action={Uri.EscapeDataString(action)}");
+        if (!string.IsNullOrWhiteSpace(actor)) q.Add($"actor={Uri.EscapeDataString(actor)}");
+        if (!string.IsNullOrWhiteSpace(deviceId)) q.Add($"deviceId={Uri.EscapeDataString(deviceId)}");
+        return await _http.GetFromJsonAsync($"/admin/audit?{string.Join("&", q)}", AgentJsonContext.Default.ListAuditEntryInfo, ct) ?? [];
+    }
+
     /// <summary>A hozzáférés-kérés kimenetele (nonce alapján). Üres = még nincs válasz (várj tovább).</summary>
     public async Task<string> GetAccessResultAsync(string nonce, CancellationToken ct = default)
     {

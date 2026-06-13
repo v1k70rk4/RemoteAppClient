@@ -231,6 +231,20 @@ public sealed class OpenTunnelResult
     public string Nonce { get; set; } = string.Empty;
 }
 
+/// <summary>Egy napló-bejegyzés (audit). Az Action egy KULCS (pl. "connect"), a kliens fordítja le.</summary>
+public sealed class AuditEntryInfo
+{
+    [JsonPropertyName("createdAt")] public DateTimeOffset CreatedAt { get; set; }
+    /// <summary>Ki tette (felhasználónév vagy "system").</summary>
+    [JsonPropertyName("actor")] public string Actor { get; set; } = string.Empty;
+    /// <summary>Esemény-kulcs: connect | access-denied | access-timeout | access-no-user | access-locked | user-create | user-update | …</summary>
+    [JsonPropertyName("action")] public string Action { get; set; } = string.Empty;
+    /// <summary>Érintett gép (hostname/azonosító) megjelenítéshez, ha van.</summary>
+    [JsonPropertyName("target")] public string? Target { get; set; }
+    /// <summary>Rövid, ember-olvasható kiegészítés (pl. új szerep, verzió) — opcionális.</summary>
+    [JsonPropertyName("detail")] public string? Detail { get; set; }
+}
+
 /// <summary>A hozzáférés-kérés állapota (a konzol pollozza a tunnel-nyitás után).</summary>
 public sealed class AccessResultInfo
 {
