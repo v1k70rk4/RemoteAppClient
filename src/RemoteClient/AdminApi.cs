@@ -23,10 +23,12 @@ public sealed class AdminApi(string baseUrl) : IDisposable
             string.IsNullOrWhiteSpace(token) ? null : new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
     /// <summary>Bejelentkezés. Sikertelennél AuthException-t dob a szerver hibakódjával.</summary>
-    public async Task<LoginResponse> LoginAsync(string username, string password, string? totp, CancellationToken ct = default)
+    public async Task<LoginResponse> LoginAsync(string username, string password, string? totp,
+        string? clientVersion = null, string? channel = null, CancellationToken ct = default)
     {
         using var content = JsonContent.Create(
-            new LoginRequest { Username = username, Password = password, Totp = totp }, AgentJsonContext.Default.LoginRequest);
+            new LoginRequest { Username = username, Password = password, Totp = totp, ClientVersion = clientVersion, Channel = channel },
+            AgentJsonContext.Default.LoginRequest);
         using var resp = await _http.PostAsync("/auth/login", content, ct);
         if (!resp.IsSuccessStatusCode)
         {
@@ -69,10 +71,12 @@ public sealed class AdminApi(string baseUrl) : IDisposable
     }
 
     /// <summary>Belépés az aláírt challenge-dzsel. Sikertelennél AuthException.</summary>
-    public async Task<LoginResponse> HelloLoginAsync(string username, Guid credentialId, string signatureBase64, CancellationToken ct = default)
+    public async Task<LoginResponse> HelloLoginAsync(string username, Guid credentialId, string signatureBase64,
+        string? clientVersion = null, string? channel = null, CancellationToken ct = default)
     {
         using var content = JsonContent.Create(
-            new HelloLoginRequest { Username = username, CredentialId = credentialId, Signature = signatureBase64 }, AgentJsonContext.Default.HelloLoginRequest);
+            new HelloLoginRequest { Username = username, CredentialId = credentialId, Signature = signatureBase64, ClientVersion = clientVersion, Channel = channel },
+            AgentJsonContext.Default.HelloLoginRequest);
         using var resp = await _http.PostAsync("/auth/hello/login", content, ct);
         if (!resp.IsSuccessStatusCode)
         {
@@ -292,6 +296,16 @@ public sealed class AdminApi(string baseUrl) : IDisposable
     public async Task RemoveGrantAsync(Guid userId, Guid grantId, CancellationToken ct = default)
     {
         using var resp = await _http.DeleteAsync($"/admin/users/{userId}/grants/{grantId}", ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Egy user Windows Hello eszközei (admin).</summary>
+    public async Task<List<HelloCredentialInfo>> GetUserHelloAsync(Guid userId, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync($"/admin/users/{userId}/hello", AgentJsonContext.Default.ListHelloCredentialInfo, ct) ?? [];
+
+    public async Task RevokeUserHelloAsync(Guid userId, Guid credId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/users/{userId}/hello/{credId}/revoke", content: null, ct);
         resp.EnsureSuccessStatusCode();
     }
 

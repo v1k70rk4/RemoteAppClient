@@ -8,6 +8,11 @@ public sealed class LoginRequest
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
     [JsonPropertyName("password")] public string Password { get; set; } = string.Empty;
     [JsonPropertyName("totp")] public string? Totp { get; set; }
+
+    /// <summary>A kliens verziója (a szerver elavult klienst elutasít, ld. <see cref="LoginResponse.MustUpdate"/>).</summary>
+    [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
+    /// <summary>A kliens csatornája (rtm/beta) — innen kapja a kötelező frissítés csomagját.</summary>
+    [JsonPropertyName("channel")] public string? Channel { get; set; }
 }
 
 /// <summary>
@@ -25,6 +30,15 @@ public sealed class LoginResponse
     /// <summary>Csak enrollnál: az otpauth:// URI a QR-hez + a base32 titok (kézi beíráshoz).</summary>
     [JsonPropertyName("totpUri")] public string? TotpUri { get; set; }
     [JsonPropertyName("totpSecret")] public string? TotpSecret { get; set; }
+
+    /// <summary>
+    /// Igaz: a kliens túl régi, KÖTELEZŐ frissíteni. Ilyenkor <see cref="Token"/> üres (nincs belépés),
+    /// és az Update* mezők megadják a letöltendő csomagot. A kliens frissít, majd újraindul.
+    /// </summary>
+    [JsonPropertyName("mustUpdate")] public bool MustUpdate { get; set; }
+    [JsonPropertyName("updateVersion")] public string? UpdateVersion { get; set; }
+    [JsonPropertyName("updateFileName")] public string? UpdateFileName { get; set; }
+    [JsonPropertyName("updateSha256")] public string? UpdateSha256 { get; set; }
 }
 
 /// <summary>Hibakód a login/elutasítás kommunikálására (HTTP 401/403 mellé).</summary>
@@ -83,6 +97,10 @@ public sealed class HelloLoginRequest
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
     [JsonPropertyName("credentialId")] public Guid CredentialId { get; set; }
     [JsonPropertyName("signature")] public string Signature { get; set; } = string.Empty; // base64
+
+    /// <summary>A kliens verziója + csatornája (a min-verzió kapuhoz, ld. <see cref="LoginResponse.MustUpdate"/>).</summary>
+    [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
+    [JsonPropertyName("channel")] public string? Channel { get; set; }
 }
 
 /// <summary>„Ki vagyok" — a kliens a session-state-hez.</summary>

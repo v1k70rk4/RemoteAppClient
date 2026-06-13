@@ -281,6 +281,28 @@ public sealed class MainForm : MaterialForm
 
     // ---------------- Login + setup ----------------
 
+    /// <summary>
+    /// Ha a szerver kötelező frissítést írt elő (a kliens régebbi a megengedettnél): letölti+cseréli+újraindít.
+    /// true = kezelve, a hívó NE lépjen tovább (vagy frissül és kilép, vagy hibát mutat és marad a loginon).
+    /// </summary>
+    private async Task<bool> HandleMandatoryUpdateAsync(LoginResponse login)
+    {
+        if (!login.MustUpdate) return false;
+        SetLoginStatus("Kötelező frissítés letöltése…");
+        if (!string.IsNullOrWhiteSpace(login.UpdateFileName)
+            && await ClientUpdater.ApplyKnownAsync(_api!, login.UpdateFileName!, login.UpdateSha256))
+        {
+            Cleanup();
+            Application.Exit();
+            return true;
+        }
+        MessageBox.Show(
+            "Ez a kliens elavult, és a kötelező frissítés nem sikerült.\nFrissítsd/telepítsd újra a klienst, vagy szólj az adminnak.",
+            "Frissítés szükséges", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        SetLoginStatus("Elavult kliens — frissítés szükséges.");
+        return true;
+    }
+
     private async Task DoLoginAsync()
     {
         SetLoginStatus("");
@@ -289,7 +311,9 @@ public sealed class MainForm : MaterialForm
         {
             _loginBtn.Enabled = false;
             _username = _user.Text.Trim();
-            _login = await _api.LoginAsync(_username, _pass.Text, string.IsNullOrWhiteSpace(_totp.Text) ? null : _totp.Text.Trim());
+            _login = await _api.LoginAsync(_username, _pass.Text, string.IsNullOrWhiteSpace(_totp.Text) ? null : _totp.Text.Trim(),
+                ClientUpdater.RunningVersionString(), _cfg.Channel);
+            if (await HandleMandatoryUpdateAsync(_login)) return;
             _api.SetToken(_login.Token);
             _role = _login.Role;
 
@@ -324,7 +348,8 @@ public sealed class MainForm : MaterialForm
             var challenge = await _api.HelloChallengeAsync(user);
             var sig = await WindowsHello.SignAsync(HelloKeyName(user), challenge);
             if (sig is null) { SetLoginStatus("Windows Hello megszakítva vagy nem elérhető."); return; }
-            _login = await _api.HelloLoginAsync(user, credId, sig);
+            _login = await _api.HelloLoginAsync(user, credId, sig, ClientUpdater.RunningVersionString(), _cfg.Channel);
+            if (await HandleMandatoryUpdateAsync(_login)) return;
             _api.SetToken(_login.Token);
             _role = _login.Role;
             _username = user;
@@ -427,13 +452,42 @@ public sealed class MainForm : MaterialForm
         finally { _finishBtn.Enabled = true; }
     }
 
+    /// <summary>
+    /// A self-update csatornája = a SAJÁT gép eszköz-csatornája (hostname-egyezés a flottában),
+    /// hogy az agent/helper/client/vnc EGYAZON beállítást kövesse. Ha a gép nincs a flottában
+    /// (vagy hiba), a lokális configban tárolt csatorna a fallback. A feloldott értéket elmentjük.
+    /// </summary>
+    private async Task<string> ResolveUpdateChannelAsync()
+    {
+        try
+        {
+            var me = Environment.MachineName;
+            var devices = await _api!.GetDevicesAsync();
+            var dev = devices.FirstOrDefault(d => string.Equals(d.Hostname, me, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(dev?.Channel))
+            {
+                var ch = dev!.Channel!.Trim().ToLowerInvariant();
+                if (!string.Equals(_cfg.Channel, ch, StringComparison.Ordinal))
+                {
+                    _cfg.Channel = ch;
+                    _cfg.Save();
+                }
+            }
+        }
+        catch { /* fallback a configra */ }
+        return _cfg.Channel;
+    }
+
     private async Task EnterMainAsync()
     {
         // Csendes önfrissítés: ha van újabb 'client' a csatornán, lecseréli magát és újraindul.
+        // A csatorna a GÉP eszköz-csatornája (ugyanaz, amit az agent/helper/vnc követ), hostname
+        // alapján a szerverről; fallback a lokális configra (offline / nem-flotta gép).
         if (_api is not null)
         {
             SetLoginStatus("Frissítés keresése…");
-            if (await ClientUpdater.CheckAndUpdateAsync(_api, _cfg.Channel)) { Cleanup(); Application.Exit(); return; }
+            var channel = await ResolveUpdateChannelAsync();
+            if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); Application.Exit(); return; }
         }
 
         _mainServerLbl.Text = AgentInfo.ServerName();

@@ -13,6 +13,9 @@ public sealed class UserInfo
     [JsonPropertyName("mustChangePassword")] public bool MustChangePassword { get; set; }
     [JsonPropertyName("totpConfirmed")] public bool TotpConfirmed { get; set; }
     [JsonPropertyName("lastLoginAt")] public DateTimeOffset? LastLoginAt { get; set; }
+
+    /// <summary>Aktív Windows Hello hitelesítők száma (ennyi gépről léphet be passwordless).</summary>
+    [JsonPropertyName("helloCount")] public int HelloCount { get; set; }
 }
 
 /// <summary>Új user létrehozása (admin). A szerver ideiglenes jelszót generál.</summary>
