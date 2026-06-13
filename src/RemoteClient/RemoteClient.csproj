@@ -8,7 +8,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- MaterialSkin.2 fix pixel-méretű betűkkel rajzol, nulla DPI-skálázással → PerMonitorV2 alatt
+         4K/200%-on pöttöm. DpiUnaware: a Windows egyenletes (bilineáris) skálázással a HELYES fizikai
+         méretre nagyítja az ablakot — kicsit lágy, de nem pixeles (a GdiScaled félrenderelése pixelesedett). -->
+    <ApplicationHighDpiMode>DpiUnaware</ApplicationHighDpiMode>
     <RootNamespace>RemoteClient</RootNamespace>
     <AssemblyName>RemoteClient</AssemblyName>
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>

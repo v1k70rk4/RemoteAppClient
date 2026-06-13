@@ -180,12 +180,23 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
                 return;
             }
 
+            // 1) Türelmi idő: ha épp fut/záródik, pár mp-ig várunk a cserével.
             bool copied = false;
-            for (int i = 0; i < 10 && !copied; i++)
+            for (int i = 0; i < 5 && !copied; i++)
             {
-                try { File.Copy(tmp, targetPath, overwrite: true); copied = true; }
-                catch (IOException) { await Task.Delay(TimeSpan.FromSeconds(1), ct); }      // épp fut → várunk
-                catch (UnauthorizedAccessException) { await Task.Delay(TimeSpan.FromSeconds(1), ct); }
+                if (TryCopy(tmp, targetPath)) { copied = true; break; }
+                await Task.Delay(TimeSpan.FromSeconds(1), ct);
+            }
+
+            // 2) Ha még mindig zárolt (nyitva tartott kliens), kilőjük a futó RemoteClient-et és újrapróbáljuk.
+            if (!copied)
+            {
+                KillRunningClient();
+                for (int i = 0; i < 5 && !copied; i++)
+                {
+                    if (TryCopy(tmp, targetPath)) { copied = true; break; }
+                    await Task.Delay(TimeSpan.FromSeconds(1), ct);
+                }
             }
 
             if (copied) logger.LogInformation("Konzol-kliens frissítve ({Version}).", version);
@@ -193,6 +204,30 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         }
         catch (Exception ex) { logger.LogWarning(ex, "Kliens-frissítés sikertelen."); }
         finally { TryDelete(tmp); }
+    }
+
+    /// <summary>Megpróbálja felülírni a cél exét; false, ha zárolt (fut) vagy hozzáférés-hiba.</summary>
+    private static bool TryCopy(string src, string dest)
+    {
+        try { File.Copy(src, dest, overwrite: true); return true; }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>Kilövi a futó RemoteClient.exe-ket, hogy a frissítés át tudja írni az exét. (A user-t kidobja.)</summary>
+    private void KillRunningClient()
+    {
+        foreach (var p in Process.GetProcessesByName("RemoteClient"))
+        {
+            try
+            {
+                p.Kill(entireProcessTree: true);
+                p.WaitForExit(3000);
+                logger.LogWarning("Futó RemoteClient kilőve a frissítéshez (PID {Pid}).", p.Id);
+            }
+            catch (Exception ex) { logger.LogDebug(ex, "RemoteClient kilövése nem sikerült (PID {Pid}).", p.Id); }
+            finally { p.Dispose(); }
+        }
     }
 
     /// <summary>A konzol-kliens exe útvonala: az agent exe mellett (a telepítés így rakja le).</summary>

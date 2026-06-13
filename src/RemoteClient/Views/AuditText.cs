@@ -17,6 +17,8 @@ internal static class AuditText
         "device.enrolled" => "Gép beléptetve",
         "device-update" => "Eszköz módosítva",
         "device-unlock" => "Belépés-zárolás feloldva",
+        "device-locked" => "Gép belépés-zárolva",
+        "login-failed" => "Sikertelen belépés",
         "user-create" => "Felhasználó létrehozva",
         "user-update" => "Felhasználó módosítva",
         "user-reset-password" => "Jelszó resetelve",
@@ -42,7 +44,7 @@ internal static class AuditText
     /// <summary>Elutasítás/blokk jellegű esemény (pirossal jelezzük).</summary>
     public static bool IsNegative(string action) =>
         action is "access-denied" or "access-timeout" or "access-no-user" or "access-locked"
-            or "password-code-failed" or "password-reset-failed";
+            or "password-code-failed" or "password-reset-failed" or "login-failed" or "device-locked";
 
     /// <summary>Hozzájárulás NÉLKÜL történt sikeres belépés — figyelemfelhívó (narancs).</summary>
     public static bool IsNoConsent(string action) => action == "connect-auto";

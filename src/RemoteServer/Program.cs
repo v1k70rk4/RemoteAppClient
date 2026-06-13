@@ -121,7 +121,8 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
     if (user is null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
     {
-        await RegisterLoginFailAsync(db, email, device, req.Username, PublicIpOf(ctx), ct);
+        await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed",
+            user is null ? "ismeretlen felhasználó" : "hibás jelszó", ct);
         return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
     }
 
@@ -133,7 +134,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         {
             // A hibás TOTP is sikertelen próba — de a „totp_required" (még nem írt be kódot) nem.
             if (!string.IsNullOrWhiteSpace(req.Totp))
-                await RegisterLoginFailAsync(db, email, device, req.Username, PublicIpOf(ctx), ct);
+                await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed", "hibás TOTP", ct);
             return Results.Json(new AuthError { Error = string.IsNullOrWhiteSpace(req.Totp) ? "totp_required" : "totp_invalid" },
                 AgentJsonContext.Default.AuthError, statusCode: 401);
         }
@@ -315,9 +316,9 @@ app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext 
     }
     else
     {
-        // Nem stimmel (rossz e-mail vagy nincs ilyen user) → sikertelen próba a gépen (counter).
-        if (user is not null) await AuditAsync(db, ctx, "password-code-failed", null, "e-mail nem egyezett", actorOverride: user.Username);
-        await RegisterLoginFailAsync(db, email, device, uname, PublicIpOf(ctx), ct);
+        // Nem stimmel (rossz e-mail vagy nincs ilyen user) → naplózott sikertelen próba + counter.
+        await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-code-failed",
+            user is null ? "ismeretlen felhasználó" : "e-mail nem egyezett", ct);
     }
     // A válasz mindig OK (anti-enumeration).
     return Results.NoContent();
@@ -344,8 +345,8 @@ app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, Aut
         || user.ResetCodeExpiresAt < DateTimeOffset.UtcNow
         || !string.Equals(user.ResetCodeHash, Sha256Hex(req.Code.Trim().ToUpperInvariant()), StringComparison.Ordinal))
     {
-        if (user is not null) await AuditAsync(db, ctx, "password-reset-failed", null, "érvénytelen vagy lejárt kód", actorOverride: user.Username);
-        await RegisterLoginFailAsync(db, email, device, uname, PublicIpOf(ctx), ct);
+        await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-reset-failed",
+            user is null ? "ismeretlen felhasználó" : "érvénytelen vagy lejárt token", ct);
         return Results.Json(new AuthError { Error = "invalid_code" }, AgentJsonContext.Default.AuthError, statusCode: 400);
     }
 
@@ -1430,24 +1431,36 @@ const int LoginFailLockThreshold = 5;
 static async Task<RemoteServer.Data.Entities.Device?> FindDeviceAsync(AppDbContext db, string? deviceId, CancellationToken ct) =>
     string.IsNullOrWhiteSpace(deviceId) ? null : await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
 
-/// <summary>Sikertelen próba a gépen: növeli a számlálót; az 5. próbánál zárol + e-mailt küld az adminnak.</summary>
-static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, RemoteServer.Data.Entities.Device? device, string username, string? ip, CancellationToken ct)
+/// <summary>
+/// Sikertelen próba: NAPLÓZZA (a usernél is — actor=username, ha létezik —, ÉS a gépnél is — TargetDeviceId+detail),
+/// növeli a gép számlálóját; az 5. próbánál zárol + e-mailt küld az adminnak.
+/// </summary>
+static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, HttpContext ctx,
+    RemoteServer.Data.Entities.Device? device, string username, string action, string reason, CancellationToken ct)
 {
-    if (device is null) return;
-    device.LoginFailCount++;
-    bool justLocked = device.LoginFailCount >= LoginFailLockThreshold && device.LoginLockedAt is null;
-    if (justLocked) device.LoginLockedAt = DateTimeOffset.UtcNow;
-    await db.SaveChangesAsync(ct);
-
-    if (justLocked)
+    bool justLocked = false;
+    if (device is not null)
     {
+        device.LoginFailCount++;
+        justLocked = device.LoginFailCount >= LoginFailLockThreshold && device.LoginLockedAt is null;
+        if (justLocked) device.LoginLockedAt = DateTimeOffset.UtcNow;
+    }
+
+    // A próbát rögzítjük: actor=a próbált felhasználónév (létező usernél a saját logjában látszik),
+    // TargetDeviceId=a gép (a gép logjában látszik), detail=mivel próbálkozott + ok. Ez menti a device-számlálót is.
+    await AuditAsync(db, ctx, action, device?.Id, $"{username} · {reason}", actorOverride: username);
+
+    if (justLocked && device is not null)
+    {
+        await AuditAsync(db, ctx, "device-locked", device.Id, $"{LoginFailLockThreshold} sikertelen próba (utolsó: {username})", actorOverride: "system");
+
         var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
         var to = s?.SupportEmail;
         if (!string.IsNullOrWhiteSpace(to))
         {
             var body = $"A(z) „{device.Hostname}” gépről {LoginFailLockThreshold} sikertelen belépési/jelszó-próba történt — a gép BELÉPÉS-ZÁROLVA.\n\n" +
-                       $"Utolsó próbált felhasználónév: {username}\nForrás IP: {ip ?? "-"}\nIdő: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC\n\n" +
-                       "Feloldás: a kliensben Eszközök → a gép → Tulajdonságok → „Belépés feloldása” (csak admin).";
+                       $"Utolsó próbált felhasználónév: {username}\nForrás IP: {PublicIpOf(ctx) ?? "-"}\nIdő: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC\n\n" +
+                       "Feloldás: a kliensben Eszközök → a gép → „Belépés feloldása” (csak admin).";
             await email.SendAsync(to!, "RemoteAppClient – gép belépés-zárolva (sikertelen próbák)", body, ct);
         }
     }
