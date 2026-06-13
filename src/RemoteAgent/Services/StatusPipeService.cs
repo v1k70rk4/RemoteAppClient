@@ -18,7 +18,7 @@ namespace RemoteAgent.Services;
 /// valós időben látja: él-e a C2, kész-e a tunnel, mikor volt utolsó szerver-kontakt.
 /// SEMMI parancs, SEMMI titok — a kontroll-csatorna marad az aláírt C2.
 /// </summary>
-public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel, ILogger<StatusPipeService> logger) : BackgroundService
+public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel, RemoteAgent.Telemetry.SystemInfoCollector sysInfo, ILogger<StatusPipeService> logger) : BackgroundService
 {
     public const string PipeName = "RemoteAgent.status";
 
@@ -55,10 +55,14 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
     {
         try
         {
+            var (helper, client, vnc) = sysInfo.ComponentVersions();
             var report = new StatusReport
             {
                 Component = "agent",
                 Version = Version,
+                HelperVersion = helper,
+                ClientVersion = client,
+                VncVersion = vnc,
                 C2Connected = state.C2Connected,
                 TunnelActive = tunnel.IsActive,
                 LastServerContactUtc = state.LastServerContactUtc,

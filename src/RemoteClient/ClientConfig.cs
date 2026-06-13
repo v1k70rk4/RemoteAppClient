@@ -19,8 +19,8 @@ public sealed class ClientConfig
     /// <summary>A szerver admin API portja a boxon (Kestrel, localhost).</summary>
     public int AdminApiPort { get; set; } = 5000;
 
-    /// <summary>Sötét téma (MaterialSkin). False = világos.</summary>
-    public bool DarkTheme { get; set; } = true;
+    /// <summary>Téma-mód: "light" | "dark" | "auto" (auto = a Windows beállítását követi).</summary>
+    public string ThemeMode { get; set; } = "dark";
 
     /// <summary>Release-csatorna az önfrissítéshez: "rtm" (alap) vagy "beta".</summary>
     public string Channel { get; set; } = "rtm";

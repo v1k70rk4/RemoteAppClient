@@ -1,12 +1,14 @@
 using System.Diagnostics;
 using System.Drawing;
-using MaterialSkin;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
 
 namespace RemoteClient.Views;
 
-/// <summary>Eszközlista (keresés + lényegi oszlopok) + jobb oldali részletek-panel + műveletek.</summary>
+/// <summary>
+/// Eszközlista + ablakon BELÜLI, füles szerkesztő (mint a Felhasználóknál):
+/// „← Vissza | Általános | LOG | Telemetria". A Csatlakozás/Jóváhagyás a listán marad.
+/// </summary>
 public sealed class DevicesView : UserControl, IContentView
 {
     private readonly AdminApi _api;
@@ -15,34 +17,48 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly bool _isAdmin;
 
     private readonly List<DeviceInfo> _devices = new();
+    private readonly Panel _listHost = new() { Dock = DockStyle.Fill };
+    private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
-    private readonly MaterialTextBox2 _search = new() { Hint = "Keresés: gépnév vagy megjegyzés", Width = 240 };
-    private readonly MaterialButton _refreshBtn = new() { Text = "Frissítés", AutoSize = true };
+    private readonly MaterialTextBox2 _search = new() { Hint = "Keresés: gépnév vagy megjegyzés", Width = 360 };
     private readonly MaterialButton _connectBtn = new() { Text = "Csatlakozás", AutoSize = true };
-    private readonly MaterialButton _editBtn = new() { Text = "Szerkesztés", AutoSize = true };
-    private readonly MaterialButton _approveBtn = new() { Text = "Jóváhagyás", AutoSize = true };
 
-    // Részletek-panel (jobb oldal) — bővíthető a későbbi telemetriához.
-    private readonly FlowLayoutPanel _detailsFlow = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 8, 8, 8) };
+    // Szerkesztő
+    private readonly MaterialButton _tabGeneral = TabBtn("Általános");
+    private readonly MaterialButton _tabLog = TabBtn("LOG");
+    private readonly MaterialButton _tabTelemetry = TabBtn("Telemetria");
+    private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
+    private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
+    private DeviceInfo? _editing;
+    private DeviceGeneralPanel? _generalPanel;
+    private LogPanel? _logPanel;
+    private DeviceTelemetryPanel? _telemetryPanel;
 
     public DevicesView(AdminApi api, BrokerClient broker, ClientConfig cfg, bool isAdmin)
     {
         _api = api; _broker = broker; _cfg = cfg; _isAdmin = isAdmin;
         Dock = DockStyle.Fill;
+        BuildList();
+        BuildEditor();
+        Controls.Add(_editorHost);
+        Controls.Add(_listHost);
+        ApplyTheme();
+    }
 
+    private static MaterialButton TabBtn(string text) =>
+        new() { Text = text, AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Text };
+
+    private void BuildList()
+    {
+        // Felső sáv: lista-szintű műveletek (keresés + frissítés).
         var tools = ViewUi.Toolbar();
         _search.Margin = new Padding(4, 0, 16, 0);
         _search.TextChanged += (_, _) => RenderList();
         tools.Controls.Add(_search);
-        void add(MaterialButton b, EventHandler onClick) { b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; tools.Controls.Add(b); }
-        add(_refreshBtn, async (_, _) => await RefreshAsync());
-        add(_connectBtn, async (_, _) => await ConnectSelectedAsync());
-        if (_isAdmin)
-        {
-            add(_editBtn, async (_, _) => await EditSelectedAsync());
-            add(_approveBtn, async (_, _) => await ApproveSelectedAsync());
-        }
+        var refresh = ViewUi.ToolbarButton("Frissítés", primary: false);
+        refresh.Click += async (_, _) => await RefreshAsync();
+        tools.Controls.Add(refresh);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
@@ -51,28 +67,41 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Columns.Add("Csoport", 130);
         _list.Columns.Add("Online", 70);
         _list.Columns.Add("Utoljára online", 150);
-        _list.SelectedIndexChanged += (_, _) => RenderDetails(SelectedDevice());
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
 
-        // Középső terület: lista (kitölt) + részletek-panel (jobb szél).
-        var center = new Panel { Dock = DockStyle.Fill };
-        var detailsCard = new MaterialCard { Dock = DockStyle.Right, Width = 320, Margin = new Padding(0), Padding = new Padding(0) };
-        var detailsHead = new MaterialLabel { Text = "Részletek", Font = new Font("Segoe UI", 11F, FontStyle.Bold), Dock = DockStyle.Top, Height = 30, Padding = new Padding(12, 6, 0, 0) };
-        detailsCard.Controls.Add(_detailsFlow);
-        detailsCard.Controls.Add(detailsHead);
-        // A Fill-t (lista) ELŐBB adjuk hozzá, a jobb-dokkolt panelt utána (z-sorrend).
-        _list.Dock = DockStyle.Fill;
-        center.Controls.Add(_list);
-        center.Controls.Add(detailsCard);
+        // Jobb alsó sarok: a kijelölt gépre ható műveletek (Csatlakozás | Szerkesztés | Jóváhagyás).
+        // RightToLeft → a legelőször hozzáadott a legjobboldalibb, ezért fordított sorrendben adjuk.
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
+        void RightBtn(string text, EventHandler onClick) { var b = ViewUi.ToolbarButton(text); b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; actions.Controls.Add(b); }
+        if (_isAdmin) RightBtn("Jóváhagyás", async (_, _) => await ApproveSelectedAsync());
+        if (_isAdmin) RightBtn("Szerkesztés", async (_, _) => await EditSelectedAsync());
+        _connectBtn.Margin = new Padding(4, 0, 4, 0);
+        _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
+        actions.Controls.Add(_connectBtn); // legutoljára → legbaloldalibb (Csatlakozás)
 
-        Controls.Add(ViewUi.Rows(1, tools, center, ViewUi.StatusHost(_status)));
-        ApplyTheme();
-        RenderDetails(null);
+        _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, actions, ViewUi.StatusHost(_status)));
+    }
+
+    private void BuildEditor()
+    {
+        var back = ViewUi.ToolbarButton("← Vissza", primary: false);
+        back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
+        _tabGeneral.Click += (_, _) => SelectTab("general");
+        _tabLog.Click += async (_, _) => await SelectTabAsync("log");
+        _tabTelemetry.Click += (_, _) => SelectTab("telemetry");
+
+        var tabbar = ViewUi.Toolbar();
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabLog, _tabTelemetry]);
+
+        _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _tabContent));
     }
 
     public void ApplyTheme() => ThemeManager.StyleView(this, _list);
 
-    public async Task OnShownAsync() => await RefreshAsync();
+    public async Task OnShownAsync() { ShowList(); await RefreshAsync(); }
+
+    private void ShowList() { _editorHost.Visible = false; _listHost.Visible = true; _listHost.BringToFront(); }
+    private void ShowEditor() { _listHost.Visible = false; _editorHost.Visible = true; _editorHost.BringToFront(); }
 
     private DeviceInfo? SelectedDevice() => _list.SelectedItems.Count == 0 ? null : (DeviceInfo)_list.SelectedItems[0].Tag!;
 
@@ -114,45 +143,41 @@ public sealed class DevicesView : UserControl, IContentView
         _list.EndUpdate();
     }
 
-    private void RenderDetails(DeviceInfo? d)
+    private async Task EditSelectedAsync()
     {
-        _detailsFlow.SuspendLayout();
-        _detailsFlow.Controls.Clear();
-        if (d is null)
+        if (SelectedDevice() is not { } d) { SetStatus("Válassz egy gépet."); return; }
+        try
         {
-            _detailsFlow.Controls.Add(new MaterialLabel { Text = "Válassz egy gépet a részletekhez.", AutoSize = true, Margin = new Padding(0, 4, 0, 0) });
-            _detailsFlow.ResumeLayout();
-            return;
-        }
+            var groups = await _api.GetGroupsAsync();
+            _editing = d;
+            _editorTitle.Text = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
 
-        void Row(string caption, string? value)
-        {
-            var cap = new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 8, 0, 0) };
-            var val = new MaterialLabel { Text = string.IsNullOrWhiteSpace(value) ? "—" : value, AutoSize = true, MaximumSize = new Size(296, 0), Margin = new Padding(0, 0, 0, 0) };
-            _detailsFlow.Controls.Add(cap);
-            _detailsFlow.Controls.Add(val);
-        }
+            _generalPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
+            _generalPanel = new DeviceGeneralPanel(_api, d, groups);
+            _logPanel = new LogPanel(_api, deviceId: d.DeviceId);
+            _telemetryPanel = new DeviceTelemetryPanel(d);
 
-        Row("Gép", d.Hostname);
-        Row("Megjegyzés", d.Note);
-        Row("Csoport", d.GroupName);
-        Row("Online", d.Online ? "online" : "offline");
-        Row("Utoljára online", d.LastSeenAt?.LocalDateTime.ToString("g"));
-        Row("Állapot", d.Status);
-        Row("Csatorna", string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
-        Row("Frissíthető", d.UpdateAllowed ? "igen" : "NEM");
-        Row("Unattended", d.UnattendedAllowed switch { true => "igen", false => "nem", null => "örökli" });
-        Row("Consent kell", d.ConsentRequired switch { true => "igen", false => "nem", null => "örökli" });
-        Row("Helyi zár", d.VncLocked ? "LETILTVA" : "—");
-        Row("Verziók (A/H/V)", $"{Short(d.AgentVersion)} / {Short(d.HelperVersion)} / {Short(d.VncVersion)}");
-        Row("Kliens / OS", $"{Short(d.ClientVersion)} / {Short(d.OsVersion)}");
-        Row("Agent-restartok", d.AgentRestarts.ToString());
-        if (!string.IsNullOrWhiteSpace(d.LastIncident)) Row("Utolsó incidens", d.LastIncident);
-        Row("deviceId", d.DeviceId);
-        _detailsFlow.ResumeLayout();
+            ShowEditor();
+            SelectTab("general");
+        }
+        catch (Exception ex) { SetStatus("Szerkesztés hiba: " + ex.Message); }
     }
 
-    private static string Short(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+    private void SelectTab(string tab) => _ = SelectTabAsync(tab);
+
+    private async Task SelectTabAsync(string tab)
+    {
+        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
+            b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
+
+        _tabContent.Controls.Clear();
+        switch (tab)
+        {
+            case "general" when _generalPanel is not null: _tabContent.Controls.Add(_generalPanel); break;
+            case "telemetry" when _telemetryPanel is not null: _tabContent.Controls.Add(_telemetryPanel); break;
+            case "log" when _logPanel is not null: _tabContent.Controls.Add(_logPanel); await _logPanel.ShownAsync(); break;
+        }
+    }
 
     /// <summary>
     /// Megvárja a hozzáférés kimenetelét. Először ~2,5 mp-ig csendben (auto/unattended esetén nincs
@@ -160,7 +185,7 @@ public sealed class DevicesView : UserControl, IContentView
     /// </summary>
     private async Task<string> WaitAccessAsync(string? nonce)
     {
-        if (string.IsNullOrEmpty(nonce)) return "auto"; // nincs nonce → nincs mire várni
+        if (string.IsNullOrEmpty(nonce)) return "auto";
         for (int i = 0; i < 4; i++)
         {
             try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
@@ -189,7 +214,6 @@ public sealed class DevicesView : UserControl, IContentView
             var result = await _api.OpenTunnelAsync(d.DeviceId);
             if (result is null) { SetStatus("A tunnel-kérés sikertelen."); return; }
 
-            // Megvárjuk a gép válaszát (hozzájárulás/auto). Csak akkor megyünk tovább, ha engedélyezve.
             SetStatus("Várakozás a távoli gép válaszára…");
             var outcome = await WaitAccessAsync(result.Nonce);
             if (outcome is not ("auto" or "granted"))
@@ -226,20 +250,6 @@ public sealed class DevicesView : UserControl, IContentView
         if (MessageBox.Show($"Jóváhagyod ezt a gépet?\n\n{sel.Hostname}\n{sel.DeviceId}", "Jóváhagyás", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         try { await _api.ApproveDeviceAsync(sel.DeviceId); SetStatus($"{sel.Hostname} jóváhagyva."); await RefreshAsync(); }
         catch (Exception ex) { SetStatus("Jóváhagyás hiba: " + ex.Message); }
-    }
-
-    private async Task EditSelectedAsync()
-    {
-        if (SelectedDevice() is not { } d) return;
-        try
-        {
-            var groups = await _api.GetGroupsAsync();
-            using var dlg = new EditDeviceForm(d, groups);
-            if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Result is null) return;
-            await _api.UpdateDeviceAsync(d.DeviceId, dlg.Result);
-            await RefreshAsync();
-        }
-        catch (Exception ex) { SetStatus("Szerkesztés hiba: " + ex.Message); }
     }
 
     private void LaunchViewer(int localPort, string password)

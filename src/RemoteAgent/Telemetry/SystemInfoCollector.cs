@@ -38,6 +38,10 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
         return p;
     }
 
+    /// <summary>A mellé telepített komponensek verziói (helper/kliens/vnc) — a lokális status-pipe-hoz. Olcsó.</summary>
+    public (string? Helper, string? Client, string? Vnc) ComponentVersions() =>
+        (FileVersion(CoLocated("RemoteAgent.Updater.exe")), FileVersion(CoLocated("RemoteClient.exe")), VncVersion());
+
     /// <summary>Egy az agent exe mellé telepített fájl teljes útja, ha létezik.</summary>
     private static string? CoLocated(string name)
     {

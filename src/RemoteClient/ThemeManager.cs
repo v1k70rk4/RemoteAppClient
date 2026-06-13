@@ -27,6 +27,26 @@ public static class ThemeManager
     public static void SetDark(bool dark) =>
         Skin.Theme = dark ? MaterialSkinManager.Themes.DARK : MaterialSkinManager.Themes.LIGHT;
 
+    /// <summary>A Windows „Alkalmazás-mód" sötét-e (Personalize\AppsUseLightTheme = 0). Hiba/ismeretlen → sötét.</summary>
+    public static bool IsOsDark()
+    {
+        try
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return k?.GetValue("AppsUseLightTheme") is int v ? v == 0 : true;
+        }
+        catch { return true; }
+    }
+
+    /// <summary>Téma-mód feloldása sötét/világosra: "light"→világos, "auto"→OS, egyébként sötét.</summary>
+    public static bool ResolveDark(string? mode) => mode?.Trim().ToLowerInvariant() switch
+    {
+        "light" => false,
+        "auto" => IsOsDark(),
+        _ => true,
+    };
+
     /// <summary>Az aktuális téma háttérszíne (a MaterialForm rajzolt háttere).</summary>
     public static Color Background => Skin.BackgroundColor;
 

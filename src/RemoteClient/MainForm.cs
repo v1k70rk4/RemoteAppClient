@@ -53,7 +53,7 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialLabel _mainServerLbl = new();
     private readonly MaterialLabel _envLbl = new();   // élő környezet-jelző (a helyi agent status-pipe-jából)
     private readonly System.Windows.Forms.Timer _envTimer = new() { Interval = 3000 };
-    private readonly MaterialSwitch _themeSwitch = new() { Text = "Sötét" };
+    private readonly MaterialLabel _verLbl = new();   // ver: x.y.z a bal alsó sarokban
     private readonly Panel _content = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8, 8, 8, 8) };
     private readonly List<(MaterialButton Btn, IContentView View)> _navItems = new();
@@ -65,14 +65,15 @@ public sealed class MainForm : MaterialForm
     private GroupsView? _groupsView;
     private ChannelsView? _channelsView;
     private BootstrapView? _bootstrapView;
-    private LocalLockView? _localLockView;
+    private SettingsView? _settingsView;
+    private AboutView? _aboutView;
     private LogView? _logView;
 
     public MainForm()
     {
         _cfg = ClientConfig.Load();
         ThemeManager.Skin.AddFormToManage(this);
-        ThemeManager.Init(_cfg.DarkTheme);
+        ThemeManager.Init(ThemeManager.ResolveDark(_cfg.ThemeMode));
 
         Text = "RemoteAppClient";
         try { if (Environment.ProcessPath is { } exe) Icon = Icon.ExtractAssociatedIcon(exe); } catch { /* ikon nélkül is megy */ }
@@ -273,16 +274,17 @@ public sealed class MainForm : MaterialForm
         _mainServerLbl.TextAlign = ContentAlignment.MiddleLeft; _mainServerLbl.Padding = new Padding(14, 0, 8, 0);
         brand.Controls.Add(_mainServerLbl);
 
-        var themeRow = new Panel { Dock = DockStyle.Bottom, Height = 88 };
+        // Bal alsó sarok: Online-jelző + kliens verzió (a téma-kapcsoló átkerült a Beállításokba).
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 56 };
         _envLbl.AutoSize = true; _envLbl.MaximumSize = new Size(200, 0);
-        _envLbl.Location = new Point(12, 10); _envLbl.Text = "● Környezet…"; _envLbl.ForeColor = Color.Gray;
-        _themeSwitch.Checked = _cfg.DarkTheme;
-        _themeSwitch.AutoSize = true; _themeSwitch.Location = new Point(12, 48);
-        _themeSwitch.CheckedChanged += (_, _) => ApplyTheme(_themeSwitch.Checked);
-        themeRow.Controls.AddRange([_envLbl, _themeSwitch]);
+        _envLbl.Location = new Point(12, 8); _envLbl.Text = "● Környezet…"; _envLbl.ForeColor = Color.Gray;
+        _verLbl.AutoSize = true; _verLbl.Location = new Point(12, 32);
+        _verLbl.Text = "ver: " + ClientUpdater.RunningVersionString();
+        _verLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
+        footer.Controls.AddRange([_envLbl, _verLbl]);
 
         sidebar.Controls.Add(_nav);       // Fill
-        sidebar.Controls.Add(themeRow);   // Bottom
+        sidebar.Controls.Add(footer);     // Bottom
         sidebar.Controls.Add(brand);      // Top
 
         _mainView.Controls.Add(_content); // Fill (jobb oldal)
@@ -324,10 +326,11 @@ public sealed class MainForm : MaterialForm
         await view.OnShownAsync();
     }
 
-    private void ApplyTheme(bool dark)
+    /// <summary>Téma-mód alkalmazása ("light"/"dark"/"auto") — menti, feloldja, és mindenhol érvényesíti.</summary>
+    private void ApplyThemeMode(string mode)
     {
-        _cfg.DarkTheme = dark; try { _cfg.Save(); } catch { }
-        ThemeManager.SetDark(dark);
+        _cfg.ThemeMode = mode; try { _cfg.Save(); } catch { }
+        ThemeManager.SetDark(ThemeManager.ResolveDark(mode));
         _content.BackColor = ThemeManager.Background;
         foreach (var (_, v) in _navItems) v.ApplyTheme();
         Invalidate(true);
@@ -555,17 +558,21 @@ public sealed class MainForm : MaterialForm
             _groupsView = new GroupsView(_api!);
             _channelsView = new ChannelsView(_api!);
             _bootstrapView = new BootstrapView(_api!);
-            _localLockView = new LocalLockView();
             _logView = new LogView(_api!);
             AddNav("Felhasználók", _usersView);
             AddNav("Csoportok", _groupsView);
             AddNav("Csatornák / MSI", _channelsView);
             AddNav("Bootstrap", _bootstrapView);
             AddNav("Napló", _logView);
-            AddNav("Helyi zár", _localLockView);
         }
 
-        ApplyTheme(_cfg.DarkTheme);
+        // Beállítások + Névjegy MINDENKINEK (lokális beállítások; nem admin-függő).
+        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode);
+        _aboutView = new AboutView(_cfg);
+        AddNav("Beállítások", _settingsView);
+        AddNav("Névjegy", _aboutView);
+
+        ApplyThemeMode(_cfg.ThemeMode);
         Show(_mainView);
         await SwitchToAsync(_devicesView);
 

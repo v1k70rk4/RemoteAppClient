@@ -11,11 +11,13 @@ namespace RemoteClient.Views;
 public sealed class BootstrapView : UserControl, IContentView
 {
     private readonly AdminApi _api;
+    private readonly MaterialTextBox2 _search = new() { Hint = "Keresés: csoport / MSI fájl / telepítési sz.", Width = 360 };
     private readonly MaterialComboBox _group = new() { Hint = "Csoport" };
     private readonly MaterialComboBox _expiry = new() { Hint = "Lejárat" };
     private readonly MaterialComboBox _maxUses = new() { Hint = "Max telepítés" };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
+    private readonly List<BootstrapTokenInfo> _tokens = new();
 
     private sealed record GroupItem(Guid? Id, string Name) { public override string ToString() => Name; }
     private sealed record ExpiryItem(int? Hours, string Name) { public override string ToString() => Name; }
@@ -34,18 +36,14 @@ public sealed class BootstrapView : UserControl, IContentView
         _maxUses.Items.AddRange([new UsesItem(100000, "Korlátlan"), new UsesItem(1, "1 telepítés"), new UsesItem(5, "5"), new UsesItem(10, "10"), new UsesItem(50, "50")]);
         _maxUses.SelectedIndex = 0;
 
-        var genBtn = ViewUi.ToolbarButton("Blob generálása");
-        genBtn.Click += async (_, _) => await GenerateAsync();
-        var genRow = ViewUi.Toolbar();
-        genRow.Controls.AddRange([_group, _expiry, _maxUses, genBtn]);
-
-        var listTools = ViewUi.Toolbar();
-        void Btn(string text, bool primary, Func<Task> onClick) { var b = ViewUi.ToolbarButton(text, primary); b.Click += async (_, _) => await onClick(); listTools.Controls.Add(b); }
-        Btn("Frissítés", true, RefreshAsync);
-        Btn("Módosítás…", false, EditAsync);
-        Btn("MSI mentése…", false, SaveMsiAsync);
-        Btn("Visszavonás", false, RevokeAsync);
-        Btn("Törlés", false, DeleteAsync);
+        // FENT: keresés + frissítés.
+        var topTools = ViewUi.Toolbar();
+        _search.Margin = new Padding(4, 0, 16, 0);
+        _search.TextChanged += (_, _) => RenderList();
+        topTools.Controls.Add(_search);
+        var refresh = ViewUi.ToolbarButton("Frissítés", primary: false);
+        refresh.Click += async (_, _) => await RefreshAsync();
+        topTools.Controls.Add(refresh);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None;
@@ -58,7 +56,24 @@ public sealed class BootstrapView : UserControl, IContentView
         _list.Columns.Add("Létrehozva", 120);
         _list.Columns.Add("MSI fájl", 220);
 
-        Controls.Add(ViewUi.Rows(2, genRow, listTools, _list, ViewUi.StatusHost(_status)));
+        // TÁBLA ALATT JOBBRA: Módosítás | Visszavonás | Törlés | MSI mentés.
+        var actionRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
+        void Act(string text, Func<Task> onClick) { var b = ViewUi.ToolbarButton(text, primary: false); b.Margin = new Padding(4, 0, 4, 0); b.Click += async (_, _) => await onClick(); actionRow.Controls.Add(b); }
+        Act("MSI mentés…", SaveMsiAsync);   // jobboldalt
+        Act("Törlés", DeleteAsync);
+        Act("Visszavonás", RevokeAsync);
+        Act("Módosítás…", EditAsync);        // balra
+
+        // ALATTA BALRA: Csoport | Lejárat | Max telepítés | Blob generálása.
+        _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
+        _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
+        _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
+        var genBtn = ViewUi.ToolbarButton("Blob generálása");
+        genBtn.Click += async (_, _) => await GenerateAsync();
+        var genRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
+        genRow.Controls.AddRange([_group, _expiry, _maxUses, genBtn]);
+
+        Controls.Add(ViewUi.Rows(1, topTools, _list, actionRow, genRow, ViewUi.StatusHost(_status)));
         ApplyTheme();
     }
 
@@ -124,22 +139,39 @@ public sealed class BootstrapView : UserControl, IContentView
         try
         {
             var tokens = await _api.GetTokensAsync();
-            _list.Items.Clear();
-            foreach (var t in tokens)
-            {
-                var item = new ListViewItem(t.Id.ToString("N")[..8]) { Tag = t };
-                item.SubItems.Add(KindOf(t));
-                item.SubItems.Add(t.GroupName ?? "—");
-                item.SubItems.Add($"{t.UseCount} / {(t.MaxUses >= 100000 ? "∞" : t.MaxUses.ToString())}");
-                item.SubItems.Add(t.ExpiresAt?.LocalDateTime.ToString("g") ?? "—");
-                item.SubItems.Add(StateOf(t));
-                item.SubItems.Add(t.CreatedAt.LocalDateTime.ToString("g"));
-                item.SubItems.Add(t.MsiFileName ?? "—");
-                _list.Items.Add(item);
-            }
+            _tokens.Clear(); _tokens.AddRange(tokens);
+            RenderList();
             _status.Text = $"{tokens.Count} blob.";
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+    }
+
+    private void RenderList()
+    {
+        var q = _search.Text.Trim();
+        IEnumerable<BootstrapTokenInfo> items = _tokens;
+        if (q.Length > 0)
+            items = _tokens.Where(t =>
+                (t.GroupName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (t.MsiFileName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                t.Id.ToString("N").StartsWith(q, StringComparison.OrdinalIgnoreCase) ||
+                KindOf(t).Contains(q, StringComparison.OrdinalIgnoreCase));
+
+        _list.BeginUpdate();
+        _list.Items.Clear();
+        foreach (var t in items)
+        {
+            var item = new ListViewItem(t.Id.ToString("N")[..8]) { Tag = t };
+            item.SubItems.Add(KindOf(t));
+            item.SubItems.Add(t.GroupName ?? "—");
+            item.SubItems.Add($"{t.UseCount} / {(t.MaxUses >= 100000 ? "∞" : t.MaxUses.ToString())}");
+            item.SubItems.Add(t.ExpiresAt?.LocalDateTime.ToString("g") ?? "—");
+            item.SubItems.Add(StateOf(t));
+            item.SubItems.Add(t.CreatedAt.LocalDateTime.ToString("g"));
+            item.SubItems.Add(t.MsiFileName ?? "—");
+            _list.Items.Add(item);
+        }
+        _list.EndUpdate();
     }
 
     private async Task EditAsync()

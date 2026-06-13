@@ -13,7 +13,13 @@ public sealed class StatusReport
 
     /// <summary>"agent" | "helper" | "client"</summary>
     [JsonPropertyName("component")] public string Component { get; set; } = string.Empty;
+    /// <summary>Az agent (a riportot adó komponens) verziója.</summary>
     [JsonPropertyName("version")] public string Version { get; set; } = string.Empty;
+
+    /// <summary>A gépen lévő többi komponens verziója (a Névjegyhez). Null = nincs/ismeretlen.</summary>
+    [JsonPropertyName("helperVersion")] public string? HelperVersion { get; set; }
+    [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
+    [JsonPropertyName("vncVersion")] public string? VncVersion { get; set; }
 
     /// <summary>Összesített „jó-e a környezet" jelzés (a komponens dönti el, mi alapján).</summary>
     [JsonPropertyName("healthy")] public bool Healthy { get; set; }

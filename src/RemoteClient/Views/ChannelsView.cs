@@ -4,102 +4,220 @@ using RemoteAgent.Admin;
 
 namespace RemoteClient.Views;
 
-/// <summary>Release-csatornák nézet: aktuális csomagok, rollout, BETA→RTM promote, exe-feltöltés, MSI — egy ablakon belül.</summary>
+/// <summary>
+/// Release-csatornák két táblában (RTM | BETA), komponensenkénti aktuális verziókkal + „Kiadva" pipával
+/// (a csatorna frissíthető+jóváhagyott gépei mind a csomag verzióján vannak-e). Rollout/Promote a táblák alatt.
+/// Az EXE feltöltés és az MSI gyártás ablakon belüli (← Vissza | Általános) szerkesztőként nyílik.
+/// </summary>
 public sealed class ChannelsView : UserControl, IContentView
 {
     private readonly AdminApi _api;
-    private readonly ListView _list = new();
-    private readonly MaterialComboBox _component = new() { Hint = "Komponens" };
+    private readonly Panel _mainHost = new() { Dock = DockStyle.Fill };
+    private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
+    private readonly ListView _rtmList = NewList();
+    private readonly ListView _betaList = NewList();
     private readonly MaterialLabel _status = new();
+
+    private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
+    private readonly Panel _editorContent = new() { Dock = DockStyle.Fill };
+    private Control? _editorPanel;
 
     public ChannelsView(AdminApi api)
     {
         _api = api;
         Dock = DockStyle.Fill;
-
-        _list.View = View.Details; _list.FullRowSelect = true;
-        _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add("Csatorna", 90);
-        _list.Columns.Add("Komponens", 100);
-        _list.Columns.Add("Verzió", 130);
-        _list.Columns.Add("Feltöltve", 160);
-
-        _component.Width = 150; _component.Margin = new Padding(4, 0, 12, 0);
-        _component.Items.AddRange(["agent", "updater"]);
-        _component.SelectedIndex = 0;
-
-        MaterialButton Mk(string text, bool primary, EventHandler onClick)
-        {
-            var b = ViewUi.ToolbarButton(text, primary);
-            b.Click += onClick;
-            return b;
-        }
-        var tools = ViewUi.Toolbar();
-        tools.Controls.Add(_component);
-        tools.Controls.AddRange([
-            Mk("Rollout RTM", true, async (_, _) => await RolloutAsync("rtm")),
-            Mk("Rollout BETA", true, async (_, _) => await RolloutAsync("beta")),
-            Mk("Promote BETA→RTM", false, async (_, _) => await PromoteAsync()),
-            Mk("Exe feltöltés…", false, async (_, _) =>
-            {
-                using var f = new UploadPackageForm(_api);
-                if (f.ShowDialog(this) == DialogResult.OK) await RefreshAsync();
-            }),
-            Mk("MSI gyártás…", false, async (_, _) =>
-            {
-                try { var groups = await _api.GetGroupsAsync(); using var f = new MsiForm(_api, groups); f.ShowDialog(this); }
-                catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
-            }),
-        ]);
-
-        _status.Text = "…";
-        Controls.Add(ViewUi.Rows(1, tools, _list, ViewUi.StatusHost(_status)));
+        BuildMain();
+        BuildEditor();
+        Controls.Add(_editorHost);
+        Controls.Add(_mainHost);
         ApplyTheme();
     }
 
-    public void ApplyTheme() => ThemeManager.StyleView(this, _list);
+    private void BuildMain()
+    {
+        var rtmBtns = ViewUi.Toolbar();
+        var rolloutRtm = ViewUi.ToolbarButton("Rollout RTM");
+        rolloutRtm.Click += async (_, _) => await RolloutChannelAsync("rtm", _rtmList);
+        rtmBtns.Controls.Add(rolloutRtm);
 
-    public async Task OnShownAsync() => await RefreshAsync();
+        var betaBtns = ViewUi.Toolbar();
+        var rolloutBeta = ViewUi.ToolbarButton("Rollout BETA");
+        rolloutBeta.Click += async (_, _) => await RolloutChannelAsync("beta", _betaList);
+        var promote = ViewUi.ToolbarButton("Promote → RTM", primary: false);
+        promote.Click += async (_, _) => await PromoteChannelAsync();
+        betaBtns.Controls.AddRange([rolloutBeta, promote]);
 
-    private string Comp => _component.SelectedItem?.ToString() ?? "agent";
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid.Controls.Add(ChannelCard("RTM", _rtmList, rtmBtns), 0, 0);
+        grid.Controls.Add(ChannelCard("BETA", _betaList, betaBtns), 1, 0);
+
+        var bottom = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 4, 8, 4) };
+        var upload = ViewUi.ToolbarButton("Exe feltöltés…", primary: false); upload.Margin = new Padding(4, 0, 8, 0);
+        upload.Click += (_, _) => OpenUpload();
+        var msi = ViewUi.ToolbarButton("MSI gyártás…", primary: false); msi.Margin = new Padding(4, 0, 8, 0);
+        msi.Click += async (_, _) => await OpenMsiAsync();
+        bottom.Controls.AddRange([upload, msi]);
+
+        _mainHost.Controls.Add(ViewUi.Rows(0, grid, bottom, ViewUi.StatusHost(_status)));
+    }
+
+    private void BuildEditor()
+    {
+        var back = ViewUi.ToolbarButton("← Vissza", primary: false);
+        back.Click += async (_, _) => { ShowMain(); await RefreshAsync(); };
+        var general = new MaterialButton { Text = "Általános", AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Contained };
+        var tabbar = ViewUi.Toolbar();
+        tabbar.Controls.AddRange([back, general]);
+        _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _editorContent));
+    }
+
+    private static ListView NewList()
+    {
+        var l = new ListView { View = View.Details, FullRowSelect = true, MultiSelect = false, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill };
+        l.Columns.Add("Komponens", 85);
+        l.Columns.Add("Verzió", 65);
+        l.Columns.Add("Feltöltve", 125);
+        l.Columns.Add("Kiadva", 50);
+        return l;
+    }
+
+    private static MaterialCard ChannelCard(string title, ListView list, FlowLayoutPanel buttons)
+    {
+        var card = new MaterialCard { Dock = DockStyle.Fill, Margin = new Padding(6), Padding = new Padding(0) };
+        var head = new MaterialLabel { Text = title, Font = new Font("Segoe UI", 12F, FontStyle.Bold), Dock = DockStyle.Top, Height = 30, Padding = new Padding(12, 6, 0, 0) };
+        buttons.Dock = DockStyle.Bottom; buttons.AutoSize = true; buttons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        card.Controls.Add(list);
+        card.Controls.Add(buttons);
+        card.Controls.Add(head);
+        return card;
+    }
+
+    public void ApplyTheme() { ThemeManager.StyleView(this, _rtmList); ThemeManager.StyleList(_betaList); }
+
+    public async Task OnShownAsync() { ShowMain(); await RefreshAsync(); }
+
+    private void ShowMain() { _editorHost.Visible = false; _mainHost.Visible = true; _mainHost.BringToFront(); }
+    private void ShowEditor() { _mainHost.Visible = false; _editorHost.Visible = true; _editorHost.BringToFront(); }
 
     private async Task RefreshAsync()
     {
         try
         {
             var ch = await _api.GetChannelsAsync();
-            _list.Items.Clear();
-            foreach (var p in ch)
-            {
-                var it = new ListViewItem(p.Channel.ToUpperInvariant());
-                it.SubItems.Add(p.Component);
-                it.SubItems.Add(p.Version);
-                it.SubItems.Add(p.UploadedAt.LocalDateTime.ToString("g"));
-                _list.Items.Add(it);
-            }
-            _status.Text = ch.Count == 0 ? "Még nincs feltöltött csomag egy csatornán sem." : $"{ch.Count} aktuális csomag.";
+            var devices = await _api.GetDevicesAsync();
+            Fill(_rtmList, ch.Where(p => string.Equals(p.Channel, "rtm", StringComparison.OrdinalIgnoreCase)), devices);
+            Fill(_betaList, ch.Where(p => string.Equals(p.Channel, "beta", StringComparison.OrdinalIgnoreCase)), devices);
+            _status.Text = ch.Count == 0 ? "Még nincs feltöltött csomag egy csatornán sem." : $"RTM: {_rtmList.Items.Count} · BETA: {_betaList.Items.Count} komponens.";
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
     }
 
-    private async Task RolloutAsync(string channel)
+    private static void Fill(ListView list, IEnumerable<ChannelPackageInfo> items, List<DeviceInfo> devices)
     {
-        if (MessageBox.Show($"Kiadod a(z) {channel.ToUpperInvariant()} csatorna aktuális '{Comp}' csomagját az ott lévő, frissíthető gépeknek?",
-                "Rollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        try { _status.Text = "Rollout: " + await _api.RolloutAsync(channel, Comp); }
-        catch (Exception ex) { _status.Text = "Rollout hiba: " + ex.Message; }
+        list.BeginUpdate();
+        list.Items.Clear();
+        foreach (var p in items.OrderBy(p => p.Component))
+        {
+            var it = new ListViewItem(p.Component) { Tag = p, UseItemStyleForSubItems = false };
+            it.SubItems.Add(p.Version);
+            it.SubItems.Add(p.UploadedAt.LocalDateTime.ToString("yyyy.MM.dd HH:mm"));
+            var rolled = it.SubItems.Add(RolledOut(p.Channel, p.Component, p.Version, devices) ? "✓" : "—");
+            rolled.ForeColor = rolled.Text == "✓" ? Color.MediumSeaGreen : Color.Gray;
+            list.Items.Add(it);
+        }
+        list.EndUpdate();
     }
 
-    private async Task PromoteAsync()
+    /// <summary>A csatorna frissíthető+jóváhagyott gépei MIND a csomag verzióján vannak-e (= ki van adva).</summary>
+    private static bool RolledOut(string channel, string comp, string version, List<DeviceInfo> devices)
     {
-        if (MessageBox.Show($"Előlépteted a BETA aktuális '{Comp}' csomagját RTM-be (ugyanaz a fájl)?",
-                "Promote", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        var relevant = devices.Where(d =>
+            string.Equals(d.Channel, channel, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(d.Status, "Approved", StringComparison.OrdinalIgnoreCase) &&
+            d.UpdateAllowed).ToList();
+        if (relevant.Count == 0) return false;
+        return relevant.All(d => Reported(d, comp).StartsWith(version, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string Reported(DeviceInfo d, string comp) => (comp switch
+    {
+        "updater" => d.HelperVersion,
+        "vnc" => d.VncVersion,
+        "client" => d.ClientVersion,
+        _ => d.AgentVersion,
+    }) ?? "";
+
+    private static string? SelectedComp(ListView list) =>
+        list.SelectedItems.Count == 0 ? null : ((ChannelPackageInfo)list.SelectedItems[0].Tag!).Component;
+
+    private static string[] AllComps(ListView list) =>
+        list.Items.Cast<ListViewItem>().Select(i => ((ChannelPackageInfo)i.Tag!).Component).ToArray();
+
+    private async Task RolloutChannelAsync(string channel, ListView list)
+    {
+        var sel = SelectedComp(list);
+        var comps = sel is not null ? [sel] : AllComps(list);
+        if (comps.Length == 0) { _status.Text = "Nincs csomag ezen a csatornán."; return; }
+        var what = sel is not null ? $"a(z) '{sel}'" : $"MIND ({string.Join(", ", comps)})";
+        if (MessageBox.Show($"Kiadod a(z) {channel.ToUpperInvariant()} csatornán {what} komponenst a frissíthető gépeknek?",
+                "Rollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        var done = new List<string>();
+        foreach (var c in comps)
+        {
+            try { await _api.RolloutAsync(channel, c); done.Add($"{c} ✓"); }
+            catch (Exception ex) { done.Add($"{c} ✗ ({ex.Message})"); }
+        }
+        _status.Text = "Rollout — " + string.Join(" · ", done);
+    }
+
+    private async Task PromoteChannelAsync()
+    {
+        var sel = SelectedComp(_betaList);
+        var comps = sel is not null ? [sel] : AllComps(_betaList);
+        if (comps.Length == 0) { _status.Text = "Nincs csomag a BETA csatornán."; return; }
+        var what = sel is not null ? $"a(z) '{sel}'" : $"MIND ({string.Join(", ", comps)})";
+        if (MessageBox.Show($"Előlépteted a BETA aktuális {what} komponensét RTM-be (ugyanaz a fájl)?",
+                "Promote → RTM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        var done = new List<string>();
+        foreach (var c in comps)
+        {
+            try { await _api.PromoteAsync("beta", c, "rtm"); done.Add($"{c} ✓"); }
+            catch (Exception ex) { done.Add($"{c} ✗ ({ex.Message})"); }
+        }
+        await RefreshAsync();
+        _status.Text = "Promote — " + string.Join(" · ", done);
+    }
+
+    private async Task OpenMsiAsync()
+    {
         try
         {
-            var res = await _api.PromoteAsync("beta", Comp, "rtm");
-            await RefreshAsync();
-            _status.Text = "Promote: " + res;
+            var groups = await _api.GetGroupsAsync();
+            _editorTitle.Text = "MSI gyártás";
+            SetEditor(new MsiPanel(_api, groups));
+            ShowEditor();
         }
-        catch (Exception ex) { _status.Text = "Promote hiba: " + ex.Message; }
+        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+    }
+
+    private void OpenUpload()
+    {
+        _editorTitle.Text = "Exe feltöltés";
+        var panel = new UploadPanel(_api);
+        panel.Uploaded += async () => { ShowMain(); await RefreshAsync(); };
+        SetEditor(panel);
+        ShowEditor();
+    }
+
+    private void SetEditor(Control panel)
+    {
+        _editorPanel?.Dispose();
+        _editorPanel = panel;
+        _editorContent.Controls.Clear();
+        _editorContent.Controls.Add(panel);
     }
 }

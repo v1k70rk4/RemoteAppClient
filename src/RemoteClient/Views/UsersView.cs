@@ -18,9 +18,12 @@ public sealed class UsersView : UserControl, IContentView
     private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
+    private readonly MaterialTextBox2 _search = new() { Hint = "Keresés: felhasználónév vagy név", Width = 360 };
+    private readonly List<UserInfo> _users = new();
 
     // Fülsáv
     private readonly MaterialButton _tabGeneral = TabBtn("Általános");
+    private readonly MaterialButton _tabLog = TabBtn("Log");
     private readonly MaterialButton _tabPassword = TabBtn("Jelszó");
     private readonly MaterialButton _tabGrants = TabBtn("Jogosultságok");
     private readonly MaterialButton _tabHello = TabBtn("Windows Hello");
@@ -41,6 +44,7 @@ public sealed class UsersView : UserControl, IContentView
     // Per-user fülek (a kiválasztott userhez újraépítve)
     private GrantsPanel? _grantsPanel;
     private HelloDevicesPanel? _helloPanel;
+    private LogPanel? _logPanel;
 
     private UserInfo? _editing;
 
@@ -60,16 +64,14 @@ public sealed class UsersView : UserControl, IContentView
 
     private void BuildList()
     {
+        // Felső sáv: keresés + frissítés.
         var tools = ViewUi.Toolbar();
-        void Btn(string text, bool primary, Func<Task> onClick)
-        {
-            var b = ViewUi.ToolbarButton(text, primary);
-            b.Click += async (_, _) => await onClick();
-            tools.Controls.Add(b);
-        }
-        Btn("Új user…", true, NewUserAsync);
-        Btn("Szerkesztés", true, () => { EditSelected(); return Task.CompletedTask; });
-        Btn("Frissítés", false, RefreshAsync);
+        _search.Margin = new Padding(4, 0, 16, 0);
+        _search.TextChanged += (_, _) => RenderList();
+        tools.Controls.Add(_search);
+        var refresh = ViewUi.ToolbarButton("Frissítés", primary: false);
+        refresh.Click += async (_, _) => await RefreshAsync();
+        tools.Controls.Add(refresh);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None;
@@ -82,7 +84,21 @@ public sealed class UsersView : UserControl, IContentView
         _list.Columns.Add("Utoljára", 140);
         _list.DoubleClick += (_, _) => EditSelected();
 
-        _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, ViewUi.StatusHost(_status)));
+        // A tábla alatt jobbra: Szerkesztés; alatta egy sorral: Új User.
+        var editRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
+        var edit = ViewUi.ToolbarButton("Szerkesztés");
+        edit.Margin = new Padding(4, 0, 4, 0);
+        edit.Click += (_, _) => EditSelected();
+        editRow.Controls.Add(edit);
+
+        // Új User BALRA: lista-szintű művelet, nem függ a kijelölt sortól.
+        var newRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
+        var newUser = ViewUi.ToolbarButton("Új User hozzáadása");
+        newUser.Margin = new Padding(4, 0, 4, 0);
+        newUser.Click += async (_, _) => await NewUserAsync();
+        newRow.Controls.Add(newUser);
+
+        _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, editRow, newRow, ViewUi.StatusHost(_status)));
     }
 
     private void BuildEditor()
@@ -90,12 +106,13 @@ public sealed class UsersView : UserControl, IContentView
         var back = ViewUi.ToolbarButton("← Vissza", primary: false);
         back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
         _tabGeneral.Click += async (_, _) => await SelectTabAsync("general");
+        _tabLog.Click += async (_, _) => await SelectTabAsync("log");
         _tabPassword.Click += async (_, _) => await SelectTabAsync("password");
         _tabGrants.Click += async (_, _) => await SelectTabAsync("grants");
         _tabHello.Click += async (_, _) => await SelectTabAsync("hello");
 
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabPassword, _tabGrants, _tabHello]);
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabLog, _tabPassword, _tabGrants, _tabHello]);
 
         _generalPanel = BuildGeneralPanel();
         _passwordPanel = BuildPasswordPanel();
@@ -160,21 +177,36 @@ public sealed class UsersView : UserControl, IContentView
         try
         {
             var users = await _api.GetUsersAsync();
-            _list.Items.Clear();
-            foreach (var u in users)
-            {
-                var item = new ListViewItem(u.Username) { Tag = u };
-                item.SubItems.Add(u.Name ?? "—");
-                item.SubItems.Add(u.Role);
-                item.SubItems.Add(u.IsActive ? "igen" : "NEM");
-                item.SubItems.Add(u.TotpConfirmed ? "ok" : "—");
-                item.SubItems.Add(u.HelloCount > 0 ? u.HelloCount.ToString() : "—");
-                item.SubItems.Add(u.LastLoginAt?.LocalDateTime.ToString("g") ?? "—");
-                _list.Items.Add(item);
-            }
+            _users.Clear(); _users.AddRange(users);
+            RenderList();
             _status.Text = $"{users.Count} felhasználó.";
         }
         catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+    }
+
+    private void RenderList()
+    {
+        var q = _search.Text.Trim();
+        IEnumerable<UserInfo> items = _users;
+        if (q.Length > 0)
+            items = _users.Where(u =>
+                (u.Username?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (u.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        _list.BeginUpdate();
+        _list.Items.Clear();
+        foreach (var u in items)
+        {
+            var item = new ListViewItem(u.Username) { Tag = u };
+            item.SubItems.Add(u.Name ?? "—");
+            item.SubItems.Add(u.Role);
+            item.SubItems.Add(u.IsActive ? "igen" : "NEM");
+            item.SubItems.Add(u.TotpConfirmed ? "ok" : "—");
+            item.SubItems.Add(u.HelloCount > 0 ? u.HelloCount.ToString() : "—");
+            item.SubItems.Add(u.LastLoginAt?.LocalDateTime.ToString("g") ?? "—");
+            _list.Items.Add(item);
+        }
+        _list.EndUpdate();
     }
 
     private void EditSelected()
@@ -188,9 +220,10 @@ public sealed class UsersView : UserControl, IContentView
         _generalStatus.Text = ""; _passwordStatus.Text = "";
 
         // Per-user fülek frissen
-        _grantsPanel?.Dispose(); _helloPanel?.Dispose();
+        _grantsPanel?.Dispose(); _helloPanel?.Dispose(); _logPanel?.Dispose();
         _grantsPanel = new GrantsPanel(_api, u.Id);
         _helloPanel = new HelloDevicesPanel(_api, u.Id);
+        _logPanel = new LogPanel(_api, actor: u.Username);
 
         ShowEditor();
         _ = SelectTabAsync("general");
@@ -198,13 +231,14 @@ public sealed class UsersView : UserControl, IContentView
 
     private async Task SelectTabAsync(string tab)
     {
-        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPassword, "password"), (_tabGrants, "grants"), (_tabHello, "hello") })
+        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabLog, "log"), (_tabPassword, "password"), (_tabGrants, "grants"), (_tabHello, "hello") })
             b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
 
         _tabContent.Controls.Clear();
         switch (tab)
         {
             case "general": _tabContent.Controls.Add(_generalPanel); break;
+            case "log" when _logPanel is not null: _tabContent.Controls.Add(_logPanel); await _logPanel.ShownAsync(); break;
             case "password": _tabContent.Controls.Add(_passwordPanel); break;
             case "grants" when _grantsPanel is not null: _tabContent.Controls.Add(_grantsPanel); await _grantsPanel.ShownAsync(); break;
             case "hello" when _helloPanel is not null: _tabContent.Controls.Add(_helloPanel); await _helloPanel.ShownAsync(); break;
