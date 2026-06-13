@@ -14,7 +14,7 @@ namespace RemoteServer.Services;
 /// </summary>
 public sealed class DbTelemetrySink(AppDbContext db) : ITelemetrySink
 {
-    public async Task IngestAsync(string deviceId, TelemetryPayload payload, CancellationToken ct)
+    public async Task IngestAsync(string deviceId, TelemetryPayload payload, string? publicIp, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -36,6 +36,12 @@ public sealed class DbTelemetrySink(AppDbContext db) : ITelemetrySink
         device.AgentRestarts = payload.AgentRestarts;
         device.LastIncident = payload.LastIncident;
         device.VncLocked = payload.VncLocked;
+        device.BootTimeUtc = payload.BootTimeUtc == default ? null : payload.BootTimeUtc;
+        device.IpAddress = payload.IpAddress;
+        if (!string.IsNullOrWhiteSpace(publicIp)) device.PublicIpAddress = publicIp;
+        device.WifiSsid = payload.WifiSsid;
+        device.VpnActive = payload.VpnActive;
+        device.LoggedInUser = payload.LoggedInUser;
         device.LastSeenAt = now;
 
         db.DeviceTelemetry.Add(new DeviceTelemetry

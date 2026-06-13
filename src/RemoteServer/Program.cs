@@ -368,7 +368,7 @@ app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink) =>
     }
 
     if (payload is null) return Results.BadRequest();
-    await sink.IngestAsync(deviceId, payload, ctx.RequestAborted);
+    await sink.IngestAsync(deviceId, payload, PublicIpOf(ctx), ctx.RequestAborted);
     return Results.NoContent();
 });
 
@@ -432,6 +432,12 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         AgentRestarts = d.AgentRestarts,
         LastIncident = d.LastIncident,
         VncLocked = d.VncLocked,
+        BootTimeUtc = d.BootTimeUtc,
+        IpAddress = d.IpAddress,
+        PublicIpAddress = d.PublicIpAddress,
+        WifiSsid = d.WifiSsid,
+        VpnActive = d.VpnActive,
+        LoggedInUser = d.LoggedInUser,
         Note = protector.TryUnprotect(d.Note),
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);
@@ -1208,6 +1214,23 @@ static string? ResolveDeviceId(HttpContext ctx)
 
     var q = ctx.Request.Query["deviceId"].ToString();
     return string.IsNullOrWhiteSpace(q) ? null : q;
+}
+
+// Az agent publikus IP-je. Éles: az nginx X-Real-IP fejléce ($remote_addr = a közvetlen
+// kapcsolat forrás-IP-je, vagyis ahonnan a tunnel jön). Fallback: X-Forwarded-For első
+// eleme, majd a közvetlen Kestrel-kapcsolat (dev).
+static string? PublicIpOf(HttpContext ctx)
+{
+    var real = ctx.Request.Headers["X-Real-IP"].ToString();
+    if (!string.IsNullOrWhiteSpace(real)) return real.Trim();
+
+    var xff = ctx.Request.Headers["X-Forwarded-For"].ToString();
+    if (!string.IsNullOrWhiteSpace(xff))
+        return xff.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+
+    var remote = ctx.Connection.RemoteIpAddress;
+    if (remote is null) return null;
+    return (remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote).ToString();
 }
 
 // CN kinyerése egy DN-ből (pl. "CN=abc123" vagy "/CN=abc123" vagy "CN=abc,O=...").

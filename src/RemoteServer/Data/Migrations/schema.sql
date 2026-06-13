@@ -274,5 +274,23 @@ ALTER TABLE `Users` ADD `Name` longtext CHARACTER SET utf8mb4 NULL;
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260613150608_UserDisplayName', '9.0.0');
 
+ALTER TABLE `Devices` ADD `BootTimeUtc` datetime(6) NULL;
+
+ALTER TABLE `Devices` ADD `IpAddress` longtext CHARACTER SET utf8mb4 NULL;
+
+ALTER TABLE `Devices` ADD `LoggedInUser` longtext CHARACTER SET utf8mb4 NULL;
+
+ALTER TABLE `Devices` ADD `VpnActive` tinyint(1) NOT NULL DEFAULT FALSE;
+
+ALTER TABLE `Devices` ADD `WifiSsid` longtext CHARACTER SET utf8mb4 NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613181913_DeviceNetworkTelemetry', '9.0.0');
+
+ALTER TABLE `Devices` ADD `PublicIpAddress` longtext CHARACTER SET utf8mb4 NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260613183100_DevicePublicIp', '9.0.0');
+
 COMMIT;
 

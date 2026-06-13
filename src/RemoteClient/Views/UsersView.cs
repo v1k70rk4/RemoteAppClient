@@ -84,9 +84,9 @@ public sealed class UsersView : UserControl, IContentView
         _list.Columns.Add("Utoljára", 140);
         _list.DoubleClick += (_, _) => EditSelected();
 
-        // A tábla alatt jobbra: Szerkesztés; alatta egy sorral: Új User.
+        // A tábla alatt jobbra: Tulajdonságok; alatta egy sorral: Új User.
         var editRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
-        var edit = ViewUi.ToolbarButton("Szerkesztés");
+        var edit = ViewUi.ToolbarButton("Tulajdonságok");
         edit.Margin = new Padding(4, 0, 4, 0);
         edit.Click += (_, _) => EditSelected();
         editRow.Controls.Add(edit);

@@ -73,6 +73,15 @@ public sealed class DeviceInfo
     /// <summary>Admin-megjegyzés (visszafejtve).</summary>
     [JsonPropertyName("note")]
     public string? Note { get; set; }
+
+    // Részletes telemetria (a Telemetria fülhöz).
+    [JsonPropertyName("bootTimeUtc")] public DateTimeOffset? BootTimeUtc { get; set; }
+    [JsonPropertyName("ipAddress")] public string? IpAddress { get; set; }
+    /// <summary>A publikus IP, ahonnan az agent a szerverhez csatlakozik (szerver-oldalon megfigyelve).</summary>
+    [JsonPropertyName("publicIpAddress")] public string? PublicIpAddress { get; set; }
+    [JsonPropertyName("wifiSsid")] public string? WifiSsid { get; set; }
+    [JsonPropertyName("vpnActive")] public bool VpnActive { get; set; }
+    [JsonPropertyName("loggedInUser")] public string? LoggedInUser { get; set; }
 }
 
 /// <summary>Egy eszköz admin-mezőinek módosítása (PUT). A null mezők változatlanok maradnak.</summary>

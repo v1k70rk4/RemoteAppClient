@@ -30,6 +30,23 @@ public sealed class TelemetryPayload
     [JsonPropertyName("bootTimeUtc")]
     public DateTimeOffset BootTimeUtc { get; set; }
 
+    // Hálózat + bejelentkezett felhasználó (a részletes telemetriához).
+    /// <summary>Elsődleges (átjáróval rendelkező) IPv4 cím, ha van.</summary>
+    [JsonPropertyName("ipAddress")]
+    public string? IpAddress { get; set; }
+
+    /// <summary>A csatlakozott Wi-Fi hálózat neve (SSID), ha vezeték nélkülin van; egyébként null.</summary>
+    [JsonPropertyName("wifiSsid")]
+    public string? WifiSsid { get; set; }
+
+    /// <summary>Aktív-e VPN-kapcsolat (heurisztika: tunnel/ppp vagy ismert VPN-adapter).</summary>
+    [JsonPropertyName("vpnActive")]
+    public bool VpnActive { get; set; }
+
+    /// <summary>A gépnél bejelentkezett interaktív felhasználó (DOMAIN\\user), ha van.</summary>
+    [JsonPropertyName("loggedInUser")]
+    public string? LoggedInUser { get; set; }
+
     [JsonPropertyName("collectedAtUtc")]
     public DateTimeOffset CollectedAtUtc { get; set; }
 

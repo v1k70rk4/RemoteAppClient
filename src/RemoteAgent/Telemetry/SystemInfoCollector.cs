@@ -33,6 +33,10 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
             CollectedAtUtc = DateTimeOffset.UtcNow,
             TunnelActive = tunnelState.IsActive,
             VncLocked = Vnc.VncLock.IsLocked(),
+            IpAddress = NetInfo.PrimaryIPv4(),
+            WifiSsid = NetInfo.WifiSsid(),
+            VpnActive = NetInfo.IsVpnActive(),
+            LoggedInUser = Consent.ConsentPrompt.ActiveUserName(),
         };
         ReadSupervisorStatus(p);
         return p;

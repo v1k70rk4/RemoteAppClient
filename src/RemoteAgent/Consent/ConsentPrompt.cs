@@ -18,6 +18,25 @@ public static class ConsentPrompt
         return s != 0xFFFFFFFF && !string.IsNullOrEmpty(UserNameOf(s));
     }
 
+    /// <summary>Az aktív konzol-session bejelentkezett felhasználója (DOMAIN\\user), vagy null.</summary>
+    public static string? ActiveUserName()
+    {
+        uint s = WTSGetActiveConsoleSessionId();
+        if (s == 0xFFFFFFFF) return null;
+        var user = UserNameOf(s);
+        if (string.IsNullOrEmpty(user)) return null;
+        var dom = DomainOf(s);
+        return string.IsNullOrEmpty(dom) ? user : $"{dom}\\{user}";
+    }
+
+    private static string? DomainOf(uint session)
+    {
+        if (!WTSQuerySessionInformation(IntPtr.Zero, session, WTS_INFO_CLASS.WTSDomainName, out IntPtr buf, out _))
+            return null;
+        try { return Marshal.PtrToStringUni(buf); }
+        finally { if (buf != IntPtr.Zero) WTSFreeMemory(buf); }
+    }
+
     /// <summary>Hozzájárulás-kérés Igen/Nem ablakkal az aktív sessionben; timeoutSeconds után Timeout.</summary>
     public static Outcome Ask(string title, string message, int timeoutSeconds)
     {
@@ -48,7 +67,7 @@ public static class ConsentPrompt
         finally { if (buf != IntPtr.Zero) WTSFreeMemory(buf); }
     }
 
-    private enum WTS_INFO_CLASS { WTSUserName = 5 }
+    private enum WTS_INFO_CLASS { WTSUserName = 5, WTSDomainName = 7 }
 
     [DllImport("kernel32.dll")]
     private static extern uint WTSGetActiveConsoleSessionId();

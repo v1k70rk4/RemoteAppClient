@@ -31,6 +31,8 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
     private DeviceInfo? _editing;
+    private int _sortColumn = -1;
+    private bool _sortAsc = true;
     private DeviceGeneralPanel? _generalPanel;
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
@@ -62,19 +64,23 @@ public sealed class DevicesView : UserControl, IContentView
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
-        _list.Columns.Add("Gép", 180);
-        _list.Columns.Add("Megjegyzés", 220);
-        _list.Columns.Add("Csoport", 130);
+        _list.Columns.Add("Gép", 160);
+        _list.Columns.Add("Csoport", 110);
+        _list.Columns.Add("Megjegyzés", 160);
         _list.Columns.Add("Online", 70);
-        _list.Columns.Add("Utoljára online", 150);
+        _list.Columns.Add("Felhasználó", 150);
+        _list.Columns.Add("Utoljára online", 140);
+        _list.Columns.Add("Publikus IP", 120);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
+        _list.ColumnClick += (_, e) => { if (_sortColumn == e.Column) _sortAsc = !_sortAsc; else { _sortColumn = e.Column; _sortAsc = true; } RenderList(); };
 
         // Jobb alsó sarok: a kijelölt gépre ható műveletek (Csatlakozás | Szerkesztés | Jóváhagyás).
         // RightToLeft → a legelőször hozzáadott a legjobboldalibb, ezért fordított sorrendben adjuk.
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
         void RightBtn(string text, EventHandler onClick) { var b = ViewUi.ToolbarButton(text); b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; actions.Controls.Add(b); }
         if (_isAdmin) RightBtn("Jóváhagyás", async (_, _) => await ApproveSelectedAsync());
-        if (_isAdmin) RightBtn("Szerkesztés", async (_, _) => await EditSelectedAsync());
+        if (_isAdmin) RightBtn("Telemetria", async (_, _) => await EditSelectedAsync("telemetry"));
+        if (_isAdmin) RightBtn("Tulajdonságok", async (_, _) => await EditSelectedAsync());
         _connectBtn.Margin = new Padding(4, 0, 4, 0);
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
         actions.Controls.Add(_connectBtn); // legutoljára → legbaloldalibb (Csatlakozás)
@@ -127,23 +133,57 @@ public sealed class DevicesView : UserControl, IContentView
                 (d.Hostname?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (d.Note?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
 
+        items = SortItems(items);
+
         _list.BeginUpdate();
         _list.Items.Clear();
         foreach (var d in items)
         {
+            // Oszlopsorrend: Gép | Csoport | Megjegyzés | Online | Felhasználó | Utoljára online | Publikus IP
             var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? "(névtelen)" : d.Hostname) { Tag = d, UseItemStyleForSubItems = false };
-            item.SubItems.Add(string.IsNullOrWhiteSpace(d.Note) ? "—" : d.Note);
             item.SubItems.Add(d.GroupName ?? "—");
+            item.SubItems.Add(string.IsNullOrWhiteSpace(d.Note) ? "—" : d.Note);
             var online = item.SubItems.Add(d.Online ? "● online" : "○ offline");
             online.ForeColor = d.Online ? Color.MediumSeaGreen : Color.Gray;
+            item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
             item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
+            item.SubItems.Add(string.IsNullOrWhiteSpace(d.PublicIpAddress) ? "—" : d.PublicIpAddress);
             if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
         }
         _list.EndUpdate();
     }
 
-    private async Task EditSelectedAsync()
+    // Rendezés a kattintott oszlop szerint, típushelyesen (dátum/online külön kezelve).
+    private IEnumerable<DeviceInfo> SortItems(IEnumerable<DeviceInfo> items)
+    {
+        if (_sortColumn < 0) return items;
+        Func<DeviceInfo, object?> key = _sortColumn switch
+        {
+            0 => d => d.Hostname,
+            1 => d => d.GroupName,
+            2 => d => d.Note,
+            3 => d => d.Online,
+            4 => d => d.LoggedInUser,
+            5 => d => d.LastSeenAt,
+            6 => d => d.PublicIpAddress,
+            _ => d => d.Hostname,
+        };
+        return _sortAsc
+            ? items.OrderBy(key, Comparer<object?>.Create(CompareKeys))
+            : items.OrderByDescending(key, Comparer<object?>.Create(CompareKeys));
+    }
+
+    private static int CompareKeys(object? a, object? b)
+    {
+        if (a is null && b is null) return 0;
+        if (a is null) return -1;
+        if (b is null) return 1;
+        if (a is IComparable c && a.GetType() == b.GetType()) return c.CompareTo(b);
+        return string.Compare(a.ToString(), b.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task EditSelectedAsync(string initialTab = "general")
     {
         if (SelectedDevice() is not { } d) { SetStatus("Válassz egy gépet."); return; }
         try
@@ -158,9 +198,9 @@ public sealed class DevicesView : UserControl, IContentView
             _telemetryPanel = new DeviceTelemetryPanel(d);
 
             ShowEditor();
-            SelectTab("general");
+            SelectTab(initialTab);
         }
-        catch (Exception ex) { SetStatus("Szerkesztés hiba: " + ex.Message); }
+        catch (Exception ex) { SetStatus("Tulajdonságok hiba: " + ex.Message); }
     }
 
     private void SelectTab(string tab) => _ = SelectTabAsync(tab);
