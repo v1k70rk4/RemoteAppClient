@@ -87,7 +87,29 @@ public sealed class MainForm : MaterialForm
         Controls.AddRange([_mainView, _authView, _noAgentView]);
 
         Shown += async (_, _) => { if (!_started) { _started = true; await InitAsync(); } };
-        FormClosing += (_, _) => Cleanup();
+        FormClosing += OnFormClosing;
+    }
+
+    private bool _cleaned;
+
+    // Kilépéskor előbb (háttérben) lejelentkezünk a szerverről és lezárjuk a tunnelt,
+    // hogy az UI ne fagyjon le. Közben egy kis „Kilépés folyamatban…" ablak látszik.
+    private async void OnFormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (_cleaned) return;            // a háttér-takarítás kész → engedjük lezárni
+        e.Cancel = true;                 // előbb takarítunk, csak utána zárunk
+
+        try { _envTimer.Stop(); } catch { /* best effort */ }
+
+        using var overlay = new ShutdownOverlay(ThemeManager.ResolveDark(_cfg.ThemeMode));
+        overlay.Show(this);
+        overlay.Refresh();
+        Enabled = false;
+
+        await Task.Run(Cleanup);
+
+        _cleaned = true;
+        Close();
     }
 
     // ---------------- Állapotváltás ----------------
@@ -350,6 +372,7 @@ public sealed class MainForm : MaterialForm
             && await ClientUpdater.ApplyKnownAsync(_api!, login.UpdateFileName!, login.UpdateSha256))
         {
             Cleanup();
+            _cleaned = true;
             Application.Exit();
             return true;
         }
@@ -544,7 +567,7 @@ public sealed class MainForm : MaterialForm
         {
             SetLoginStatus("Frissítés keresése…");
             var channel = await ResolveUpdateChannelAsync();
-            if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); Application.Exit(); return; }
+            if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); _cleaned = true; Application.Exit(); return; }
         }
 
         _mainServerLbl.Text = AgentInfo.ServerName();
@@ -588,5 +611,33 @@ public sealed class MainForm : MaterialForm
         try { _api?.LogoutAsync().Wait(TimeSpan.FromSeconds(2)); } catch { }
         _broker?.Dispose();
         _api?.Dispose();
+    }
+}
+
+/// <summary>Kis, keret nélküli „Kilépés folyamatban…" jelző a leállítás idejére.</summary>
+internal sealed class ShutdownOverlay : Form
+{
+    public ShutdownOverlay(bool dark)
+    {
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.CenterParent;
+        ShowInTaskbar = false;
+        ControlBox = false;
+        Size = new Size(280, 90);
+        BackColor = dark ? Color.FromArgb(48, 48, 48) : Color.White;
+        ForeColor = dark ? Color.White : Color.FromArgb(33, 33, 33);
+        Controls.Add(new Label
+        {
+            Text = "Kilépés folyamatban…",
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 11F, FontStyle.Regular),
+        });
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        ControlPaint.DrawBorder(e.Graphics, ClientRectangle, Color.FromArgb(120, 120, 120), ButtonBorderStyle.Solid);
     }
 }
