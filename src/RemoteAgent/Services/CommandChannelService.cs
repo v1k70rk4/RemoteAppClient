@@ -70,7 +70,11 @@ public sealed class CommandChannelService(
             ws.Options.RemoteCertificateValidationCallback =
                 CertHelper.PinnedServerValidator(_opt.ServerCertPinSha256);
 
-        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(_opt.KeepAliveIntervalSeconds);
+        // Pong-timeout: e nélkül az alvás utáni "half-open" kapcsolatot a ReceiveAsync nem érzékeli
+        // (az OS TCP-timeoutjáig blokkol, akár ~2 óra). Ezzel a holt kapcsolat ~interval+timeout
+        // alatt kiderül, a ReceiveAsync dob, és a backoff-loop azonnal újracsatlakozik.
+        ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(_opt.KeepAliveTimeoutSeconds);
 
         logger.LogInformation("Csatlakozás a parancscsatornához: {Url}", _opt.Url);
         await ws.ConnectAsync(new Uri(_opt.Url), ct);

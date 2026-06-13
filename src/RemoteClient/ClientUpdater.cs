@@ -67,6 +67,41 @@ public static class ClientUpdater
         }
     }
 
+    /// <summary>A futó exe verziója szövegként (a login-kérésbe, a min-verzió kapuhoz).</summary>
+    public static string RunningVersionString() => RunningVersion().ToString();
+
+    /// <summary>
+    /// A szerver által KÖTELEZŐEN előírt frissítés alkalmazása (ismert fájlnév + hash, csatorna-keresés nélkül):
+    /// letölti, ellenőrzi, kicseréli a futó exét, elindítja az újat. true = kész (a hívónak ki kell lépnie).
+    /// </summary>
+    public static async Task<bool> ApplyKnownAsync(AdminApi api, string fileName, string? sha256)
+    {
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe) || string.IsNullOrWhiteSpace(fileName)) return false;
+
+            var tmp = exe + ".new";
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            await api.DownloadUpdateAsync(fileName, tmp);
+
+            if (!await HashMatchesAsync(tmp, sha256))
+            {
+                try { File.Delete(tmp); } catch { }
+                return false;
+            }
+
+            var old = exe + ".old";
+            try { if (File.Exists(old)) File.Delete(old); } catch { }
+            File.Move(exe, old);
+            File.Move(tmp, exe);
+
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+            return true;
+        }
+        catch { return false; }
+    }
+
     private static Version RunningVersion()
     {
         try

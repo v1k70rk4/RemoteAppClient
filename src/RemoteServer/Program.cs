@@ -94,12 +94,16 @@ app.Use(async (ctx, next) =>
 app.MapGet("/", () => "RemoteServer up.");
 
 // === Bejelentkezés / 2FA (a gép SSH-tunneljén át érhető el; maguk validálnak) ===
-app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, CancellationToken ct) =>
+app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     LoginRequest? req;
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.LoginRequest, ct); }
     catch (JsonException) { return Results.BadRequest(); }
     if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest();
+
+    // Min-verzió kapu: elavult kliens nem kap sessiont, hanem kötelező frissítés-infót.
+    if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
+        return Results.Json(gate, AgentJsonContext.Default.LoginResponse);
 
     var user = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
         .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
@@ -152,13 +156,17 @@ app.MapPost("/auth/hello/challenge", async (HttpContext ctx, HelloChallengeStore
 });
 
 // Belépés 2/2: az aláírt challenge ellenőrzése a tárolt publikus kulccsal → session.
-app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthService auth, HelloChallengeStore challenges, CancellationToken ct) =>
+app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthService auth, HelloChallengeStore challenges, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     HelloLoginRequest? req;
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.HelloLoginRequest, ct); }
     catch (JsonException) { return Results.BadRequest(); }
     if (req is null || string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Signature))
         return Results.Json(new AuthError { Error = "invalid_request" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+
+    // Min-verzió kapu (ld. /auth/login): elavult kliens kötelező frissítést kap.
+    if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
+        return Results.Json(gate, AgentJsonContext.Default.LoginResponse);
 
     var nonce = challenges.Consume(req.Username.Trim());
     if (nonce is null) return Results.Json(new AuthError { Error = "challenge_expired" }, AgentJsonContext.Default.AuthError, statusCode: 401);
@@ -611,7 +619,7 @@ app.MapPost("/admin/channels/{channel}/rollout", async (
     foreach (var d in devices)
     {
         // Már a cél-verzión van? (laza egyezés: a riportolt "2.0.0.0" kezdődik a "2.0.0"-val)
-        var reported = comp switch { "updater" => d.HelperVersion, "vnc" => d.VncVersion, _ => d.AgentVersion };
+        var reported = comp switch { "updater" => d.HelperVersion, "vnc" => d.VncVersion, "client" => d.ClientVersion, _ => d.AgentVersion };
         if (reported is not null && reported.StartsWith(pkg.Version, StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
 
         var data = new CommandData
@@ -856,10 +864,13 @@ app.MapGet("/admin/msi/{fileName}", (string fileName, IOptions<ServerOptions> op
 app.MapGet("/admin/users", async (AppDbContext db, CancellationToken ct) =>
 {
     var users = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role).OrderBy(u => u.Username).ToListAsync(ct);
+    var hello = await db.HelloCredentials.Where(c => c.RevokedAt == null)
+        .GroupBy(c => c.UserId).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count, ct);
     var list = users.Select(u => new UserInfo
     {
         Id = u.Id, Username = u.Username, Email = u.Email, Role = AuthService.RoleOf(u),
         IsActive = u.IsActive, MustChangePassword = u.MustChangePassword, TotpConfirmed = u.TotpConfirmed, LastLoginAt = u.LastLoginAt,
+        HelloCount = hello.GetValueOrDefault(u.Id),
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListUserInfo);
 });
@@ -927,6 +938,26 @@ app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, HttpContex
     var me = (User)ctx.Items["user"]!;
     if (id == me.Id) return Results.BadRequest(new { error = "self_revoke" });
     await auth.RevokeAllForUserAsync(id, ct);
+    return Results.NoContent();
+});
+
+// Egy user Windows Hello eszközei (admin): listázás + visszavonás.
+app.MapGet("/admin/users/{id:guid}/hello", async (Guid id, AppDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Users.AnyAsync(u => u.Id == id, ct)) return Results.NotFound();
+    var list = await db.HelloCredentials.Where(c => c.UserId == id && c.RevokedAt == null)
+        .OrderByDescending(c => c.CreatedAt)
+        .Select(c => new HelloCredentialInfo { Id = c.Id, DeviceName = c.DeviceName, CreatedAt = c.CreatedAt, LastUsedAt = c.LastUsedAt })
+        .ToListAsync(ct);
+    return Results.Json(list, AgentJsonContext.Default.ListHelloCredentialInfo);
+});
+
+app.MapPost("/admin/users/{id:guid}/hello/{credId:guid}/revoke", async (Guid id, Guid credId, AppDbContext db, CancellationToken ct) =>
+{
+    var cred = await db.HelloCredentials.FirstOrDefaultAsync(c => c.Id == credId && c.UserId == id, ct);
+    if (cred is null) return Results.NotFound();
+    cred.RevokedAt ??= DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
     return Results.NoContent();
 });
 
@@ -1007,6 +1038,34 @@ static string? BearerToken(HttpContext ctx)
 {
     var h = ctx.Request.Headers.Authorization.ToString();
     return h.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? h["Bearer ".Length..].Trim() : null;
+}
+
+// Min-verzió kapu: ha a kliens régebbi a megengedettnél, mustUpdate-választ ad a csatorna aktuális
+// kliens-csomagjával (innen tölti le a kötelező frissítést). null = a kliens elég friss, mehet a login.
+// Ha nincs kliens-csomag amire frissíteni lehetne, nem blokkolunk (különben kizárnánk a klienst).
+static async Task<LoginResponse?> ClientUpdateGateAsync(
+    string? clientVersion, string? channel, string minVersion, AppDbContext db, CancellationToken ct)
+{
+    if (string.IsNullOrWhiteSpace(minVersion) || !Version.TryParse(minVersion, out var min)) return null;
+    bool tooOld = !Version.TryParse(clientVersion, out var cv) || cv < min;
+    if (!tooOld) return null;
+
+    var ch = channel?.Trim().ToLowerInvariant();
+    if (ch is not ("rtm" or "beta")) ch = "rtm";
+
+    var pkg = await db.ReleasePackages.Where(p => p.Component == "client" && p.Channel == ch)
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct)
+        ?? await db.ReleasePackages.Where(p => p.Component == "client" && p.Channel == "rtm")
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+    if (pkg is null) return null; // nincs mire frissíteni → ne brickeljük a klienst
+
+    return new LoginResponse
+    {
+        MustUpdate = true,
+        UpdateVersion = pkg.Version,
+        UpdateFileName = pkg.FileName,
+        UpdateSha256 = pkg.Sha256,
+    };
 }
 
 // Egy user szerepének beállítása (a meglévő szerepeket lecseréli). A hívó ment.

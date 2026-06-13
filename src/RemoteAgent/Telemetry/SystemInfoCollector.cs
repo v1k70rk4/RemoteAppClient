@@ -80,7 +80,9 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
                 int exe = path.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
                 if (exe > 0) path = path[..(exe + 4)];
             }
-            return File.Exists(path) ? FileVersionInfo.GetVersionInfo(path).FileVersion : null;
+            // A FileVersion helperrel pontozott formát adunk (a TightVNC nyers FileVersion-je
+            // vesszős: "2, 8, 87, 0" — így "2.8.87.0" lesz, és a rollout skip-ellenőrzés is egyezik).
+            return File.Exists(path) ? FileVersion(path) : null;
         }
         catch { return null; }
     }

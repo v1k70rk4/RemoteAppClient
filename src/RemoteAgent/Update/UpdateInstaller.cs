@@ -37,6 +37,14 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             return;
         }
 
+        // A "client" a mellé telepített konzol-kliens (RemoteClient.exe). NEM az agent exéje és nem
+        // service, ezért az agent maga felülírhatja (best-effort retry, ha épp fut valakinél).
+        if (string.Equals(target, "client", StringComparison.OrdinalIgnoreCase))
+        {
+            await ApplyClientExeAsync(version, url, sha256, ct);
+            return;
+        }
+
         bool isUpdater = string.Equals(target, "updater", StringComparison.OrdinalIgnoreCase)
                       || string.Equals(target, "helper", StringComparison.OrdinalIgnoreCase);
         string stagedName = isUpdater ? "RemoteAgent.Updater.exe" : "RemoteAgent.exe";
@@ -132,6 +140,66 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         }
         catch (Exception ex) { logger.LogWarning(ex, "TightVNC frissítés sikertelen."); }
         finally { TryDelete(msi); }
+    }
+
+    /// <summary>
+    /// Konzol-kliens (RemoteClient.exe) frissítése: letölti, ELLENŐRZI a SHA-256-ot, és felülírja
+    /// az agent mellé telepített RemoteClient.exe-t. Ha épp fut (zárolt), néhányszor újrapróbálja.
+    /// Így a kliens akkor is naprakész a gépen, ha senki nem indítja el (a self-update nem fut le).
+    /// </summary>
+    private async Task ApplyClientExeAsync(string? version, string url, string sha256, CancellationToken ct)
+    {
+        var targetPath = ClientExePath();
+        if (string.IsNullOrWhiteSpace(targetPath))
+        {
+            logger.LogWarning("A RemoteClient.exe útvonala nem határozható meg — kliens-frissítés kihagyva.");
+            return;
+        }
+
+        Directory.CreateDirectory(_dir);
+        var tmp = Path.Combine(_dir, "client.tmp");
+        try
+        {
+            var resolved = ResolveUrl(url);
+            logger.LogInformation("Kliens-frissítés letöltése: {Version} ({Url})", version, resolved);
+
+            using (var http = BuildClient())
+            using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
+            {
+                resp.EnsureSuccessStatusCode();
+                await using var fs = File.Create(tmp);
+                await resp.Content.CopyToAsync(fs, ct);
+            }
+
+            var expected = sha256.Replace(":", "").Trim();
+            var actual = Convert.ToHexString(await ComputeSha256Async(tmp, ct));
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogError("Kliens update hash NEM egyezik (várt {Expected}, kapott {Actual}) — eldobva.", expected, actual);
+                TryDelete(tmp);
+                return;
+            }
+
+            bool copied = false;
+            for (int i = 0; i < 10 && !copied; i++)
+            {
+                try { File.Copy(tmp, targetPath, overwrite: true); copied = true; }
+                catch (IOException) { await Task.Delay(TimeSpan.FromSeconds(1), ct); }      // épp fut → várunk
+                catch (UnauthorizedAccessException) { await Task.Delay(TimeSpan.FromSeconds(1), ct); }
+            }
+
+            if (copied) logger.LogInformation("Konzol-kliens frissítve ({Version}).", version);
+            else logger.LogWarning("A RemoteClient.exe cseréje nem sikerült (zárolt?) — később újrapróbálható.");
+        }
+        catch (Exception ex) { logger.LogWarning(ex, "Kliens-frissítés sikertelen."); }
+        finally { TryDelete(tmp); }
+    }
+
+    /// <summary>A konzol-kliens exe útvonala: az agent exe mellett (a telepítés így rakja le).</summary>
+    private static string ClientExePath()
+    {
+        var dir = Path.GetDirectoryName(Environment.ProcessPath);
+        return string.IsNullOrEmpty(dir) ? "" : Path.Combine(dir, "RemoteClient.exe");
     }
 
     /// <summary>A Helper/Updater exe útvonala: az agent exe mellett van (a telepítés így rakja le).</summary>

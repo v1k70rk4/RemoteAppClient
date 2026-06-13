@@ -42,6 +42,16 @@ public sealed class CommandChannelOptions
 
     public int ReconnectBaseDelaySeconds { get; set; } = 2;
     public int ReconnectMaxDelaySeconds { get; set; } = 120;
+
+    /// <summary>WebSocket keepalive ping gyakorisága másodpercben.</summary>
+    public int KeepAliveIntervalSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// Mennyit várunk a keepalive ping pong-jára, mielőtt a kapcsolatot holtnak vesszük.
+    /// E NÉLKÜL az alvás utáni "half-open" kapcsolatot a kliens nem érzékeli (a ReceiveAsync
+    /// blokkol az OS TCP-timeoutig, akár ~2 óra). Ezzel ~interval+timeout alatt újracsatlakozik.
+    /// </summary>
+    public int KeepAliveTimeoutSeconds { get; set; } = 10;
 }
 
 /// <summary>SSH reverse tunnel paraméterei. A cél FIX, a szerver nem írhatja felül.</summary>

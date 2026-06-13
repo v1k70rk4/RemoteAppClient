@@ -29,6 +29,7 @@ public sealed class UsersView : UserControl, IContentView
         Btn("Aktív ki/be", ToggleActiveAsync);
         Btn("Jelszó reset", ResetPwAsync);
         Btn("Jogosultságok…", () => { Grants(); return Task.CompletedTask; });
+        Btn("Hello eszközök…", HelloDevicesAsync);
         Btn("Kitiltás", RevokeAsync);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
@@ -38,6 +39,7 @@ public sealed class UsersView : UserControl, IContentView
         _list.Columns.Add("Aktív", 55);
         _list.Columns.Add("Jelszócsere", 90);
         _list.Columns.Add("TOTP", 55);
+        _list.Columns.Add("Hello", 55);
         _list.Columns.Add("Utolsó belépés", 150);
 
         Controls.Add(ViewUi.Rows(1, tools, _list, ViewUi.StatusHost(_status)));
@@ -74,6 +76,7 @@ public sealed class UsersView : UserControl, IContentView
                 item.SubItems.Add(u.IsActive ? "igen" : "NEM");
                 item.SubItems.Add(u.MustChangePassword ? "kell" : "—");
                 item.SubItems.Add(u.TotpConfirmed ? "ok" : "—");
+                item.SubItems.Add(u.HelloCount > 0 ? u.HelloCount.ToString() : "—");
                 item.SubItems.Add(u.LastLoginAt?.LocalDateTime.ToString("g") ?? "—");
                 _list.Items.Add(item);
             }
@@ -133,6 +136,14 @@ public sealed class UsersView : UserControl, IContentView
         if (Selected() is not { } u) return;
         using var f = new GrantsForm(_api, u.Id, u.Username);
         f.ShowDialog(this);
+    }
+
+    private async Task HelloDevicesAsync()
+    {
+        if (Selected() is not { } u) return;
+        using var f = new HelloDevicesForm(_api, u.Id, u.Username);
+        f.ShowDialog(this);
+        await RefreshAsync();
     }
 
     private async Task RevokeAsync()

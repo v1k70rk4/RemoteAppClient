@@ -29,6 +29,12 @@ public sealed class ServerOptions
     /// <summary>A szerver publikus bázis-URL-je (pl. https://c2.pelda.hu) — a bootstrap blobba kerül.</summary>
     public string PublicUrl { get; set; } = string.Empty;
 
+    /// <summary>
+    /// A LEGRÉGEBBI konzol-kliens verzió, ami beléphet. Az ennél régebbi kliens login-kor
+    /// "mustUpdate" választ kap (nincs session), és kötelezően frissül. Üres = nincs korlát.
+    /// </summary>
+    public string MinClientVersion { get; set; } = "1.1.1.0";
+
     /// <summary>Az MSI Authenticode-aláírása (opcionális — üres CertPath = nincs aláírás, csak teszt/hobbi).</summary>
     public MsiSigningOptions MsiSigning { get; set; } = new();
 
