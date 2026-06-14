@@ -77,26 +77,35 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Columns.Add(L.DevicesView_LastOnline, 140);
         _list.Columns.Add(L.DeviceTelemetryPanel_PublicIP, 120);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
-        // Right-click selects the row under the cursor and opens the properties (General tab).
+        // Right-click selects the row under the cursor and opens a context menu of editor tabs.
         if (_isAdmin)
-            _list.MouseUp += async (_, e) =>
+        {
+            var menu = new ContextMenuStrip();
+            void Item(string text, string tab) => menu.Items.Add(text, null, async (_, _) => await EditSelectedAsync(tab));
+            Item(L.DevicesView_Properties, "general");
+            Item(L.DevicesView_Messages, "messages");
+            Item("Log", "log");
+            Item(L.DevicesView_Telemetry, "telemetry");
+            Item(L.UsersView_Permissions, "permissions");
+
+            _list.MouseUp += (_, e) =>
             {
                 if (e.Button != MouseButtons.Right) return;
                 var hit = _list.GetItemAt(e.X, e.Y);
                 if (hit is null) return;
                 hit.Selected = true;
-                await EditSelectedAsync();
+                menu.Show(_list, e.Location);
             };
+        }
         _list.ColumnClick += (_, e) => { if (_sortColumn == e.Column) _sortAsc = !_sortAsc; else { _sortColumn = e.Column; _sortAsc = true; } RenderList(); };
 
         // Bottom-right: actions for the selected device (Connect | Edit | Approve).
         // With RightToLeft, the first added control is rightmost, so add in reverse order.
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
         void RightBtn(string text, EventHandler onClick) { var b = ViewUi.ToolbarButton(text); b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; actions.Controls.Add(b); }
+        // Properties/Messages/Log/Telemetry/Permissions now live in the right-click menu on the list.
         if (_isAdmin) RightBtn(L.DevicesView_UnlockSignIn, async (_, _) => await UnlockSelectedAsync());
         if (_isAdmin) RightBtn(L.DevicesView_Approve, async (_, _) => await ApproveSelectedAsync());
-        if (_isAdmin) RightBtn(L.DevicesView_Telemetry, async (_, _) => await EditSelectedAsync("telemetry"));
-        if (_isAdmin) RightBtn(L.DevicesView_Properties, async (_, _) => await EditSelectedAsync());
         _connectBtn.Margin = new Padding(4, 0, 4, 0);
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
         actions.Controls.Add(_connectBtn); // added last -> leftmost (Connect)
