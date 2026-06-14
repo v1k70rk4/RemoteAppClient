@@ -35,12 +35,12 @@ public static class VncLock
             SetFlag(true);
             RunSc("stop", ServiceName);
             RunSc("config", ServiceName, "start=", "disabled");
-            Log(L.VncLock_001);
-            Console.WriteLine(L.VncLock_002);
+            Log(L.VncLock_RemoteAccessVNCIsLOCALLY);
+            Console.WriteLine(L.VncLock_VNCLocallyDISABLEDTvnserverStopped);
             return 0;
         }
-        catch (UnauthorizedAccessException) { Console.Error.WriteLine(L.VncLock_005); return 5; }
-        catch (Exception ex) { Console.Error.WriteLine(L.VncLock_006 + ex.Message); return 1; }
+        catch (UnauthorizedAccessException) { Console.Error.WriteLine(L.VncLock_AdminSYSTEMRightsRequired); return 5; }
+        catch (Exception ex) { Console.Error.WriteLine(L.VncLock_Error + ex.Message); return 1; }
     }
 
     /// <summary>CLI: vnc-unlock, clears the flag and re-enables/starts tvnserver.</summary>
@@ -51,12 +51,12 @@ public static class VncLock
             SetFlag(false);
             RunSc("config", ServiceName, "start=", "auto");
             RunSc("start", ServiceName);
-            Log(L.VncLock_003);
-            Console.WriteLine(L.VncLock_004);
+            Log(L.VncLock_RemoteAccessVNCUnlockedOn);
+            Console.WriteLine(L.VncLock_VNCUNLOCKEDTvnserverAutoStarted);
             return 0;
         }
-        catch (UnauthorizedAccessException) { Console.Error.WriteLine(L.VncLock_005); return 5; }
-        catch (Exception ex) { Console.Error.WriteLine(L.VncLock_006 + ex.Message); return 1; }
+        catch (UnauthorizedAccessException) { Console.Error.WriteLine(L.VncLock_AdminSYSTEMRightsRequired); return 5; }
+        catch (Exception ex) { Console.Error.WriteLine(L.VncLock_Error + ex.Message); return 1; }
     }
 
     /// <summary>Idempotent enforcement: when locked, tvnserver is stopped and remains disabled.</summary>

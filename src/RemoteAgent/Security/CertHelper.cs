@@ -15,7 +15,7 @@ public static class CertHelper
     public static X509Certificate2 LoadClientCertificate(string thumbprint)
     {
         if (string.IsNullOrWhiteSpace(thumbprint))
-            throw new InvalidOperationException(L.CertHelper_001);
+            throw new InvalidOperationException(L.CertHelper_NoClientCertificateThumbprintConfigured);
 
         var normalized = thumbprint.Replace(" ", "").Replace(":", "").ToUpperInvariant();
         using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
@@ -28,7 +28,7 @@ public static class CertHelper
         }
 
         throw new InvalidOperationException(
-            L.Format(L.CertHelper_002, normalized));
+            L.Format(L.CertHelper_ClientCertificateWithThumbprintWas, normalized));
     }
 
     /// <summary>
@@ -39,7 +39,7 @@ public static class CertHelper
     public static X509Certificate2 LoadClientCertificateFromPfx(string path, string? password = null)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            throw new InvalidOperationException(L.Format(L.CertHelper_003, path));
+            throw new InvalidOperationException(L.Format(L.CertHelper_ClientCertificatePFXNotFound, path));
 
         return X509CertificateLoader.LoadPkcs12FromFile(path, password, X509KeyStorageFlags.PersistKeySet);
     }
@@ -48,7 +48,7 @@ public static class CertHelper
     public static X509Certificate2 LoadClientCertificateFromProtectedPfx(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            throw new InvalidOperationException(L.Format(L.CertHelper_004, path));
+            throw new InvalidOperationException(L.Format(L.CertHelper_DPAPIProtectedPFXNotFound, path));
 
         var pfxBytes = Dpapi.Unprotect(File.ReadAllBytes(path));
         return X509CertificateLoader.LoadPkcs12(pfxBytes, password: null, X509KeyStorageFlags.PersistKeySet);

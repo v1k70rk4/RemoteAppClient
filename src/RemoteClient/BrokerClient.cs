@@ -48,7 +48,7 @@ public sealed class BrokerClient : IDisposable
             await _pipe.ReadExactlyAsync(buf, ct);
             int localPort = BitConverter.ToInt32(buf, 0);
             if (localPort <= 0)
-                throw new InvalidOperationException(L.BrokerClient_001);
+                throw new InvalidOperationException(L.BrokerClient_TheLocalAgentCouldNot);
             return localPort;
         }
         finally { _gate.Release(); }

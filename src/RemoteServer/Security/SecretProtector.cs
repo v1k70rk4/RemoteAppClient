@@ -22,13 +22,13 @@ public sealed class SecretProtector
         var path = options.Value.SecretKeyPath;
         if (!File.Exists(path))
             throw new InvalidOperationException(
-                L.Format(L.SecretProtector_001, path));
+                L.Format(L.SecretProtector_EncryptionKeyIsMissingGenerate, path));
 
         _key = File.ReadAllBytes(path);
         if (_key.Length != 32)
-            throw new InvalidOperationException(L.Format(L.SecretProtector_002, _key.Length));
+            throw new InvalidOperationException(L.Format(L.SecretProtector_EncryptionKeyIsNot32, _key.Length));
 
-        logger.LogInformation(L.SecretProtector_003);
+        logger.LogInformation(L.SecretProtector_SecretEncryptionKeyLoaded);
     }
 
     public string Protect(string plaintext)

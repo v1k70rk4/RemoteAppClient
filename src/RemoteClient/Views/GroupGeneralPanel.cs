@@ -10,9 +10,9 @@ public sealed class GroupGeneralPanel : UserControl
 {
     private readonly AdminApi _api;
     private readonly Guid? _id;
-    private readonly MaterialTextBox2 _name = new() { Hint = L.GroupGeneralPanel_003, Width = 360 };
-    private readonly MaterialSwitch _consent = new() { Text = L.GroupGeneralPanel_001, AutoSize = true };
-    private readonly MaterialSwitch _unattended = new() { Text = L.GroupGeneralPanel_002, AutoSize = true };
+    private readonly MaterialTextBox2 _name = new() { Hint = L.GroupGeneralPanel_GroupName, Width = 360 };
+    private readonly MaterialSwitch _consent = new() { Text = L.GroupGeneralPanel_ConsentRequiredForViewing, AutoSize = true };
+    private readonly MaterialSwitch _unattended = new() { Text = L.GroupGeneralPanel_AllowUnattendedAccess, AutoSize = true };
     private readonly MaterialLabel _status = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
 
     /// <summary>Raised after successful save so the view can refresh or return.</summary>
@@ -31,7 +31,7 @@ public sealed class GroupGeneralPanel : UserControl
         }
         else { _unattended.Checked = true; }
 
-        var save = ViewUi.ToolbarButton(L.EditTokenForm_012);
+        var save = ViewUi.ToolbarButton(L.EditTokenForm_Save);
         save.Click += async (_, _) => await SaveAsync();
 
         var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
@@ -63,6 +63,6 @@ public sealed class GroupGeneralPanel : UserControl
             _status.Text = "Mentve.";
             Saved?.Invoke();
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 }

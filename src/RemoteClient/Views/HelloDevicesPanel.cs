@@ -19,14 +19,14 @@ public sealed class HelloDevicesPanel : UserControl
         Dock = DockStyle.Fill;
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false; _list.Dock = DockStyle.Fill; _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.HelloDevicesPanel_001, 220);
-        _list.Columns.Add(L.BootstrapView_008, 150);
-        _list.Columns.Add(L.HelloDevicesPanel_002, 150);
+        _list.Columns.Add(L.HelloDevicesPanel_Device, 220);
+        _list.Columns.Add(L.BootstrapView_Created, 150);
+        _list.Columns.Add(L.HelloDevicesPanel_LastUsed, 150);
 
         var tools = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(8, 6, 8, 6) };
-        var refreshBtn = new MaterialButton { Text = L.AboutView_002, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
+        var refreshBtn = new MaterialButton { Text = L.AboutView_Refresh, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
         refreshBtn.Click += async (_, _) => await ShownAsync();
-        var revokeBtn = new MaterialButton { Text = L.BootstrapView_012, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        var revokeBtn = new MaterialButton { Text = L.BootstrapView_Revoke, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         revokeBtn.Click += async (_, _) => await RevokeAsync();
         tools.Controls.AddRange([refreshBtn, revokeBtn]);
 
@@ -56,17 +56,17 @@ public sealed class HelloDevicesPanel : UserControl
                 it.SubItems.Add(c.LastUsedAt?.LocalDateTime.ToString("g") ?? "—");
                 _list.Items.Add(it);
             }
-            _status.Text = creds.Count == 0 ? L.HelloDevicesPanel_003 : L.Format(L.HelloDevicesPanel_004, creds.Count);
+            _status.Text = creds.Count == 0 ? L.HelloDevicesPanel_NoWindowsHelloDevicesFor : L.Format(L.HelloDevicesPanel_HelloDevice, creds.Count);
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private async Task RevokeAsync()
     {
         if (Selected() is not { } c) return;
-        if (MessageBox.Show(L.Format(L.HelloDevicesPanel_005, c.DeviceName),
-                L.HelloDevicesPanel_006, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        if (MessageBox.Show(L.Format(L.HelloDevicesPanel_RevokeThisWindowsHelloDevice, c.DeviceName),
+                L.HelloDevicesPanel_RevokeHello, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try { await _api.RevokeUserHelloAsync(_userId, c.Id); await ShownAsync(); }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 }

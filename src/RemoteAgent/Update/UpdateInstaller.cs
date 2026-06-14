@@ -27,7 +27,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
     {
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(sha256))
         {
-            logger.LogWarning(L.UpdateInstaller_001);
+            logger.LogWarning(L.UpdateInstaller_UpdateCommandWithoutURLHash);
             return;
         }
 
@@ -54,7 +54,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
 
         if (isUpdater && string.IsNullOrWhiteSpace(targetPath))
         {
-            logger.LogWarning(L.UpdateInstaller_002);
+            logger.LogWarning(L.UpdateInstaller_CouldNotDetermineUpdaterExe);
             return;
         }
 
@@ -64,7 +64,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         try
         {
             var resolved = ResolveUrl(url);
-            logger.LogInformation(L.UpdateInstaller_003, isUpdater ? "updater" : "agent", version, resolved);
+            logger.LogInformation(L.UpdateInstaller_DownloadingUpdateTargetVersionUrl, isUpdater ? "updater" : "agent", version, resolved);
 
             using (var http = BuildClient())
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
@@ -78,7 +78,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             var actual = Convert.ToHexString(await ComputeSha256Async(tmp, ct));
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogError(L.UpdateInstaller_004, expected, actual);
+                logger.LogError(L.UpdateInstaller_UpdateHashMISMATCHExpectedExpected, expected, actual);
                 TryDelete(tmp);
                 return;
             }
@@ -88,11 +88,11 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             File.Move(tmp, newExe);
 
             await File.WriteAllTextAsync(Path.Combine(_dir, markerName), targetPath, ct);
-            logger.LogInformation(L.UpdateInstaller_005, version);
+            logger.LogInformation(L.UpdateInstaller_UpdateStagingReadyVersionReplacement, version);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, L.UpdateInstaller_019);
+            logger.LogWarning(ex, L.UpdateInstaller_UpdateFailed);
             TryDelete(tmp);
         }
     }
@@ -108,7 +108,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         try
         {
             var resolved = ResolveUrl(url);
-            logger.LogInformation(L.UpdateInstaller_006, version, resolved);
+            logger.LogInformation(L.UpdateInstaller_DownloadingTightVNCUpdateVersionUrl, version, resolved);
 
             using (var http = BuildClient())
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
@@ -122,7 +122,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             var actual = Convert.ToHexString(await ComputeSha256Async(msi, ct));
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogError(L.UpdateInstaller_007, expected, actual);
+                logger.LogError(L.UpdateInstaller_TightVNCUpdateHashMISMATCHExpected, expected, actual);
                 TryDelete(msi);
                 return;
             }
@@ -135,11 +135,11 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             using var proc = Process.Start(psi)!;
             await proc.WaitForExitAsync(ct);
             if (proc.ExitCode is 0 or 3010) // 3010 = success, reboot recommended
-                logger.LogInformation(L.UpdateInstaller_008, version);
+                logger.LogInformation(L.UpdateInstaller_TightVNCUpdatedVersion, version);
             else
-                logger.LogWarning(L.UpdateInstaller_009, proc.ExitCode);
+                logger.LogWarning(L.UpdateInstaller_TightVNCMsiexecExitCodeCode, proc.ExitCode);
         }
-        catch (Exception ex) { logger.LogWarning(ex, L.UpdateInstaller_010); }
+        catch (Exception ex) { logger.LogWarning(ex, L.UpdateInstaller_TightVNCUpdateFailed); }
         finally { TryDelete(msi); }
     }
 
@@ -153,7 +153,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         var targetPath = ClientExePath();
         if (string.IsNullOrWhiteSpace(targetPath))
         {
-            logger.LogWarning(L.UpdateInstaller_011);
+            logger.LogWarning(L.UpdateInstaller_CouldNotDetermineRemoteClientExe);
             return;
         }
 
@@ -162,7 +162,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         try
         {
             var resolved = ResolveUrl(url);
-            logger.LogInformation(L.UpdateInstaller_012, version, resolved);
+            logger.LogInformation(L.UpdateInstaller_DownloadingClientUpdateVersionUrl, version, resolved);
 
             using (var http = BuildClient())
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
@@ -176,7 +176,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             var actual = Convert.ToHexString(await ComputeSha256Async(tmp, ct));
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogError(L.UpdateInstaller_013, expected, actual);
+                logger.LogError(L.UpdateInstaller_ClientUpdateHashMISMATCHExpected, expected, actual);
                 TryDelete(tmp);
                 return;
             }
@@ -200,10 +200,10 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
                 }
             }
 
-            if (copied) logger.LogInformation(L.UpdateInstaller_014, version);
-            else logger.LogWarning(L.UpdateInstaller_015);
+            if (copied) logger.LogInformation(L.UpdateInstaller_ConsoleClientUpdatedVersion, version);
+            else logger.LogWarning(L.UpdateInstaller_CouldNotReplaceRemoteClientExe);
         }
-        catch (Exception ex) { logger.LogWarning(ex, L.UpdateInstaller_016); }
+        catch (Exception ex) { logger.LogWarning(ex, L.UpdateInstaller_ClientUpdateFailed); }
         finally { TryDelete(tmp); }
     }
 
@@ -224,9 +224,9 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             {
                 p.Kill(entireProcessTree: true);
                 p.WaitForExit(3000);
-                logger.LogWarning(L.UpdateInstaller_017, p.Id);
+                logger.LogWarning(L.UpdateInstaller_KilledRunningRemoteClientForUpdate, p.Id);
             }
-            catch (Exception ex) { logger.LogDebug(ex, L.UpdateInstaller_018, p.Id); }
+            catch (Exception ex) { logger.LogDebug(ex, L.UpdateInstaller_CouldNotKillRemoteClientPID, p.Id); }
             finally { p.Dispose(); }
         }
     }

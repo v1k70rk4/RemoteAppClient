@@ -56,7 +56,7 @@ public sealed class EnrollmentService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, L.EnrollmentService_001, deviceId);
+            logger.LogWarning(ex, L.EnrollmentService_CSRSigningFailedDeviceDevice, deviceId);
             return new Result(null, "bad_csr");
         }
 
@@ -101,7 +101,7 @@ public sealed class EnrollmentService(
         });
 
         await db.SaveChangesAsync(ct);
-        logger.LogInformation(L.EnrollmentService_002, deviceId, req.Hostname);
+        logger.LogInformation(L.EnrollmentService_DeviceEnrolledDeviceHost, deviceId, req.Hostname);
 
         return new Result(new EnrollResponse
         {

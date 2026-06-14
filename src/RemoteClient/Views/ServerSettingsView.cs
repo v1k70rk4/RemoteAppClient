@@ -14,15 +14,15 @@ public sealed class ServerSettingsView : UserControl, IContentView
 {
     private readonly AdminApi _api;
 
-    private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_003);
-    private readonly MaterialButton _tabEmail = TabBtn(L.ServerSettingsView_001);
+    private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_General);
+    private readonly MaterialButton _tabEmail = TabBtn(L.ServerSettingsView_EmailDelivery);
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
     private readonly MaterialLabel _status = new();
 
     // General
-    private readonly MaterialTextBox2 _owner = new() { Hint = L.ServerSettingsView_029, Width = 360 };
-    private readonly MaterialTextBox2 _phone = new() { Hint = L.ServerSettingsView_002, Width = 360 };
-    private readonly MaterialTextBox2 _email = new() { Hint = L.ServerSettingsView_003, Width = 360 };
+    private readonly MaterialTextBox2 _owner = new() { Hint = L.ServerSettingsView_OwnerName, Width = 360 };
+    private readonly MaterialTextBox2 _phone = new() { Hint = L.ServerSettingsView_SupportPhoneNumber, Width = 360 };
+    private readonly MaterialTextBox2 _email = new() { Hint = L.ServerSettingsView_SupportEmail, Width = 360 };
 
     // Email provider + fields
     private readonly MaterialComboBox _provider = new() { Hint = "E-mail provider", Width = 260 };
@@ -32,13 +32,13 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private readonly MaterialTextBox2 _smtpHost = new() { Hint = "SMTP host", Width = 360 };
     private readonly MaterialTextBox2 _smtpPort = new() { Hint = "Port", Width = 120 };
     private readonly MaterialSwitch _smtpTls = new() { Text = "TLS (SSL)", AutoSize = true };
-    private readonly MaterialTextBox2 _smtpUser = new() { Hint = L.CredentialDialog_002, Width = 360 };
-    private readonly MaterialTextBox2 _smtpFrom = new() { Hint = L.ServerSettingsView_004, Width = 360 };
-    private readonly MaterialTextBox2 _smtpPass = new() { Hint = L.MainForm_001, Width = 360, UseSystemPasswordChar = true };
+    private readonly MaterialTextBox2 _smtpUser = new() { Hint = L.CredentialDialog_User, Width = 360 };
+    private readonly MaterialTextBox2 _smtpFrom = new() { Hint = L.ServerSettingsView_SenderFrom, Width = 360 };
+    private readonly MaterialTextBox2 _smtpPass = new() { Hint = L.MainForm_Password, Width = 360, UseSystemPasswordChar = true };
 
     private readonly MaterialTextBox2 _graphTenant = new() { Hint = "Tenant ID", Width = 360 };
     private readonly MaterialTextBox2 _graphClient = new() { Hint = "Client (App) ID", Width = 360 };
-    private readonly MaterialTextBox2 _graphSender = new() { Hint = L.ServerSettingsView_005, Width = 360 };
+    private readonly MaterialTextBox2 _graphSender = new() { Hint = L.ServerSettingsView_SenderMailboxUPNEmail, Width = 360 };
     private readonly MaterialTextBox2 _graphSecret = new() { Hint = "Client secret", Width = 360, UseSystemPasswordChar = true };
     private readonly DateTimePicker _graphExpiry = new() { Format = DateTimePickerFormat.Short, Width = 200 };
     private readonly ToolTip _tips = new() { IsBalloon = true, AutoPopDelay = 30000, InitialDelay = 250, ReshowDelay = 100 };
@@ -46,7 +46,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private const string TenantUrl = "https://entra.microsoft.com/#view/Microsoft_AAD_IAM/TenantOverview.ReactView/initialValue//tabId//recommendationResourceId//fromNav/Identity";
     private const string AppRegUrl = "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false";
 
-    private readonly MaterialTextBox2 _testTo = new() { Hint = L.ServerSettingsView_006, Width = 280 };
+    private readonly MaterialTextBox2 _testTo = new() { Hint = L.ServerSettingsView_TestRecipient, Width = 280 };
 
     public ServerSettingsView(AdminApi api)
     {
@@ -58,12 +58,12 @@ public sealed class ServerSettingsView : UserControl, IContentView
         var tabbar = ViewUi.Toolbar();
         tabbar.Controls.AddRange([_tabGeneral, _tabEmail]);
 
-        var save = ViewUi.ToolbarButton(L.EditTokenForm_012);
+        var save = ViewUi.ToolbarButton(L.EditTokenForm_Save);
         save.Click += async (_, _) => await SaveAsync();
         var saveRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
         saveRow.Controls.Add(save);
 
-        _provider.Items.AddRange([L.DeviceTelemetryPanel_015, "SMTP", "MS Graph (O365)"]);
+        _provider.Items.AddRange([L.DeviceTelemetryPanel_No, "SMTP", "MS Graph (O365)"]);
         _provider.SelectedIndexChanged += (_, _) => ApplyProviderVisibility();
 
         BuildSmtpBox();
@@ -87,12 +87,12 @@ public sealed class ServerSettingsView : UserControl, IContentView
     {
         var f = new FlowLayoutPanel { Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         void Lbl(string t) => f.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
-        Lbl(L.ServerSettingsView_027); f.Controls.Add(_smtpHost);
+        Lbl(L.ServerSettingsView_SMTPServer); f.Controls.Add(_smtpHost);
         Lbl("Port"); f.Controls.Add(_smtpPort);
         f.Controls.Add(_smtpTls);
-        Lbl(L.CredentialDialog_002); f.Controls.Add(_smtpUser);
-        Lbl(L.ServerSettingsView_004); f.Controls.Add(_smtpFrom);
-        Lbl(L.MainForm_001); f.Controls.Add(_smtpPass);
+        Lbl(L.CredentialDialog_User); f.Controls.Add(_smtpUser);
+        Lbl(L.ServerSettingsView_SenderFrom); f.Controls.Add(_smtpFrom);
+        Lbl(L.MainForm_Password); f.Controls.Add(_smtpPass);
         _smtpBox.Dock = DockStyle.Top; _smtpBox.Controls.Add(f);
     }
 
@@ -104,24 +104,24 @@ public sealed class ServerSettingsView : UserControl, IContentView
 
         Lbl("Azure Tenant ID");
         f.Controls.Add(HRow(_graphTenant, InfoIcon(
-            L.ServerSettingsView_007, TenantUrl)));
+            L.ServerSettingsView_WhereDoIFindThe, TenantUrl)));
 
         Lbl("Client (App) ID");
         f.Controls.Add(HRow(_graphClient, InfoIcon(
-            L.ServerSettingsView_008 +
-            L.ServerSettingsView_009 +
-            L.ServerSettingsView_010 +
-            L.ServerSettingsView_011 +
-            L.ServerSettingsView_012 +
-            L.ServerSettingsView_013, AppRegUrl)));
+            L.ServerSettingsView_RegisterANewApplicationEntra +
+            L.ServerSettingsView_SupportedAccountTypeSingleTenant +
+            L.ServerSettingsView_CertificatesAndSecretsNewClient +
+            L.ServerSettingsView_APIPermissionsMicrosoftGraphApplication +
+            L.ServerSettingsView_IfNeededSendingCanBe +
+            L.ServerSettingsView_ClickTheIconToOpen, AppRegUrl)));
 
-        Lbl(L.ServerSettingsView_005); f.Controls.Add(_graphSender);
+        Lbl(L.ServerSettingsView_SenderMailboxUPNEmail); f.Controls.Add(_graphSender);
         Lbl("Client secret"); f.Controls.Add(_graphSecret);
-        Lbl(L.ServerSettingsView_014);
+        Lbl(L.ServerSettingsView_SecretExpiryMax2Years);
         _graphExpiry.MinDate = DateTime.Today;
         _graphExpiry.MaxDate = DateTime.Today.AddYears(2);
         f.Controls.Add(_graphExpiry);
-        Help(L.ServerSettingsView_015);
+        Help(L.ServerSettingsView_X30DaysBeforeExpiryThe);
 
         _graphBox.Dock = DockStyle.Top; _graphBox.Controls.Add(f);
     }
@@ -164,24 +164,24 @@ public sealed class ServerSettingsView : UserControl, IContentView
     {
         var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
         void Lbl(string t) => body.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
-        Lbl(L.ServerSettingsView_029); body.Controls.Add(_owner);
-        Lbl(L.ServerSettingsView_002); body.Controls.Add(_phone);
-        Lbl(L.ServerSettingsView_003); body.Controls.Add(_email);
+        Lbl(L.ServerSettingsView_OwnerName); body.Controls.Add(_owner);
+        Lbl(L.ServerSettingsView_SupportPhoneNumber); body.Controls.Add(_phone);
+        Lbl(L.ServerSettingsView_SupportEmail); body.Controls.Add(_email);
         return body;
     }
 
     private Control BuildEmailTab()
     {
         var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
-        body.Controls.Add(new MaterialLabel { Text = L.ServerSettingsView_016, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 4, 0, 0) });
+        body.Controls.Add(new MaterialLabel { Text = L.ServerSettingsView_ActiveProvider, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 4, 0, 0) });
         body.Controls.Add(_provider);
         body.Controls.Add(_smtpBox);
         body.Controls.Add(_graphBox);
 
-        var testLbl = new MaterialLabel { Text = L.ServerSettingsView_017, Font = new Font("Segoe UI", 11F, FontStyle.Bold), AutoSize = true, Margin = new Padding(4, 16, 0, 4) };
+        var testLbl = new MaterialLabel { Text = L.ServerSettingsView_TestDeliverySaveBeforeTesting, Font = new Font("Segoe UI", 11F, FontStyle.Bold), AutoSize = true, Margin = new Padding(4, 16, 0, 4) };
         body.Controls.Add(testLbl);
         var testRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0) };
-        var testBtn = ViewUi.ToolbarButton(L.ServerSettingsView_018, primary: false);
+        var testBtn = ViewUi.ToolbarButton(L.ServerSettingsView_SendTestEmail, primary: false);
         testBtn.Click += async (_, _) => await TestAsync();
         testRow.Controls.Add(_testTo);
         testRow.Controls.Add(testBtn);
@@ -201,7 +201,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
     {
         try
         {
-            _status.Text = L.ServerSettingsView_019;
+            _status.Text = L.ServerSettingsView_FetchingSettings;
             var s = await _api.GetSettingsAsync();
 
             _owner.Text = s.OwnerName ?? "";
@@ -214,20 +214,20 @@ public sealed class ServerSettingsView : UserControl, IContentView
             _smtpTls.Checked = s.SmtpUseTls;
             _smtpUser.Text = s.SmtpUser ?? "";
             _smtpFrom.Text = s.SmtpFrom ?? "";
-            _smtpPass.Text = ""; _smtpPass.Hint = s.HasSmtpPassword ? L.ServerSettingsView_020 : L.MainForm_001;
+            _smtpPass.Text = ""; _smtpPass.Hint = s.HasSmtpPassword ? L.ServerSettingsView_PasswordSetLeaveEmpty : L.MainForm_Password;
 
             _graphTenant.Text = s.GraphTenantId ?? "";
             _graphClient.Text = s.GraphClientId ?? "";
             _graphSender.Text = s.GraphSender ?? "";
-            _graphSecret.Text = ""; _graphSecret.Hint = s.HasGraphSecret ? L.ServerSettingsView_021 : "Client secret";
+            _graphSecret.Text = ""; _graphSecret.Hint = s.HasGraphSecret ? L.ServerSettingsView_ClientSecretSetLeaveEmpty : "Client secret";
 
             // Required expiry: show saved value when present (clamped), otherwise default to 2 years.
             var d = s.GraphSecretExpiresAt?.LocalDateTime.Date ?? _graphExpiry.MaxDate;
             _graphExpiry.Value = d < _graphExpiry.MinDate ? _graphExpiry.MinDate : (d > _graphExpiry.MaxDate ? _graphExpiry.MaxDate : d);
 
-            _status.Text = L.AboutView_017;
+            _status.Text = L.AboutView_Upd;
         }
-        catch (Exception ex) { _status.Text = L.ServerSettingsView_022 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ServerSettingsView_FetchError + ex.Message; }
     }
 
     private async Task SaveAsync()
@@ -256,15 +256,15 @@ public sealed class ServerSettingsView : UserControl, IContentView
             _status.Text = "Mentve.";
             await LoadAsync(); // refresh Has* placeholders
         }
-        catch (Exception ex) { _status.Text = L.ServerSettingsView_023 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ServerSettingsView_SaveError + ex.Message; }
     }
 
     private async Task TestAsync()
     {
         var to = _testTo.Text.Trim();
-        if (string.IsNullOrWhiteSpace(to)) { _status.Text = L.ServerSettingsView_024; return; }
-        _status.Text = L.ServerSettingsView_025;
+        if (string.IsNullOrWhiteSpace(to)) { _status.Text = L.ServerSettingsView_EnterATestRecipient; return; }
+        _status.Text = L.ServerSettingsView_SendingTestEmail;
         var (ok, err) = await _api.TestEmailAsync(to);
-        _status.Text = ok ? L.Format(L.ServerSettingsView_026, to) : L.ServerSettingsView_028 + err;
+        _status.Text = ok ? L.Format(L.ServerSettingsView_TestEmailSent, to) : L.ServerSettingsView_TestError + err;
     }
 }

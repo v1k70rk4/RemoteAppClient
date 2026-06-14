@@ -34,7 +34,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogWarning(L.BrokerService_001, PipeName);
+        logger.LogWarning(L.BrokerService_ConsoleBrokerStartingPipePipe, PipeName);
 
         // Multiple instances: always keep a fresh listener so a stuck handler, such as a force-killed
         // client, cannot block new connections. Each connection is handled by its own task.
@@ -44,7 +44,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             try { pipe = CreatePipe(); }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.BrokerService_002);
+                logger.LogWarning(ex, L.BrokerService_BrokerPipeCreationFailedRetrying);
                 try { await Task.Delay(2000, stoppingToken); } catch { break; }
                 continue;
             }
@@ -56,13 +56,13 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.BrokerService_003);
+                logger.LogWarning(ex, L.BrokerService_BrokerAcceptError);
                 await pipe.DisposeAsync();
                 try { await Task.Delay(1000, stoppingToken); } catch { break; }
                 continue;
             }
 
-            logger.LogWarning(L.BrokerService_004);
+            logger.LogWarning(L.BrokerService_BrokerClientConnected);
             _ = HandleConnectionAsync(pipe, stoppingToken); // separate task; loop opens a fresh listener
         }
     }
@@ -91,17 +91,17 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
                         await fwd.StartAsync(remotePort, ct);
                         forwards.Add(fwd);
                         localPort = fwd.LocalPort;
-                        logger.LogWarning(L.BrokerService_005, remotePort, localPort);
+                        logger.LogWarning(L.BrokerService_BrokerForwardOKBastionRemote, remotePort, localPort);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, L.BrokerService_006, remotePort);
+                        logger.LogWarning(ex, L.BrokerService_BrokerForwardFAILEDPortSee, remotePort);
                         localPort = 0;
                     }
                 }
                 else
                 {
-                    logger.LogWarning(L.BrokerService_007, remotePort);
+                    logger.LogWarning(L.BrokerService_BrokerRequestedPortIsNot, remotePort);
                 }
 
                 await pipe.WriteAsync(BitConverter.GetBytes(localPort), ct);
@@ -109,12 +109,12 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             }
         }
         catch (OperationCanceledException) { /* shutdown */ }
-        catch (Exception ex) { logger.LogWarning(ex, L.BrokerService_008); }
+        catch (Exception ex) { logger.LogWarning(ex, L.BrokerService_BrokerHandlerError); }
         finally
         {
             foreach (var f in forwards) await f.StopAsync();
             try { await pipe.DisposeAsync(); } catch { /* best effort */ }
-            logger.LogWarning(L.BrokerService_009);
+            logger.LogWarning(L.BrokerService_BrokerClientDisconnectedForwardsClosed);
         }
     }
 

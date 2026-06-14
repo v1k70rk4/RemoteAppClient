@@ -23,7 +23,7 @@ public static class AgentInfo
     public static string ServerName()
     {
         var url = ServerUrl();
-        if (string.IsNullOrWhiteSpace(url)) return L.AgentInfo_001;
+        if (string.IsNullOrWhiteSpace(url)) return L.AgentInfo_UnknownServer;
         try { return new Uri(url).Host; } catch { return url; }
     }
 }

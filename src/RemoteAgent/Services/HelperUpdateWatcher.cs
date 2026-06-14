@@ -33,7 +33,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.HelperUpdateWatcher_005);
+                logger.LogWarning(ex, L.HelperUpdateWatcher_HelperReplacementFailed);
             }
 
             try { await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); }
@@ -46,12 +46,12 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
         var target = (await File.ReadAllTextAsync(marker, ct)).Trim();
         if (string.IsNullOrWhiteSpace(target))
         {
-            logger.LogWarning(L.HelperUpdateWatcher_001);
+            logger.LogWarning(L.HelperUpdateWatcher_EmptyUpdateUpdaterReadyNo);
             TryDelete(marker);
             return;
         }
 
-        logger.LogInformation(L.HelperUpdateWatcher_002, target);
+        logger.LogInformation(L.HelperUpdateWatcher_HelperUpdateDetectedReplacingTarget, target);
 
         await RunNetAsync("stop", UpdaterService);
         await Task.Delay(TimeSpan.FromSeconds(2), ct); // az exe felszabaduljon
@@ -65,7 +65,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
 
         if (!copied)
         {
-            logger.LogError(L.HelperUpdateWatcher_003);
+            logger.LogError(L.HelperUpdateWatcher_CouldNotReplaceTheHelper);
             await RunNetAsync("start", UpdaterService);
             return;
         }
@@ -73,7 +73,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
         TryDelete(marker);
         TryDelete(newExe);
         await RunNetAsync("start", UpdaterService);
-        logger.LogInformation(L.HelperUpdateWatcher_004);
+        logger.LogInformation(L.HelperUpdateWatcher_HelperUpdatedRemoteAgentUpdaterRestarted);
     }
 
     private static async Task RunNetAsync(string verb, string service)

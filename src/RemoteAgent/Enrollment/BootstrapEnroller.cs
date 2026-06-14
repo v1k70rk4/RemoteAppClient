@@ -27,30 +27,30 @@ public static class BootstrapEnroller
 
             BootstrapBlob? blob;
             try { blob = BootstrapCodec.Decode(File.ReadAllText(bootstrapFile)); }
-            catch { Console.Error.WriteLine(L.BootstrapEnroller_001); return; }
+            catch { Console.Error.WriteLine(L.BootstrapEnroller_InvalidBootstrapDatSkipped); return; }
 
             if (blob is null || string.IsNullOrWhiteSpace(blob.Url) || string.IsNullOrWhiteSpace(blob.Token))
             {
-                Console.Error.WriteLine(L.BootstrapEnroller_002);
+                Console.Error.WriteLine(L.BootstrapEnroller_IncompleteBootstrapBlobUrlToken);
                 return;
             }
 
-            Console.WriteLine(L.Format(L.BootstrapEnroller_009, blob.Url));
+            Console.WriteLine(L.Format(L.BootstrapEnroller_BootstrapSelfEnroll, blob.Url));
             var res = await EnrollCommand.EnrollCoreAsync(blob.Token, blob.Url, Environment.MachineName, outDir);
             if (res.Ok)
             {
-                Console.WriteLine(L.Format(L.BootstrapEnroller_010, res.DeviceId));
+                Console.WriteLine(L.Format(L.BootstrapEnroller_BootstrapSelfEnrollOK, res.DeviceId));
                 // Mark the blob as used. The server-side token has AutoApprove=false, so the device is Pending.
                 TryMarkUsed(bootstrapFile);
             }
             else
             {
-                Console.Error.WriteLine(L.Format(L.BootstrapEnroller_008, res.ErrorCode));
+                Console.Error.WriteLine(L.Format(L.BootstrapEnroller_BootstrapSelfEnrollFailed, res.ErrorCode));
             }
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(L.BootstrapEnroller_007 + ex.Message);
+            Console.Error.WriteLine(L.BootstrapEnroller_BootstrapSelfEnrollError + ex.Message);
         }
     }
 
@@ -60,23 +60,23 @@ public static class BootstrapEnroller
     {
         if (string.IsNullOrWhiteSpace(blob))
         {
-            Console.Error.WriteLine(L.BootstrapEnroller_003);
+            Console.Error.WriteLine(L.BootstrapEnroller_UsageRemoteAgentBootstrapBlob);
             return 2;
         }
 
         // Validate by decoding before writing to disk.
         BootstrapBlob? parsed;
         try { parsed = BootstrapCodec.Decode(blob); }
-        catch { Console.Error.WriteLine(L.BootstrapEnroller_004); return 2; }
+        catch { Console.Error.WriteLine(L.BootstrapEnroller_InvalidBootstrapBlob); return 2; }
         if (parsed is null || string.IsNullOrWhiteSpace(parsed.Url) || string.IsNullOrWhiteSpace(parsed.Token))
         {
-            Console.Error.WriteLine(L.BootstrapEnroller_005);
+            Console.Error.WriteLine(L.BootstrapEnroller_IncompleteBootstrapBlobUrlToken_2);
             return 2;
         }
 
         Directory.CreateDirectory(outDir);
         File.WriteAllText(Path.Combine(outDir, "bootstrap.dat"), blob.Trim());
-        Console.WriteLine(L.Format(L.BootstrapEnroller_006, outDir));
+        Console.WriteLine(L.Format(L.BootstrapEnroller_BootstrapDatWrittenToThe, outDir));
         return 0;
     }
 

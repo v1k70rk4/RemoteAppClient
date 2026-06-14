@@ -38,7 +38,7 @@ public sealed class CommandVerifier : IDisposable
         else
         {
             _logger.LogWarning(
-                L.CommandVerifier_001);
+                L.CommandVerifier_NoCommandSigningPublicKeyConfiguredAllCommands);
         }
     }
 
@@ -49,7 +49,7 @@ public sealed class CommandVerifier : IDisposable
 
         if (string.IsNullOrEmpty(cmd.Nonce) || string.IsNullOrEmpty(cmd.Signature))
         {
-            _logger.LogWarning(L.CommandVerifier_002);
+            _logger.LogWarning(L.CommandVerifier_CommandWithoutNonceOrSignature);
             return false;
         }
 
@@ -57,14 +57,14 @@ public sealed class CommandVerifier : IDisposable
         var age = now - cmd.IssuedAt;
         if (age > _maxAgeSeconds || age < -_maxAgeSeconds)
         {
-            _logger.LogWarning(L.CommandVerifier_003, age);
+            _logger.LogWarning(L.CommandVerifier_CommandTimestampOutsideWindowAge, age);
             return false;
         }
 
         // Signature verification uses shared Contracts logic so it cannot drift from the server.
         if (!CommandSignature.Verify(cmd, _publicKey))
         {
-            _logger.LogWarning(L.CommandVerifier_004);
+            _logger.LogWarning(L.CommandVerifier_CommandSignatureIsInvalidDiscarded);
             return false;
         }
 
@@ -72,7 +72,7 @@ public sealed class CommandVerifier : IDisposable
         long expiry = now + _maxAgeSeconds;
         if (!_seenNonces.TryAdd(cmd.Nonce, expiry))
         {
-            _logger.LogWarning(L.CommandVerifier_005);
+            _logger.LogWarning(L.CommandVerifier_CommandNonceAlreadySeenReplay);
             return false;
         }
 

@@ -25,19 +25,19 @@ public static class VncProvisioner
         {
             var installed = await EnsureInstalledAsync(msi);
             ApplyHardening(password);
-            Console.WriteLine(installed ? L.VncProvisioner_001 : L.VncProvisioner_002);
+            Console.WriteLine(installed ? L.VncProvisioner_TightVNCInstalledAndConfigured : L.VncProvisioner_TightVNCAlreadyInstalledConfigurationUpdated);
             Console.WriteLine($"  VNC port:  127.0.0.1:5900 (loopback-only)");
-            Console.WriteLine(L.Format(L.VncProvisioner_003, password));
+            Console.WriteLine(L.Format(L.VncProvisioner_Password, password));
             return 0;
         }
         catch (UnauthorizedAccessException)
         {
-            Console.Error.WriteLine(L.VncProvisioner_004);
+            Console.Error.WriteLine(L.VncProvisioner_InsufficientPrivilegesAdminSYSTEMRequired);
             return 5;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(L.VncProvisioner_007 + ex.Message);
+            Console.Error.WriteLine(L.VncProvisioner_VNCProvisioningError + ex.Message);
             return 1;
         }
     }
@@ -49,7 +49,7 @@ public static class VncProvisioner
             return false;
 
         if (!File.Exists(msiPath))
-            throw new FileNotFoundException(L.VncProvisioner_005, msiPath);
+            throw new FileNotFoundException(L.VncProvisioner_TightVNCMSINotFound, msiPath);
 
         var psi = new ProcessStartInfo("msiexec", $"/i \"{msiPath}\" /quiet /norestart ADDLOCAL=Server")
         {
@@ -59,7 +59,7 @@ public static class VncProvisioner
         await proc.WaitForExitAsync();
         // 0 = success, 3010 = success with reboot recommended.
         if (proc.ExitCode is not (0 or 3010))
-            throw new InvalidOperationException(L.Format(L.VncProvisioner_006, proc.ExitCode));
+            throw new InvalidOperationException(L.Format(L.VncProvisioner_MsiexecExitCode, proc.ExitCode));
         return true;
     }
 

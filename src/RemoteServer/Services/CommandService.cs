@@ -26,7 +26,7 @@ public sealed class CommandService(
         var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
         if (device is null)
         {
-            logger.LogWarning(L.CommandService_001, deviceId);
+            logger.LogWarning(L.CommandService_UnknownDeviceCommandDiscardedDevice, deviceId);
             return null;
         }
 
@@ -76,11 +76,11 @@ public sealed class CommandService(
             entity.Nonce = signed.Nonce;
             entity.Signature = signed.Signature;
             await db.SaveChangesAsync(ct);
-            logger.LogInformation(L.CommandService_002, deviceId, entity.Type);
+            logger.LogInformation(L.CommandService_CommandDeliveredToDeviceType, deviceId, entity.Type);
         }
         else
         {
-            logger.LogInformation(L.CommandService_003, deviceId, entity.Type);
+            logger.LogInformation(L.CommandService_DeviceOfflineCommandRemainsQueued, deviceId, entity.Type);
         }
     }
 }

@@ -10,8 +10,8 @@ namespace RemoteClient.Views;
 public sealed class SettingsView : UserControl, IContentView
 {
     private readonly LocalLockView _lock = new();
-    private readonly MaterialComboBox _theme = new() { Hint = L.SettingsView_001, Width = 260 };
-    private readonly MaterialComboBox _language = new() { Hint = L.SettingsView_006, Width = 260 };
+    private readonly MaterialComboBox _theme = new() { Hint = L.SettingsView_Theme, Width = 260 };
+    private readonly MaterialComboBox _language = new() { Hint = L.SettingsView_Language, Width = 260 };
     private readonly MaterialLabel _languageStatus = new() { AutoSize = false, Width = 560, Height = 44, Margin = new Padding(0, 6, 0, 0) };
     private readonly Action<string> _onTheme;
     private readonly bool _isAdmin;
@@ -26,14 +26,14 @@ public sealed class SettingsView : UserControl, IContentView
         Dock = DockStyle.Fill;
 
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(24, 18, 24, 8) };
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_002, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_001, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 4, 0, 2) });
-        _theme.Items.AddRange(new object[] { new ThemeItem("light", L.SettingsView_003), new ThemeItem("dark", L.SettingsView_004), new ThemeItem("auto", L.SettingsView_005) });
+        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_Appearance, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
+        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_Theme, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 4, 0, 2) });
+        _theme.Items.AddRange(new object[] { new ThemeItem("light", L.SettingsView_Light), new ThemeItem("dark", L.SettingsView_Dark), new ThemeItem("auto", L.SettingsView_AutoWindowsDefault) });
         SelectMode(currentMode);
         _theme.SelectedIndexChanged += (_, _) => { if (_theme.SelectedItem is ThemeItem t) _onTheme(t.Mode); };
         top.Controls.Add(_theme);
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_006, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 14, 0, 2) });
-        var languages = new List<object> { new LanguageItem(RuntimeLanguage.Auto, L.SettingsView_007) };
+        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_Language, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 14, 0, 2) });
+        var languages = new List<object> { new LanguageItem(RuntimeLanguage.Auto, L.SettingsView_AutoSystemLanguage) };
         languages.AddRange(L.AvailableLanguages.Select(code => new LanguageItem(code, L.GetDisplayName(code))));
         _language.Items.AddRange(languages.ToArray());
         SelectLanguage(RuntimeLanguage.LoadPreference());
@@ -44,11 +44,11 @@ public sealed class SettingsView : UserControl, IContentView
             {
                 RuntimeLanguage.SavePreference(item.Language);
                 RuntimeLanguage.Apply(item.Language);
-                _languageStatus.Text = L.SettingsView_010;
+                _languageStatus.Text = L.SettingsView_LanguageSavedRestartAffectedComponents;
             }
             catch (Exception ex)
             {
-                _languageStatus.Text = L.SettingsView_011 + ex.Message;
+                _languageStatus.Text = L.SettingsView_CouldNotSaveLanguage + ex.Message;
             }
         };
         top.Controls.Add(_language);

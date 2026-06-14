@@ -19,7 +19,7 @@ public sealed class CommandSigner : IDisposable
         var path = options.Value.CommandSigningKeyPath;
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             throw new InvalidOperationException(
-                L.Format(L.CommandSigner_001, path));
+                L.Format(L.CommandSigner_CommandSigningPrivateKeyNot, path));
 
         _privateKey = ECDsa.Create();
         _privateKey.ImportFromPem(File.ReadAllText(path));

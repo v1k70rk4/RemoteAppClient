@@ -30,7 +30,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation(L.StatusPipeService_003, PipeName);
+        logger.LogInformation(L.StatusPipeService_StatusPipeStartingPipePipe, PipeName);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -38,7 +38,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
             try { pipe = CreatePipe(); }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, L.StatusPipeService_001);
+                logger.LogDebug(ex, L.StatusPipeService_StatusPipeCreationFailedRetrying);
                 try { await Task.Delay(2000, stoppingToken); } catch { break; }
                 continue;
             }
@@ -76,7 +76,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
             await pipe.WriteAsync(json, ct);
             await pipe.FlushAsync(ct);
         }
-        catch (Exception ex) { logger.LogDebug(ex, L.StatusPipeService_002); }
+        catch (Exception ex) { logger.LogDebug(ex, L.StatusPipeService_StatusPipeWriteError); }
         finally { try { await pipe.DisposeAsync(); } catch { /* best effort */ } }
     }
 

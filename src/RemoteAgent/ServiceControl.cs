@@ -19,11 +19,11 @@ public static class ServiceControl
         var exe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exe))
         {
-            Console.Error.WriteLine(L.ServiceControl_001);
+            Console.Error.WriteLine(L.ServiceControl_CouldNotDetermineExecutablePath);
             return 1;
         }
 
-        var rc = await InstallServiceAsync(ServiceName, exe, ComposeDisplay(owner, "Agent", group), L.ServiceControl_002);
+        var rc = await InstallServiceAsync(ServiceName, exe, ComposeDisplay(owner, "Agent", group), L.ServiceControl_RemoteAppClientRemoteAccessAgent);
         if (rc != 0) return rc;
 
         // Also install the Updater service when its exe is next to the agent.
@@ -31,7 +31,7 @@ public static class ServiceControl
         if (File.Exists(updaterExe))
             await InstallServiceAsync(UpdaterServiceName, updaterExe, ComposeDisplay(owner, "Updater", group), "RemoteAppClient self-update service.");
         else
-            Console.WriteLine(L.ServiceControl_008);
+            Console.WriteLine(L.ServiceControl_RemoteAgentUpdaterExeIsNot);
 
         return 0;
     }
@@ -61,21 +61,21 @@ public static class ServiceControl
             await RunScAsync("config", name, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem");
             await ConfigureRecoveryAsync(name);
             await RunScAsync("start", name);
-            Console.WriteLine(L.Format(L.ServiceControl_003, name));
+            Console.WriteLine(L.Format(L.ServiceControl_ServiceUpdatedAndStarted, name));
             return 0;
         }
 
         var create = await RunScAsync("create", name, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem", "DisplayName=", displayName);
         if (create != 0)
         {
-            Console.Error.WriteLine(L.Format(L.ServiceControl_004, name));
+            Console.Error.WriteLine(L.Format(L.ServiceControl_CouldNotCreateServiceAdmin, name));
             return create;
         }
 
         await RunScAsync("description", name, description);
         await ConfigureRecoveryAsync(name);
         await RunScAsync("start", name);
-        Console.WriteLine(L.Format(L.ServiceControl_005, name));
+        Console.WriteLine(L.Format(L.ServiceControl_ServiceInstalledAndStarted, name));
         return 0;
     }
 
@@ -85,7 +85,7 @@ public static class ServiceControl
             return 0;
         await RunScAsync("stop", name);
         var del = await RunScAsync("delete", name);
-        Console.WriteLine(del == 0 ? L.Format(L.ServiceControl_006, name) : L.Format(L.ServiceControl_007, name));
+        Console.WriteLine(del == 0 ? L.Format(L.ServiceControl_ServiceRemoved, name) : L.Format(L.ServiceControl_CouldNotDeleteService, name));
         return del;
     }
 

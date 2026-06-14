@@ -246,7 +246,7 @@ app.MapPost("/auth/hello/register", async (HttpContext ctx, AppDbContext db, Aut
     {
         UserId = v.Value.User.Id,
         PublicKey = req.PublicKey,
-        DeviceName = string.IsNullOrWhiteSpace(req.DeviceName) ? L.Program_004 : req.DeviceName.Trim(),
+        DeviceName = string.IsNullOrWhiteSpace(req.DeviceName) ? L.Program_UnknownDevice : req.DeviceName.Trim(),
     };
     db.HelloCredentials.Add(cred);
     await db.SaveChangesAsync(ct);
@@ -441,11 +441,11 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
         await PumpIncomingAsync(socket, deviceId, accessResults, scopes, log, ctx.RequestAborted);
     }
     catch (OperationCanceledException) { /* shutdown/disconnect */ }
-    catch (WebSocketException ex) { log.LogDebug(ex, L.Program_006, deviceId); }
+    catch (WebSocketException ex) { log.LogDebug(ex, L.Program_WSClosedDevice, deviceId); }
     finally
     {
         registry.Unregister(deviceId, socket);
-        log.LogInformation(L.Program_007, deviceId);
+        log.LogInformation(L.Program_AgentDisconnectedDevice, deviceId);
     }
 });
 
@@ -739,7 +739,7 @@ app.MapPost("/admin/channels/{channel}/rollout", async (
         var cmd = await commands.EnqueueAsync(d.DeviceId, CommandTypes.Update, data, createdBy: null, ct);
         if (cmd is not null) sent++;
     }
-    await AuditAsync(db, ctx, "rollout", null, L.Format(L.Program_008, comp, channel, pkg.Version, sent));
+    await AuditAsync(db, ctx, "rollout", null, L.Format(L.Program_Devices, comp, channel, pkg.Version, sent));
     return Results.Ok(new { channel, component = comp, version = pkg.Version, devices = devices.Count, sent, skipped });
 });
 
@@ -912,7 +912,7 @@ app.MapPost("/admin/bootstrap", async (
 {
     var url = !string.IsNullOrWhiteSpace(serverUrl) ? serverUrl : opt.Value.PublicUrl;
     if (string.IsNullOrWhiteSpace(url))
-        return Results.BadRequest(new { error = "no_server_url", hint = L.Program_009 });
+        return Results.BadRequest(new { error = "no_server_url", hint = L.Program_SetServerPublicUrlOrProvide });
 
     var (raw, _) = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = raw });
@@ -1034,8 +1034,8 @@ app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretPro
         detail += $"; smtp={Q(s.SmtpHost)}:{s.SmtpPort} tls={s.SmtpUseTls} user={Q(s.SmtpUser)} from={Q(s.SmtpFrom)}";
     if (s.EmailProvider == "graph")
         detail += $"; graph tenant={Q(s.GraphTenantId)} client={Q(s.GraphClientId)} sender={Q(s.GraphSender)} expires={s.GraphSecretExpiresAt:yyyy-MM-dd}";
-    if (!string.IsNullOrEmpty(upd.SmtpPassword)) detail += L.Program_010;
-    if (!string.IsNullOrEmpty(upd.GraphClientSecret)) detail += L.Program_011;
+    if (!string.IsNullOrEmpty(upd.SmtpPassword)) detail += L.Program_SmtpPasswordChanged;
+    if (!string.IsNullOrEmpty(upd.GraphClientSecret)) detail += L.Program_GraphSecretChanged;
 
     await AuditAsync(db, ctx, "settings-update", null, detail);
     return Results.NoContent();
@@ -1051,8 +1051,8 @@ app.MapPost("/admin/settings/test-email", async (HttpContext ctx, AppDbContext d
 
     var (ok, err) = await email.SendAsync(req.To.Trim(),
         "RemoteAppClient teszt e-mail",
-        L.Program_012, ct);
-    await AuditAsync(db, ctx, "settings-test-email", null, ok ? req.To.Trim() : L.Format(L.Program_028, err));
+        L.Program_ThisIsATestEmail, ct);
+    await AuditAsync(db, ctx, "settings-test-email", null, ok ? req.To.Trim() : L.Format(L.Program_Error, err));
     return ok ? Results.Ok(new { ok = true }) : Results.Problem(err ?? "send_failed");
 });
 
@@ -1350,7 +1350,7 @@ using (var scope = app.Services.CreateScope())
         await sdb.SaveChangesAsync();
         sdb.UserRoles.Add(new UserRole { UserId = admin.Id, RoleId = (await sdb.Roles.FirstAsync(r => r.Name == "admin")).Id });
         await sdb.SaveChangesAsync();
-        app.Logger.LogWarning(L.Program_013, temp);
+        app.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedUsernameAdmin, temp);
     }
 }
 
@@ -1372,7 +1372,7 @@ static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Gu
     catch (Exception ex)
     {
         // Audit failure must not affect the response, but at least log it.
-        try { ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("Audit").LogWarning(ex, L.Program_014, action); } catch { }
+        try { ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("Audit").LogWarning(ex, L.Program_AuditWriteErrorAction, action); } catch { }
     }
 }
 
@@ -1471,10 +1471,10 @@ static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, Ht
         var to = s?.SupportEmail;
         if (!string.IsNullOrWhiteSpace(to))
         {
-            var body = L.Format(L.Program_016, device.Hostname, LoginFailLockThreshold) +
-                       L.Format(L.Program_017, username, PublicIpOf(ctx) ?? "-", DateTimeOffset.UtcNow) +
-                       L.Program_018;
-            await email.SendAsync(to!, L.Program_019, body, ct);
+            var body = L.Format(L.Program_ThereWereFailedSignIn, device.Hostname, LoginFailLockThreshold) +
+                       L.Format(L.Program_LastAttemptedUsernameSourceIP, username, PublicIpOf(ctx) ?? "-", DateTimeOffset.UtcNow) +
+                       L.Program_UnlockInTheClientGo;
+            await email.SendAsync(to!, L.Program_RemoteAppClientDeviceSignInLocked, body, ct);
         }
     }
 }
@@ -1504,10 +1504,10 @@ static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Dat
 {
     if (string.IsNullOrWhiteSpace(user.Email)) return false;
     var lang = string.IsNullOrWhiteSpace(language) ? L.Language : language;
-    var body = L.Format(L.Get("Program_020", lang), user.Username, code) +
-               L.Get("Program_021", lang) +
-               L.Get("Program_022", lang);
-    var (ok, _) = await email.SendAsync(user.Email!, L.Get("Program_023", lang), body, ct);
+    var body = L.Format(L.Get("Program_PasswordRecoveryTokenForAccount", lang), user.Username, code) +
+               L.Get("Program_TheTokenIsValidFor", lang) +
+               L.Get("Program_IfYouDidNotRequest", lang);
+    var (ok, _) = await email.SendAsync(user.Email!, L.Get("Program_RemoteAppClientPasswordRecoveryToken", lang), body, ct);
     return ok;
 }
 
@@ -1589,7 +1589,7 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
             if (msg is { Type: "access-result" } && !string.IsNullOrEmpty(msg.Nonce))
             {
                 var entry = accessResults.RecordOutcome(msg.Nonce, msg.Outcome);
-                log.LogInformation(L.Program_024, deviceId, msg.Outcome, msg.Nonce);
+                log.LogInformation(L.Program_AccessResultDeviceOutcomeNonce, deviceId, msg.Outcome, msg.Nonce);
 
                 // Audit: write the outcome as an audit row (who, which device, result).
                 var action = msg.Outcome switch
@@ -1616,9 +1616,9 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                     });
                     await adb.SaveChangesAsync(ct);
                 }
-                catch (Exception ex) { log.LogWarning(ex, L.Program_025); }
+                catch (Exception ex) { log.LogWarning(ex, L.Program_AuditWriteAccessFailed); }
             }
         }
-        catch (JsonException) { log.LogDebug(L.Program_026, deviceId); }
+        catch (JsonException) { log.LogDebug(L.Program_UnparseableAgentMessageDevice, deviceId); }
     }
 }

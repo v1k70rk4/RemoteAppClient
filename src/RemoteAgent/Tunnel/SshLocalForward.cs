@@ -69,13 +69,13 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         while (DateTime.UtcNow < deadline)
         {
             if (proc.HasExited)
-                throw new InvalidOperationException(L.SshLocalForward_001);
+                throw new InvalidOperationException(L.SshLocalForward_SshLForwardWasNot);
             if (PortAccepts(LocalPort))
                 return;
             await Task.Delay(150, ct);
         }
         if (proc.HasExited)
-            throw new InvalidOperationException(L.SshLocalForward_002);
+            throw new InvalidOperationException(L.SshLocalForward_SshLForwardWasNot_2);
         // Timeout but ssh is alive; assume ready. The client will retry if needed.
     }
 
@@ -99,7 +99,7 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         {
             if (!proc.HasExited) { proc.Kill(entireProcessTree: true); await proc.WaitForExitAsync(); }
         }
-        catch (Exception ex) { logger.LogWarning(ex, L.SshLocalForward_003); }
+        catch (Exception ex) { logger.LogWarning(ex, L.SshLocalForward_ErrorWhileStoppingForward); }
         finally
         {
             proc.Dispose();

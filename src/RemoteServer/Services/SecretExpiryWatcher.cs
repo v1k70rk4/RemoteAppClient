@@ -20,7 +20,7 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
         while (!stoppingToken.IsCancellationRequested)
         {
             try { await CheckOnceAsync(stoppingToken); }
-            catch (Exception ex) { logger.LogWarning(ex, L.SecretExpiryWatcher_001); }
+            catch (Exception ex) { logger.LogWarning(ex, L.SecretExpiryWatcher_SecretExpiryCheckError); }
 
             try { await Task.Delay(TimeSpan.FromHours(12), stoppingToken); } catch { return; }
         }
@@ -44,19 +44,19 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
 
         var when = expiry.LocalDateTime.ToString("yyyy.MM.dd");
         var body = days <= 0
-            ? L.Format(L.SecretExpiryWatcher_002, when)
-            : L.Format(L.SecretExpiryWatcher_003, (int)days, when);
+            ? L.Format(L.SecretExpiryWatcher_TheRemoteAppClientEmailDeliveryGraph, when)
+            : L.Format(L.SecretExpiryWatcher_TheRemoteAppClientEmailDeliveryGraph_2, (int)days, when);
 
-        var (ok, err) = await email.SendAsync(to!, L.SecretExpiryWatcher_004, body, ct);
+        var (ok, err) = await email.SendAsync(to!, L.SecretExpiryWatcher_RemoteAppClientEmailDeliverySecretExpires, body, ct);
         if (ok)
         {
             s.SecretExpiryNotifiedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            logger.LogInformation(L.SecretExpiryWatcher_005, to, (int)days);
+            logger.LogInformation(L.SecretExpiryWatcher_SecretExpiryWarningSentTo, to, (int)days);
         }
         else
         {
-            logger.LogWarning(L.SecretExpiryWatcher_006, err);
+            logger.LogWarning(L.SecretExpiryWatcher_SecretExpiryWarningSendFailed, err);
         }
     }
 }

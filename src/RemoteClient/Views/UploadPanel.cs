@@ -13,9 +13,9 @@ namespace RemoteClient.Views;
 public sealed class UploadPanel : UserControl
 {
     private readonly AdminApi _api;
-    private readonly MaterialComboBox _channel = new() { Hint = L.DeviceTelemetryPanel_014 };
-    private readonly MaterialComboBox _override = new() { Hint = L.ChannelsView_014 };
-    private readonly MaterialTextBox2 _verInput = new() { Hint = L.ChannelsView_004, Width = 120 };
+    private readonly MaterialComboBox _channel = new() { Hint = L.DeviceTelemetryPanel_Channel };
+    private readonly MaterialComboBox _override = new() { Hint = L.ChannelsView_Component };
+    private readonly MaterialTextBox2 _verInput = new() { Hint = L.ChannelsView_Version, Width = 120 };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
 
@@ -36,7 +36,7 @@ public sealed class UploadPanel : UserControl
         _override.SelectedIndexChanged += (_, _) => ReapplyComponent();
         _verInput.Margin = new Padding(4, 0, 4, 0);
 
-        var addBtn = new MaterialButton { Text = L.UploadPanel_001, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
+        var addBtn = new MaterialButton { Text = L.UploadPanel_AddFiles, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
         addBtn.Click += (_, _) => AddFiles();
 
         // Top: channel, component, add files.
@@ -44,22 +44,22 @@ public sealed class UploadPanel : UserControl
         toolbar.Controls.AddRange([_channel, _override, addBtn]);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill; _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.UploadPanel_002, 320);
-        _list.Columns.Add(L.ChannelsView_014, 120);
-        _list.Columns.Add(L.ChannelsView_004, 180);
+        _list.Columns.Add(L.UploadPanel_File, 320);
+        _list.Columns.Add(L.ChannelsView_Component, 120);
+        _list.Columns.Add(L.ChannelsView_Version, 180);
 
         // Right below table, first row: version, set version, remove.
-        var rmBtn = new MaterialButton { Text = L.UploadPanel_003, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        var rmBtn = new MaterialButton { Text = L.UploadPanel_Remove, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         rmBtn.Click += (_, _) => { foreach (ListViewItem it in _list.SelectedItems) it.Remove(); };
-        var setVerBtn = new MaterialButton { Text = L.UploadPanel_004, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        var setVerBtn = new MaterialButton { Text = L.UploadPanel_SetVersion, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         setVerBtn.Click += (_, _) => ApplyVersion();
         var row1 = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
         row1.Controls.AddRange([rmBtn, setVerBtn, _verInput]); // RightToLeft -> left-to-right: version | set version | remove
 
         // Second row: clear all, upload.
-        var clrBtn = new MaterialButton { Text = L.UploadPanel_005, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        var clrBtn = new MaterialButton { Text = L.UploadPanel_ClearAll, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         clrBtn.Click += (_, _) => _list.Items.Clear();
-        var uploadBtn = new MaterialButton { Text = L.UploadPanel_006, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
+        var uploadBtn = new MaterialButton { Text = L.UploadPanel_Upload, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
         uploadBtn.Click += async (_, _) => await UploadAsync();
         var row2 = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 0, 8, 4) };
         row2.Controls.AddRange([uploadBtn, clrBtn]); // RightToLeft -> left-to-right: clear all | upload
@@ -80,7 +80,7 @@ public sealed class UploadPanel : UserControl
 
     private void AddFiles()
     {
-        using var d = new OpenFileDialog { Filter = L.UploadPanel_007, Multiselect = true };
+        using var d = new OpenFileDialog { Filter = L.UploadPanel_InstallerExeMsiExeMsi, Multiselect = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         foreach (var path in d.FileNames)
         {
@@ -88,10 +88,10 @@ public sealed class UploadPanel : UserControl
             var ver = ReadVersion(path);
             var item = new ListViewItem(Path.GetFileName(path)) { Tag = new Pkg(path, comp, ver), ToolTipText = path };
             item.SubItems.Add(comp);
-            item.SubItems.Add(string.IsNullOrWhiteSpace(ver) ? L.UploadPanel_014 : ver);
+            item.SubItems.Add(string.IsNullOrWhiteSpace(ver) ? L.UploadPanel_Unknown : ver);
             _list.Items.Add(item);
         }
-        _status.Text = L.Format(L.UploadPanel_008, _list.Items.Count);
+        _status.Text = L.Format(L.UploadPanel_FilesInTheList, _list.Items.Count);
     }
 
     private void ReapplyComponent()
@@ -108,7 +108,7 @@ public sealed class UploadPanel : UserControl
     private void ApplyVersion()
     {
         var v = _verInput.Text.Trim();
-        if (v.Length == 0) { _status.Text = L.UploadPanel_009; return; }
+        if (v.Length == 0) { _status.Text = L.UploadPanel_EnterAVersionForExample; return; }
         foreach (ListViewItem it in _list.SelectedItems)
         {
             if (it.Tag is not Pkg p) continue;
@@ -141,7 +141,7 @@ public sealed class UploadPanel : UserControl
 
     private async Task UploadAsync()
     {
-        if (_list.Items.Count == 0) { _status.Text = L.UploadPanel_010; return; }
+        if (_list.Items.Count == 0) { _status.Text = L.UploadPanel_AddAtLeastOneExe; return; }
         var channel = (string)_channel.SelectedItem!;
         try
         {
@@ -150,15 +150,15 @@ public sealed class UploadPanel : UserControl
             foreach (ListViewItem it in _list.Items)
             {
                 if (it.Tag is not Pkg p) continue;
-                if (string.IsNullOrWhiteSpace(p.Version)) { _status.Text = L.Format(L.UploadPanel_011, Path.GetFileName(p.Path)); continue; }
-                _status.Text = L.Format(L.UploadPanel_012, done + 1, _list.Items.Count, Path.GetFileName(p.Path), channel, p.Component, p.Version);
+                if (string.IsNullOrWhiteSpace(p.Version)) { _status.Text = L.Format(L.UploadPanel_NoVersionSkipped, Path.GetFileName(p.Path)); continue; }
+                _status.Text = L.Format(L.UploadPanel_Upload_2, done + 1, _list.Items.Count, Path.GetFileName(p.Path), channel, p.Component, p.Version);
                 await _api.UploadPackageAsync(channel, p.Component, p.Version, p.Path);
                 done++;
             }
-            _status.Text = L.Format(L.UploadPanel_013, done);
+            _status.Text = L.Format(L.UploadPanel_PackagesUploaded, done);
             Enabled = true;
             if (done > 0) Uploaded?.Invoke();
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; Enabled = true; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; Enabled = true; }
     }
 }

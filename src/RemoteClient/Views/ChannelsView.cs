@@ -55,9 +55,9 @@ public sealed class ChannelsView : UserControl, IContentView
         grid.Controls.Add(ChannelCard("BETA", _betaList, betaBtns), 1, 0);
 
         var bottom = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 4, 8, 4) };
-        var upload = ViewUi.ToolbarButton(L.ChannelsView_001, primary: false); upload.Margin = new Padding(4, 0, 8, 0);
+        var upload = ViewUi.ToolbarButton(L.ChannelsView_UploadExe, primary: false); upload.Margin = new Padding(4, 0, 8, 0);
         upload.Click += (_, _) => OpenUpload();
-        var msi = ViewUi.ToolbarButton(L.ChannelsView_002, primary: false); msi.Margin = new Padding(4, 0, 8, 0);
+        var msi = ViewUi.ToolbarButton(L.ChannelsView_BuildMSI, primary: false); msi.Margin = new Padding(4, 0, 8, 0);
         msi.Click += async (_, _) => await OpenMsiAsync();
         bottom.Controls.AddRange([upload, msi]);
 
@@ -66,9 +66,9 @@ public sealed class ChannelsView : UserControl, IContentView
 
     private void BuildEditor()
     {
-        var back = ViewUi.ToolbarButton(L.ChannelsView_013, primary: false);
+        var back = ViewUi.ToolbarButton(L.ChannelsView_Back, primary: false);
         back.Click += async (_, _) => { ShowMain(); await RefreshAsync(); };
-        var general = new MaterialButton { Text = L.ChannelsView_003, AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Contained };
+        var general = new MaterialButton { Text = L.ChannelsView_General, AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Contained };
         var tabbar = ViewUi.Toolbar();
         tabbar.Controls.AddRange([back, general]);
         _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _editorContent));
@@ -77,10 +77,10 @@ public sealed class ChannelsView : UserControl, IContentView
     private static ListView NewList()
     {
         var l = new ListView { View = View.Details, FullRowSelect = true, MultiSelect = false, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill };
-        l.Columns.Add(L.ChannelsView_014, 85);
-        l.Columns.Add(L.ChannelsView_004, 65);
-        l.Columns.Add(L.ChannelsView_005, 125);
-        l.Columns.Add(L.ChannelsView_015, 50);
+        l.Columns.Add(L.ChannelsView_Component, 85);
+        l.Columns.Add(L.ChannelsView_Version, 65);
+        l.Columns.Add(L.ChannelsView_Uploaded, 125);
+        l.Columns.Add(L.ChannelsView_Released, 50);
         return l;
     }
 
@@ -110,9 +110,9 @@ public sealed class ChannelsView : UserControl, IContentView
             var devices = await _api.GetDevicesAsync();
             Fill(_rtmList, ch.Where(p => string.Equals(p.Channel, "rtm", StringComparison.OrdinalIgnoreCase)), devices);
             Fill(_betaList, ch.Where(p => string.Equals(p.Channel, "beta", StringComparison.OrdinalIgnoreCase)), devices);
-            _status.Text = ch.Count == 0 ? L.ChannelsView_006 : L.Format(L.ChannelsView_016, _rtmList.Items.Count, _betaList.Items.Count);
+            _status.Text = ch.Count == 0 ? L.ChannelsView_NoPackagesHaveBeenUploaded : L.Format(L.ChannelsView_RTMBETAComponents, _rtmList.Items.Count, _betaList.Items.Count);
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private static void Fill(ListView list, IEnumerable<ChannelPackageInfo> items, List<DeviceInfo> devices)
@@ -160,11 +160,11 @@ public sealed class ChannelsView : UserControl, IContentView
     {
         var sel = SelectedComp(list);
         var comps = sel is not null ? [sel] : AllComps(list);
-        if (comps.Length == 0) { _status.Text = L.ChannelsView_007; return; }
+        if (comps.Length == 0) { _status.Text = L.ChannelsView_NoPackageOnThisChannel; return; }
         var what = sel is not null
-            ? L.Format(L.ChannelsView_017, sel)
-            : L.Format(L.ChannelsView_018, string.Join(", ", comps));
-        if (MessageBox.Show(L.Format(L.ChannelsView_008, channel.ToUpperInvariant(), what),
+            ? L.Format(L.ChannelsView_X, sel)
+            : L.Format(L.ChannelsView_ALL, string.Join(", ", comps));
+        if (MessageBox.Show(L.Format(L.ChannelsView_ReleaseTheChannelSComponent, channel.ToUpperInvariant(), what),
                 "Rollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         var done = new List<string>();
@@ -180,11 +180,11 @@ public sealed class ChannelsView : UserControl, IContentView
     {
         var sel = SelectedComp(_betaList);
         var comps = sel is not null ? [sel] : AllComps(_betaList);
-        if (comps.Length == 0) { _status.Text = L.ChannelsView_009; return; }
+        if (comps.Length == 0) { _status.Text = L.ChannelsView_NoPackageOnTheBETA; return; }
         var what = sel is not null
-            ? L.Format(L.ChannelsView_017, sel)
-            : L.Format(L.ChannelsView_018, string.Join(", ", comps));
-        if (MessageBox.Show(L.Format(L.ChannelsView_010, what),
+            ? L.Format(L.ChannelsView_X, sel)
+            : L.Format(L.ChannelsView_ALL, string.Join(", ", comps));
+        if (MessageBox.Show(L.Format(L.ChannelsView_PromoteTheCurrentBETAComponent, what),
                 "Promote → RTM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         var done = new List<string>();
@@ -202,16 +202,16 @@ public sealed class ChannelsView : UserControl, IContentView
         try
         {
             var groups = await _api.GetGroupsAsync();
-            _editorTitle.Text = L.ChannelsView_011;
+            _editorTitle.Text = L.ChannelsView_BuildMSI_2;
             SetEditor(new MsiPanel(_api, groups));
             ShowEditor();
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private void OpenUpload()
     {
-        _editorTitle.Text = L.ChannelsView_012;
+        _editorTitle.Text = L.ChannelsView_ExeUpload;
         var panel = new UploadPanel(_api);
         panel.Uploaded += async () => { ShowMain(); await RefreshAsync(); };
         SetEditor(panel);

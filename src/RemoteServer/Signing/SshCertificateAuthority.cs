@@ -22,7 +22,7 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
             return null;
         if (!File.Exists(_opt.SshCaKeyPath))
         {
-            logger.LogWarning(L.SshCertificateAuthority_001, _opt.SshCaKeyPath);
+            logger.LogWarning(L.SshCertificateAuthority_SSHCAKeyNotFound, _opt.SshCaKeyPath);
             return null;
         }
 
@@ -52,7 +52,7 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
 
             if (proc.ExitCode != 0 || !File.Exists(certPath))
             {
-                logger.LogWarning(L.SshCertificateAuthority_002, deviceId, err);
+                logger.LogWarning(L.SshCertificateAuthority_SshKeygenSigningFailedDevice, deviceId, err);
                 return null;
             }
             return (await File.ReadAllTextAsync(certPath, ct)).Trim();

@@ -51,19 +51,19 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var (code, output) = await RunAsync("wixl", ["-o", outPath, wxsPath, "--arch", "x64"], ct);
             if (code != 0 || !File.Exists(outPath))
             {
-                logger.LogWarning(L.MsiBuilder_006, code, output);
+                logger.LogWarning(L.MsiBuilder_WixlErrorRcCodeOutput, code, output);
                 return new Result(false, null, "wixl_failed");
             }
 
             if (!string.IsNullOrWhiteSpace(_opt.MsiSigning.CertPath))
                 await TrySignAsync(outPath, ct);
 
-            logger.LogInformation(L.MsiBuilder_001, fileName, new FileInfo(outPath).Length);
+            logger.LogInformation(L.MsiBuilder_MSIBuiltFileSizeBytes, fileName, new FileInfo(outPath).Length);
             return new Result(true, fileName, null);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, L.MsiBuilder_002);
+            logger.LogWarning(ex, L.MsiBuilder_MSIBuildError);
             return new Result(false, null, ex.Message);
         }
         finally
@@ -197,14 +197,14 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             if (code == 0 && File.Exists(signed))
             {
                 File.Move(signed, msiPath, overwrite: true);
-                logger.LogInformation(L.MsiBuilder_003);
+                logger.LogInformation(L.MsiBuilder_MSISigned);
             }
             else
             {
-                logger.LogWarning(L.MsiBuilder_004, code, output);
+                logger.LogWarning(L.MsiBuilder_MSISigningSkippedFailedOsslsigncode, code, output);
             }
         }
-        catch (Exception ex) { logger.LogWarning(ex, L.MsiBuilder_005); }
+        catch (Exception ex) { logger.LogWarning(ex, L.MsiBuilder_MSISigningErrorSkipped); }
     }
 
     /// <summary>Removes accents/non-ASCII characters for the Windows-compatible MSI string pool.</summary>

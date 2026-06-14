@@ -12,10 +12,10 @@ namespace RemoteClient.Views;
 public sealed class BootstrapView : UserControl, IContentView
 {
     private readonly AdminApi _api;
-    private readonly MaterialTextBox2 _search = new() { Hint = L.BootstrapView_001, Width = 360 };
-    private readonly MaterialComboBox _group = new() { Hint = L.BootstrapView_035 };
-    private readonly MaterialComboBox _expiry = new() { Hint = L.EditTokenForm_001 };
-    private readonly MaterialComboBox _maxUses = new() { Hint = L.EditTokenForm_002 };
+    private readonly MaterialTextBox2 _search = new() { Hint = L.BootstrapView_SearchGroupMSIFileInstall, Width = 360 };
+    private readonly MaterialComboBox _group = new() { Hint = L.BootstrapView_Group };
+    private readonly MaterialComboBox _expiry = new() { Hint = L.EditTokenForm_Expiry };
+    private readonly MaterialComboBox _maxUses = new() { Hint = L.EditTokenForm_MaxInstalls };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
     private readonly List<BootstrapTokenInfo> _tokens = new();
@@ -31,10 +31,10 @@ public sealed class BootstrapView : UserControl, IContentView
 
         _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
         _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
-        _expiry.Items.AddRange([new ExpiryItem(null, L.EditTokenForm_006), new ExpiryItem(24, L.BootstrapView_002), new ExpiryItem(168, L.BootstrapView_038), new ExpiryItem(720, L.BootstrapView_039)]);
+        _expiry.Items.AddRange([new ExpiryItem(null, L.EditTokenForm_NoExpiry), new ExpiryItem(24, L.BootstrapView_X24Hours), new ExpiryItem(168, L.BootstrapView_X7Days), new ExpiryItem(720, L.BootstrapView_X30Days)]);
         _expiry.SelectedIndex = 0;
         _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
-        _maxUses.Items.AddRange([new UsesItem(100000, L.EditTokenForm_011), new UsesItem(1, L.BootstrapView_003), new UsesItem(5, "5"), new UsesItem(10, "10"), new UsesItem(50, "50")]);
+        _maxUses.Items.AddRange([new UsesItem(100000, L.EditTokenForm_Unlimited), new UsesItem(1, L.BootstrapView_X1Install), new UsesItem(5, "5"), new UsesItem(10, "10"), new UsesItem(50, "50")]);
         _maxUses.SelectedIndex = 0;
 
         // Top: search and refresh.
@@ -42,34 +42,34 @@ public sealed class BootstrapView : UserControl, IContentView
         _search.Margin = new Padding(4, 0, 16, 0);
         _search.TextChanged += (_, _) => RenderList();
         topTools.Controls.Add(_search);
-        var refresh = ViewUi.ToolbarButton(L.AboutView_002, primary: false);
+        var refresh = ViewUi.ToolbarButton(L.AboutView_Refresh, primary: false);
         refresh.Click += async (_, _) => await RefreshAsync();
         topTools.Controls.Add(refresh);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.BootstrapView_004, 100);
-        _list.Columns.Add(L.BootstrapView_005, 90);
-        _list.Columns.Add(L.BootstrapView_035, 120);
-        _list.Columns.Add(L.BootstrapView_006, 90);
-        _list.Columns.Add(L.EditTokenForm_001, 120);
-        _list.Columns.Add(L.BootstrapView_007, 90);
-        _list.Columns.Add(L.BootstrapView_008, 120);
-        _list.Columns.Add(L.BootstrapView_009, 220);
+        _list.Columns.Add(L.BootstrapView_InstallID, 100);
+        _list.Columns.Add(L.BootstrapView_Type, 90);
+        _list.Columns.Add(L.BootstrapView_Group, 120);
+        _list.Columns.Add(L.BootstrapView_Used, 90);
+        _list.Columns.Add(L.EditTokenForm_Expiry, 120);
+        _list.Columns.Add(L.BootstrapView_Status, 90);
+        _list.Columns.Add(L.BootstrapView_Created, 120);
+        _list.Columns.Add(L.BootstrapView_MSIFile, 220);
 
         // Right below table: edit, revoke, delete, save MSI.
         var actionRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
         void Act(string text, Func<Task> onClick) { var b = ViewUi.ToolbarButton(text, primary: false); b.Margin = new Padding(4, 0, 4, 0); b.Click += async (_, _) => await onClick(); actionRow.Controls.Add(b); }
-        Act(L.BootstrapView_010, SaveMsiAsync);   // jobboldalt
-        Act(L.BootstrapView_011, DeleteAsync);
-        Act(L.BootstrapView_012, RevokeAsync);
-        Act(L.BootstrapView_013, EditAsync);        // balra
+        Act(L.BootstrapView_SaveMSI, SaveMsiAsync);   // jobboldalt
+        Act(L.BootstrapView_Delete, DeleteAsync);
+        Act(L.BootstrapView_Revoke, RevokeAsync);
+        Act(L.BootstrapView_Edit, EditAsync);        // balra
 
         // Left below that: group, expiry, max installs, generate blob.
         _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
         _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
         _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
-        var genBtn = ViewUi.ToolbarButton(L.BootstrapView_014);
+        var genBtn = ViewUi.ToolbarButton(L.BootstrapView_GenerateBlob);
         genBtn.Click += async (_, _) => await GenerateAsync();
         var genRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
         genRow.Controls.AddRange([_group, _expiry, _maxUses, genBtn]);
@@ -92,13 +92,13 @@ public sealed class BootstrapView : UserControl, IContentView
         {
             var sel = (_group.SelectedItem as GroupItem)?.Id;
             _group.Items.Clear();
-            _group.Items.Add(new GroupItem(null, L.BootstrapView_036));
+            _group.Items.Add(new GroupItem(null, L.BootstrapView_NoGroup));
             foreach (var g in await _api.GetGroupsAsync()) _group.Items.Add(new GroupItem(g.Id, g.Name));
             _group.SelectedIndex = 0;
             for (int i = 0; i < _group.Items.Count; i++)
                 if (_group.Items[i] is GroupItem gi && gi.Id == sel) { _group.SelectedIndex = i; break; }
         }
-        catch (Exception ex) { _status.Text = L.BootstrapView_037 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.BootstrapView_GroupsError + ex.Message; }
     }
 
     private async Task GenerateAsync()
@@ -109,31 +109,31 @@ public sealed class BootstrapView : UserControl, IContentView
             var hours = (_expiry.SelectedItem as ExpiryItem)?.Hours;
             var max = (_maxUses.SelectedItem as UsesItem)?.Max ?? 100000;
             var blob = await _api.CreateBootstrapAsync(max, hours, groupId);
-            if (string.IsNullOrWhiteSpace(blob)) { _status.Text = L.BootstrapView_015; return; }
+            if (string.IsNullOrWhiteSpace(blob)) { _status.Text = L.BootstrapView_EmptyResponse; return; }
             try { Clipboard.SetText(blob); } catch { }
             MessageBox.Show(
-                L.BootstrapView_016 + blob +
-                L.BootstrapView_017,
+                L.BootstrapView_BootstrapBlobCopiedToClipboard + blob +
+                L.BootstrapView_InstallOnTheCustomerMachine,
                 "Bootstrap blob", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            _status.Text = L.BootstrapView_018;
+            _status.Text = L.BootstrapView_BlobGeneratedAndCopiedTo;
             await RefreshAsync();
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private BootstrapTokenInfo? Selected() => _list.SelectedItems.Count == 0 ? null : (BootstrapTokenInfo)_list.SelectedItems[0].Tag!;
 
     private static string StateOf(BootstrapTokenInfo t) =>
         t.RevokedAt is not null ? "Visszavonva"
-        : t.ExpiresAt is { } e && e < DateTimeOffset.UtcNow ? L.BootstrapView_019
+        : t.ExpiresAt is { } e && e < DateTimeOffset.UtcNow ? L.BootstrapView_Expired
         : t.UseCount >= t.MaxUses ? "Elfogyott"
-        : L.BootstrapView_020;
+        : L.BootstrapView_Active;
 
     /// <summary>Blob origin: generated for MSI, manual blob, or manual one-time token.</summary>
     private static string KindOf(BootstrapTokenInfo t) =>
         !string.IsNullOrWhiteSpace(t.MsiFileName) || t.Note is "msi-bootstrap" ? "MSI"
-        : t.Note is "bootstrap" ? L.BootstrapView_021
-        : L.BootstrapView_022;
+        : t.Note is "bootstrap" ? L.BootstrapView_ManualBlob
+        : L.BootstrapView_ManualToken;
 
     private async Task RefreshAsync()
     {
@@ -144,7 +144,7 @@ public sealed class BootstrapView : UserControl, IContentView
             RenderList();
             _status.Text = $"{tokens.Count} blob.";
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private void RenderList()
@@ -180,52 +180,52 @@ public sealed class BootstrapView : UserControl, IContentView
         if (Selected() is not { } t) return;
         using var f = new EditTokenForm(t);
         if (f.ShowDialog(this) != DialogResult.OK) return;
-        if (f.MaxUses is null && f.ExpiresInHours is null && !f.ClearExpiry) { _status.Text = L.BootstrapView_023; return; }
+        if (f.MaxUses is null && f.ExpiresInHours is null && !f.ClearExpiry) { _status.Text = L.BootstrapView_NoChanges; return; }
         try
         {
             await _api.EditTokenAsync(t.Id, f.MaxUses, f.ExpiresInHours, f.ClearExpiry);
-            _status.Text = L.BootstrapView_024;
+            _status.Text = L.BootstrapView_BlobUpdated;
             await RefreshAsync();
         }
         catch (Exception ex)
         {
             _status.Text = ex.Message == "max_below_used"
-                ? L.BootstrapView_025
-                : L.ForgotPasswordForm_019 + ex.Message;
+                ? L.BootstrapView_MaxInstallsCannotBeLower
+                : L.ForgotPasswordForm_Error + ex.Message;
         }
     }
 
     private async Task SaveMsiAsync()
     {
         if (Selected() is not { } t) return;
-        if (string.IsNullOrWhiteSpace(t.MsiFileName)) { _status.Text = L.BootstrapView_026; return; }
-        using var sfd = new SaveFileDialog { FileName = t.MsiFileName, Filter = L.BootstrapView_027, Title = L.BootstrapView_028 };
+        if (string.IsNullOrWhiteSpace(t.MsiFileName)) { _status.Text = L.BootstrapView_ThisBlobHasNoMSI; return; }
+        using var sfd = new SaveFileDialog { FileName = t.MsiFileName, Filter = L.BootstrapView_MSIInstallerMsiMsi, Title = L.BootstrapView_SaveMSI_2 };
         if (sfd.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            _status.Text = L.BootstrapView_029;
+            _status.Text = L.BootstrapView_DownloadingMSI;
             await _api.DownloadMsiAsync(t.MsiFileName!, sfd.FileName);
             _status.Text = "MSI mentve: " + sfd.FileName;
         }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private async Task RevokeAsync()
     {
         if (Selected() is not { } t) return;
-        if (t.RevokedAt is not null) { _status.Text = L.BootstrapView_030; return; }
-        if (MessageBox.Show(L.Format(L.BootstrapView_031, t.Id.ToString("N")[..8]),
-                L.BootstrapView_032, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        if (t.RevokedAt is not null) { _status.Text = L.BootstrapView_AlreadyRevoked; return; }
+        if (MessageBox.Show(L.Format(L.BootstrapView_RevokeThisBlobInstallID, t.Id.ToString("N")[..8]),
+                L.BootstrapView_RevokeBlob, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try { await _api.RevokeTokenAsync(t.Id); await RefreshAsync(); }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private async Task DeleteAsync()
     {
         if (Selected() is not { } t) return;
-        if (MessageBox.Show(L.Format(L.BootstrapView_033, t.Id.ToString("N")[..8]),
-                L.BootstrapView_034, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        if (MessageBox.Show(L.Format(L.BootstrapView_PermanentlyDeleteThisBlobInstall, t.Id.ToString("N")[..8]),
+                L.BootstrapView_DeleteBlob, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try { await _api.DeleteTokenAsync(t.Id); await RefreshAsync(); }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 }

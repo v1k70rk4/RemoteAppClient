@@ -30,7 +30,7 @@ public sealed class VncProvisioningService(
         if (VncLock.IsLocked())
         {
             VncLock.Enforce();
-            logger.LogWarning(L.VncProvisioningService_005);
+            logger.LogWarning(L.VncProvisioningService_VNCIsLocallyDisabledProvisioning);
         }
         else
         {
@@ -48,11 +48,11 @@ public sealed class VncProvisioningService(
                         await VncProvisioner.EnsureInstalledAsync(msi);
                         VncProvisioner.ApplyHardening(password);
                         File.WriteAllText(secretFile, password);
-                        logger.LogInformation(L.VncProvisioningService_001);
+                        logger.LogInformation(L.VncProvisioningService_VNCProvisionedPerDevicePassword);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, L.VncProvisioningService_006);
+                        logger.LogWarning(ex, L.VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM);
                         password = null;
                     }
                 }
@@ -63,7 +63,7 @@ public sealed class VncProvisioningService(
             catch (OperationCanceledException) { /* shutdown */ }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.VncProvisioningService_002);
+                logger.LogWarning(ex, L.VncProvisioningService_VNCPasswordReportFailed);
             }
         }
 
@@ -89,9 +89,9 @@ public sealed class VncProvisioningService(
             url, new VncSecretReport { Secret = password }, AgentJsonContext.Default.VncSecretReport, ct);
 
         if (resp.IsSuccessStatusCode)
-            logger.LogInformation(L.VncProvisioningService_003);
+            logger.LogInformation(L.VncProvisioningService_VNCPasswordReportedToThe);
         else
-            logger.LogWarning(L.VncProvisioningService_004, (int)resp.StatusCode);
+            logger.LogWarning(L.VncProvisioningService_VNCPasswordReportRejectedHTTP, (int)resp.StatusCode);
     }
 
     private HttpClient BuildClient()

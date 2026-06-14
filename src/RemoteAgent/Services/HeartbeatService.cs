@@ -28,7 +28,7 @@ public sealed class HeartbeatService(IOptions<AgentOptions> options, ILogger<Hea
                 await File.WriteAllTextAsync(_file, DateTimeOffset.UtcNow.ToString("O"), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex) { logger.LogDebug(ex, L.HeartbeatService_001); }
+            catch (Exception ex) { logger.LogDebug(ex, L.HeartbeatService_HeartbeatWriteFailed); }
 
             try { await Task.Delay(Interval, stoppingToken); }
             catch (OperationCanceledException) { break; }

@@ -31,7 +31,7 @@ public sealed class CommandChannelService(
     {
         if (string.IsNullOrWhiteSpace(_opt.Url))
         {
-            logger.LogWarning(L.CommandChannelService_001);
+            logger.LogWarning(L.CommandChannelService_NoCommandChannelURLConfigured);
             return;
         }
 
@@ -51,7 +51,7 @@ public sealed class CommandChannelService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.CommandChannelService_002, delay.TotalSeconds);
+                logger.LogWarning(ex, L.CommandChannelService_CommandChannelErrorReconnectingIn, delay.TotalSeconds);
             }
             finally { status.SetC2Connected(false); } // disconnected; status pipe reflects this
 
@@ -80,9 +80,9 @@ public sealed class CommandChannelService(
         // roughly interval+timeout, throws, and the backoff loop reconnects immediately.
         ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(_opt.KeepAliveTimeoutSeconds);
 
-        logger.LogInformation(L.CommandChannelService_003, _opt.Url);
+        logger.LogInformation(L.CommandChannelService_ConnectingToCommandChannelUrl, _opt.Url);
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
-        logger.LogInformation(L.CommandChannelService_004);
+        logger.LogInformation(L.CommandChannelService_CommandChannelIsLive);
         status.SetC2Connected(true); // the status pipe reports this to the client
         uplink.SetSocket(ws);        // from here we can send result messages back
 
@@ -121,7 +121,7 @@ public sealed class CommandChannelService(
         }
         catch (JsonException ex)
         {
-            logger.LogWarning(ex, L.CommandChannelService_005);
+            logger.LogWarning(ex, L.CommandChannelService_UnparseableCommandMessageDiscarded);
             return;
         }
 
@@ -130,11 +130,11 @@ public sealed class CommandChannelService(
 
         if (cmd.Type == CommandTypes.Ping)
         {
-            logger.LogDebug(L.CommandChannelService_006);
+            logger.LogDebug(L.CommandChannelService_PingReceived);
             return;
         }
 
-        logger.LogInformation(L.CommandChannelService_007, cmd.Type);
+        logger.LogInformation(L.CommandChannelService_AuthenticatedCommandReceivedType, cmd.Type);
         await bus.PublishAsync(cmd, ct);
     }
 }

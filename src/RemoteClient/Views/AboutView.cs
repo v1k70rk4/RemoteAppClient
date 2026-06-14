@@ -32,10 +32,10 @@ public sealed class AboutView : UserControl, IContentView
         catch { /* icon is optional */ }
         var titleCol = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
         titleCol.Controls.Add(new MaterialLabel { Text = "RemoteAppClient", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true });
-        titleCol.Controls.Add(new MaterialLabel { Text = L.AboutView_001 + ClientUpdater.RunningVersionString(), AutoSize = true });
+        titleCol.Controls.Add(new MaterialLabel { Text = L.AboutView_ClientVersion + ClientUpdater.RunningVersionString(), AutoSize = true });
         header.Controls.Add(titleCol);
 
-        var refresh = ViewUi.ToolbarButton(L.AboutView_002, primary: false);
+        var refresh = ViewUi.ToolbarButton(L.AboutView_Refresh, primary: false);
         refresh.Click += async (_, _) => await LoadAsync();
         var refreshRow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(24, 0, 24, 4) };
         refreshRow.Controls.Add(refresh);
@@ -85,44 +85,44 @@ public sealed class AboutView : UserControl, IContentView
 
     private async Task LoadAsync()
     {
-        _status.Text = L.AboutView_003;
+        _status.Text = L.AboutView_FetchingStatus;
         var s = await StatusClient.QueryAgentAsync();
         _tbl.SuspendLayout();
         _tbl.Controls.Clear();
         _row = 0;
 
-        Section(L.AboutView_013);
+        Section(L.AboutView_Connection);
         if (s is null)
         {
-            Row(L.AboutView_018, L.AboutView_004, Color.IndianRed);
+            Row(L.AboutView_LocalAgent, L.AboutView_Unavailable, Color.IndianRed);
         }
         else
         {
-            Row(L.AboutView_014, s.C2Connected ? "● Online" : "● Offline", s.C2Connected ? Color.MediumSeaGreen : Color.IndianRed);
-            Row("Tunnel", s.TunnelActive ? L.AboutView_005 : L.AboutView_006);
-            Row(L.AboutView_007, s.LastServerContactUtc?.LocalDateTime.ToString("g") ?? "—");
+            Row(L.AboutView_ServerC2, s.C2Connected ? "● Online" : "● Offline", s.C2Connected ? Color.MediumSeaGreen : Color.IndianRed);
+            Row("Tunnel", s.TunnelActive ? L.AboutView_Ready : L.AboutView_Stopped);
+            Row(L.AboutView_LastServerContact, s.LastServerContactUtc?.LocalDateTime.ToString("g") ?? "—");
         }
 
-        Section(L.AboutView_015);
-        Row(L.AboutView_008, AgentInfo.ServerName());
-        Row(L.AboutView_009, string.Equals(_cfg.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
+        Section(L.AboutView_Server);
+        Row(L.AboutView_Address, AgentInfo.ServerName());
+        Row(L.AboutView_UpdateChannel, string.Equals(_cfg.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
 
         var brand = BrandingCache.Load();
         if (brand is not null && (!string.IsNullOrWhiteSpace(brand.OwnerName) || !string.IsNullOrWhiteSpace(brand.SupportPhone) || !string.IsNullOrWhiteSpace(brand.SupportEmail)))
         {
-            Section(L.AboutView_010);
-            if (!string.IsNullOrWhiteSpace(brand.OwnerName)) Row(L.AboutView_019, brand.OwnerName!);
-            if (!string.IsNullOrWhiteSpace(brand.SupportPhone)) Row(L.AboutView_020, brand.SupportPhone!);
+            Section(L.AboutView_Support);
+            if (!string.IsNullOrWhiteSpace(brand.OwnerName)) Row(L.AboutView_Owner, brand.OwnerName!);
+            if (!string.IsNullOrWhiteSpace(brand.SupportPhone)) Row(L.AboutView_Phone, brand.SupportPhone!);
             if (!string.IsNullOrWhiteSpace(brand.SupportEmail)) RowMail("E-mail", brand.SupportEmail!);
         }
 
-        Section(L.AboutView_011);
-        Row("Agent", s is null ? "—" : $"{s.Version} · {(s.C2Connected ? L.AboutView_022 : L.AboutView_021)}", s is null ? Color.Gray : Color.MediumSeaGreen);
+        Section(L.AboutView_ComponentsOnThisDevice);
+        Row("Agent", s is null ? "—" : $"{s.Version} · {(s.C2Connected ? L.AboutView_RunningOnline : L.AboutView_Running)}", s is null ? Color.Gray : Color.MediumSeaGreen);
         Row("Helper (updater)", s?.HelperVersion ?? "—");
-        Row(L.AboutView_016, ClientUpdater.RunningVersionString() + " · " + L.AboutView_021);
+        Row(L.AboutView_ClientConsole, ClientUpdater.RunningVersionString() + " · " + L.AboutView_Running);
         Row("TightVNC", s?.VncVersion ?? "—");
 
         _tbl.ResumeLayout();
-        _status.Text = s is null ? L.AboutView_012 : L.AboutView_017;
+        _status.Text = s is null ? L.AboutView_TheLocalAgentIsNot : L.AboutView_Upd;
     }
 }

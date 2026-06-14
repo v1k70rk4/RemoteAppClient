@@ -20,7 +20,7 @@ public sealed class ConsentWaitForm : MaterialForm
     {
         _api = api; _nonce = nonce;
         ThemeManager.Skin.AddFormToManage(this);
-        Text = L.ConsentWaitForm_001;
+        Text = L.ConsentWaitForm_WaitingForResponse;
         Sizable = false;
         Width = 470; Height = 280;
         StartPosition = FormStartPosition.CenterParent;
@@ -28,13 +28,13 @@ public sealed class ConsentWaitForm : MaterialForm
 
         var lbl = new MaterialLabel
         {
-            Text = L.ConsentWaitForm_002 +
-                   L.ConsentWaitForm_003,
+            Text = L.ConsentWaitForm_WaitingForApprovalFromThe +
+                   L.ConsentWaitForm_TheUserAtTheDevice,
             AutoSize = false, Location = new Point(24, 80), Size = new Size(420, 128),
         };
         var cancel = new MaterialButton
         {
-            Text = L.ConsentWaitForm_004, Location = new Point(346, 218), AutoSize = false, Width = 96,
+            Text = L.ConsentWaitForm_Cancel, Location = new Point(346, 218), AutoSize = false, Width = 96,
             Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false,
         };
         cancel.Click += (_, _) => { _cancelled = true; Outcome = "cancelled"; DialogResult = DialogResult.Cancel; };

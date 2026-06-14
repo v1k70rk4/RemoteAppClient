@@ -19,10 +19,10 @@ public sealed class LocalLockView : UserControl, IContentView
         Dock = DockStyle.Fill;
         Padding = new Padding(24, 18, 24, 12);
 
-        var title = new MaterialLabel { Text = L.LocalLockView_001, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, 8) };
+        var title = new MaterialLabel { Text = L.LocalLockView_LocalLockDisableRemoteAccess, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, 8) };
         var help = new MaterialLabel
         {
-            Text = L.LocalLockView_002,
+            Text = L.LocalLockView_IfYouDisableThisNobody,
             AutoSize = true, MaximumSize = new Size(760, 0), Dock = DockStyle.Top,
         };
         _state.Font = new Font("Segoe UI", 12F, FontStyle.Bold); _state.AutoSize = true; _state.Dock = DockStyle.Top; _state.Margin = new Padding(0, 8, 0, 8);
@@ -45,27 +45,27 @@ public sealed class LocalLockView : UserControl, IContentView
     private void Refresh2()
     {
         bool locked = LocalVncLock.IsLocked();
-        _state.Text = locked ? L.LocalLockView_003 : L.LocalLockView_004;
+        _state.Text = locked ? L.LocalLockView_StatusDISABLEDNotRemotelyAccessible : L.LocalLockView_StatusEnabled;
         _state.ForeColor = locked ? Color.IndianRed : Color.MediumSeaGreen;
-        _toggle.Text = locked ? L.LocalLockView_005 : L.LocalLockView_006;
+        _toggle.Text = locked ? L.LocalLockView_UnlockUAC : L.LocalLockView_DisableUAC;
     }
 
     private void Toggle()
     {
         bool locked = LocalVncLock.IsLocked();
         var q = locked
-            ? L.LocalLockView_007
-            : L.LocalLockView_008;
-        if (MessageBox.Show(q, L.LocalLockView_009, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            ? L.LocalLockView_UnlockRemoteAccessVNCOn
+            : L.LocalLockView_DisableRemoteAccessVNCOn;
+        if (MessageBox.Show(q, L.LocalLockView_LocalVNCLock, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try
         {
             if (LocalVncLock.RunElevated(!locked))
             {
-                _status.Text = locked ? L.LocalLockView_010 : L.LocalLockView_011;
+                _status.Text = locked ? L.LocalLockView_LocalDeviceUnlocked : L.LocalLockView_LocalDeviceLOCKEDNotRemotely;
                 Refresh2();
             }
-            else _status.Text = L.LocalLockView_012;
+            else _status.Text = L.LocalLockView_TheOperationDidNotFinish;
         }
-        catch (Exception ex) { _status.Text = L.LocalLockView_013 + ex.Message; }
+        catch (Exception ex) { _status.Text = L.LocalLockView_LocalLockError + ex.Message; }
     }
 }

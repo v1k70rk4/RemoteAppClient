@@ -68,7 +68,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.SupervisorWorker_012);
+                logger.LogWarning(ex, L.SupervisorWorker_SupervisorCycleError);
             }
 
             try { await Task.Delay(Poll, stoppingToken); }
@@ -104,7 +104,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
             if (DateTimeOffset.UtcNow < _parkedUntil)
                 return;
 
-            _lastIncident = L.Format(L.SupervisorWorker_001, age.TotalSeconds);
+            _lastIncident = L.Format(L.SupervisorWorker_AgentHungHeartbeatAbout0, age.TotalSeconds);
             logger.LogWarning("{Incident}", _lastIncident);
             await RestartHungAgentAsync(ct);
             await RegisterFailureAsync(); // hung-service churn should also trip the breaker
@@ -115,18 +115,18 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         if (DateTimeOffset.UtcNow < _parkedUntil)
             return; // parked; do not loop
 
-        logger.LogInformation(L.SupervisorWorker_002, state);
+        logger.LogInformation(L.SupervisorWorker_RemoteAgentIsNotRunningState, state);
         if (await StartAsync(AgentService))
         {
             _lastAgentAction = DateTimeOffset.UtcNow;
             _agentRestarts++;
-            _lastIncident = L.SupervisorWorker_003;
+            _lastIncident = L.SupervisorWorker_AgentStoppedRestarted;
             // Do not reset here; only the next healthy cycle (running + heartbeat) clears failures.
             await WriteStatusAsync();
         }
         else
         {
-            _lastIncident = L.SupervisorWorker_004;
+            _lastIncident = L.SupervisorWorker_AgentStartFailed;
             logger.LogError("{Incident}", _lastIncident);
             await RegisterFailureAsync();
         }
@@ -148,7 +148,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         if (_consecutiveFailures >= MaxConsecutiveFailures)
         {
             _parkedUntil = DateTimeOffset.UtcNow + ParkDuration;
-            logger.LogError(L.SupervisorWorker_005,
+            logger.LogError(L.SupervisorWorker_TooManyFailedRecoveryAttempts,
                 _consecutiveFailures, ParkDuration.TotalMinutes);
         }
         await WriteStatusAsync();
@@ -175,12 +175,12 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         var target = (await File.ReadAllTextAsync(marker, ct)).Trim();
         if (string.IsNullOrWhiteSpace(target))
         {
-            logger.LogWarning(L.SupervisorWorker_006);
+            logger.LogWarning(L.SupervisorWorker_EmptyUpdateReadyNoTarget);
             TryDelete(marker);
             return;
         }
 
-        logger.LogInformation(L.SupervisorWorker_007, target);
+        logger.LogInformation(L.SupervisorWorker_UpdateDetectedReplacingTarget, target);
 
         await StopWithKillAsync(AgentService, ct);
 
@@ -193,7 +193,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
 
         if (!copied)
         {
-            logger.LogError(L.SupervisorWorker_008);
+            logger.LogError(L.SupervisorWorker_CouldNotReplaceTheExe);
             await StartAsync(AgentService);
             _lastAgentAction = DateTimeOffset.UtcNow;
             return;
@@ -203,9 +203,9 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         TryDelete(newExe);
         await StartAsync(AgentService);
         _lastAgentAction = DateTimeOffset.UtcNow;
-        _lastIncident = L.SupervisorWorker_009;
+        _lastIncident = L.SupervisorWorker_AgentUpdatedExeReplacement;
         await WriteStatusAsync();
-        logger.LogInformation(L.SupervisorWorker_010);
+        logger.LogInformation(L.SupervisorWorker_UpdateAppliedRemoteAgentRestarted);
     }
 
     // ---------------- SERVICE OPS (sc.exe) ----------------
@@ -247,10 +247,10 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         var pid = await QueryPidAsync(name);
         if (pid is > 0)
         {
-            logger.LogWarning(L.SupervisorWorker_011,
+            logger.LogWarning(L.SupervisorWorker_ServiceDidNotStopWithin,
                 name, StopTimeout.TotalSeconds, pid);
             try { Process.GetProcessById(pid.Value).Kill(entireProcessTree: true); }
-            catch (Exception ex) { logger.LogWarning(ex, L.SupervisorWorker_013); }
+            catch (Exception ex) { logger.LogWarning(ex, L.SupervisorWorker_KillFailed); }
         }
 
         for (int i = 0; i < 10; i++) // give SCM time to report 'stopped'

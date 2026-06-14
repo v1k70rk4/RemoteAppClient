@@ -25,9 +25,9 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
 
     public async Task<(bool Ok, string? Error)> SendAsync(string to, string subject, string body, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(to)) return (false, L.EmailSender_001);
+        if (string.IsNullOrWhiteSpace(to)) return (false, L.EmailSender_MissingRecipient);
         var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
-        if (s is null) return (false, L.EmailSender_002);
+        if (s is null) return (false, L.EmailSender_NoEmailSettings);
 
         try
         {
@@ -35,21 +35,21 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
             {
                 "smtp"  => await SendSmtpAsync(s, to, subject, body, ct),
                 "graph" => await SendGraphAsync(s, to, subject, body, ct),
-                _       => (false, L.EmailSender_003),
+                _       => (false, L.EmailSender_NoActiveEmailProviderConfigured),
             };
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, L.EmailSender_004, s.EmailProvider);
+            logger.LogWarning(ex, L.EmailSender_EMailDeliveryErrorProvider, s.EmailProvider);
             return (false, ex.Message);
         }
     }
 
     private async Task<(bool, string?)> SendSmtpAsync(Data.Entities.ServerSettings s, string to, string subject, string body, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(s.SmtpHost)) return (false, L.EmailSender_005);
+        if (string.IsNullOrWhiteSpace(s.SmtpHost)) return (false, L.EmailSender_MissingSMTPHost);
         var from = string.IsNullOrWhiteSpace(s.SmtpFrom) ? s.SmtpUser : s.SmtpFrom;
-        if (string.IsNullOrWhiteSpace(from)) return (false, L.EmailSender_006);
+        if (string.IsNullOrWhiteSpace(from)) return (false, L.EmailSender_MissingSenderSmtpFromSmtpUser);
 
         using var msg = new MailMessage(from!, to, subject, body) { IsBodyHtml = false };
         using var client = new SmtpClient(s.SmtpHost, s.SmtpPort) { EnableSsl = s.SmtpUseTls };
@@ -64,9 +64,9 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
     private async Task<(bool, string?)> SendGraphAsync(Data.Entities.ServerSettings s, string to, string subject, string body, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(s.GraphTenantId) || string.IsNullOrWhiteSpace(s.GraphClientId) || string.IsNullOrWhiteSpace(s.GraphSender))
-            return (false, L.EmailSender_007);
+            return (false, L.EmailSender_MissingGraphSettingsTenantClient);
         var secret = protector.TryUnprotect(s.GraphClientSecretEnc);
-        if (string.IsNullOrWhiteSpace(secret)) return (false, L.EmailSender_008);
+        if (string.IsNullOrWhiteSpace(secret)) return (false, L.EmailSender_MissingGraphClientSecret);
 
         // 1) token — client credentials
         using var tokenReq = new HttpRequestMessage(HttpMethod.Post,
@@ -82,11 +82,11 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
         };
         using var tokenResp = await Http.SendAsync(tokenReq, ct);
         var tokenJson = await tokenResp.Content.ReadAsStringAsync(ct);
-        if (!tokenResp.IsSuccessStatusCode) return (false, L.Format(L.EmailSender_010, (int)tokenResp.StatusCode, Trim(tokenJson)));
+        if (!tokenResp.IsSuccessStatusCode) return (false, L.Format(L.EmailSender_TokenError, (int)tokenResp.StatusCode, Trim(tokenJson)));
 
         using var tokenDoc = JsonDocument.Parse(tokenJson);
         if (!tokenDoc.RootElement.TryGetProperty("access_token", out var atEl) || atEl.GetString() is not { } accessToken)
-            return (false, L.EmailSender_009);
+            return (false, L.EmailSender_TokenResponseDoesNotContain);
 
         // 2) sendMail
         var payload = BuildSendMailJson(to, subject, body);
@@ -100,7 +100,7 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
         using var mailResp = await Http.SendAsync(mailReq, ct);
         if (mailResp.IsSuccessStatusCode) return (true, null);
         var err = await mailResp.Content.ReadAsStringAsync(ct);
-        return (false, L.Format(L.EmailSender_011, (int)mailResp.StatusCode, Trim(err)));
+        return (false, L.Format(L.EmailSender_SendMailError, (int)mailResp.StatusCode, Trim(err)));
     }
 
     private static string BuildSendMailJson(string to, string subject, string body)

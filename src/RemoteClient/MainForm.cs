@@ -38,20 +38,20 @@ public sealed class MainForm : MaterialForm
     private RemoteAgent.Admin.BrandingInfo? _branding;
     private readonly MaterialCard _loginCard = new();
     private readonly MaterialCard _setupCard = new();
-    private readonly MaterialTextBox2 _user = new() { Hint = L.CredentialDialog_002 };
-    private readonly MaterialTextBox2 _pass = new() { Hint = L.MainForm_001, UseSystemPasswordChar = true };
-    private readonly MaterialTextBox2 _totp = new() { Hint = L.MainForm_059 };
-    private readonly MaterialButton _loginBtn = new() { Text = L.MainForm_002 };
-    private readonly MaterialButton _helloBtn = new() { Text = L.MainForm_003, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Visible = false };
+    private readonly MaterialTextBox2 _user = new() { Hint = L.CredentialDialog_User };
+    private readonly MaterialTextBox2 _pass = new() { Hint = L.MainForm_Password, UseSystemPasswordChar = true };
+    private readonly MaterialTextBox2 _totp = new() { Hint = L.MainForm_TOTPIfAny };
+    private readonly MaterialButton _loginBtn = new() { Text = L.MainForm_SignIn };
+    private readonly MaterialButton _helloBtn = new() { Text = L.MainForm_SignInWithWindowsHello, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Visible = false };
     private readonly MaterialLabel _loginStatus = new() { Visible = true };
-    private readonly MaterialLabel _forgotLink = new() { Text = L.MainForm_004, AutoSize = true, ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
+    private readonly MaterialLabel _forgotLink = new() { Text = L.MainForm_ForgotPassword, AutoSize = true, ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
     private bool _loggedInViaHello;
     // Setup
-    private readonly MaterialTextBox2 _newPass = new() { Hint = L.ForgotPasswordForm_004, UseSystemPasswordChar = true };
-    private readonly MaterialTextBox2 _newPass2 = new() { Hint = L.MainForm_005, UseSystemPasswordChar = true };
+    private readonly MaterialTextBox2 _newPass = new() { Hint = L.ForgotPasswordForm_NewPasswordMin10, UseSystemPasswordChar = true };
+    private readonly MaterialTextBox2 _newPass2 = new() { Hint = L.MainForm_RepeatNewPassword, UseSystemPasswordChar = true };
     private readonly PictureBox _qr = new() { SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(160, 160) };
-    private readonly MaterialTextBox2 _enrollCode = new() { Hint = L.MainForm_006 };
-    private readonly MaterialButton _finishBtn = new() { Text = L.MainForm_007 };
+    private readonly MaterialTextBox2 _enrollCode = new() { Hint = L.MainForm_AuthenticatorCode };
+    private readonly MaterialButton _finishBtn = new() { Text = L.MainForm_Finish };
     private readonly MaterialLabel _setupStatus = new();
 
     // Main view: left menu plus right content host in one window.
@@ -139,7 +139,7 @@ public sealed class MainForm : MaterialForm
             try
             {
                 _broker ??= await BrokerClient.TryConnectAsync()
-                    ?? throw new InvalidOperationException(L.MainForm_008);
+                    ?? throw new InvalidOperationException(L.MainForm_NoLocalAgentBrokerUnavailable);
                 return await _broker.ForwardAsync(_cfg.AdminApiPort, ct);
             }
             catch when (attempt == 0)
@@ -149,7 +149,7 @@ public sealed class MainForm : MaterialForm
                 _broker = null;
             }
         }
-        throw new InvalidOperationException(L.MainForm_009);
+        throw new InvalidOperationException(L.MainForm_CouldNotOpenTheAdmin);
     }
 
     private bool _envBusy;
@@ -164,9 +164,9 @@ public sealed class MainForm : MaterialForm
             var s = await StatusClient.QueryAgentAsync();
             if (_api is not null && !string.IsNullOrWhiteSpace(s?.DeviceId)) _api.DeviceId = s!.DeviceId;
             string text; Color color;
-            if (s is null) { text = L.MainForm_010; color = Color.Gray; }
-            else if (!s.C2Connected) { text = L.MainForm_060; color = Color.IndianRed; }
-            else { text = s.TunnelActive ? L.MainForm_011 : "● Online"; color = Color.MediumSeaGreen; }
+            if (s is null) { text = L.MainForm_AgentUnavailable; color = Color.Gray; }
+            else if (!s.C2Connected) { text = L.MainForm_ServerNoConnection; color = Color.IndianRed; }
+            else { text = s.TunnelActive ? L.MainForm_OnlineTunnelReady : "● Online"; color = Color.MediumSeaGreen; }
             if (!_envLbl.IsDisposed) { _envLbl.Text = text; _envLbl.ForeColor = color; }
         }
         catch { /* indicator is non-critical */ }
@@ -190,7 +190,7 @@ public sealed class MainForm : MaterialForm
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(_branding?.SupportPhone)) parts.Add("☎ " + _branding!.SupportPhone);
         if (!string.IsNullOrWhiteSpace(_branding?.SupportEmail)) parts.Add("✉ " + _branding!.SupportEmail);
-        return parts.Count == 0 ? "" : L.MainForm_012 + string.Join("    ", parts);
+        return parts.Count == 0 ? "" : L.MainForm_Support + string.Join("    ", parts);
     }
 
     /// <summary>Admin: whether Graph secret expires within 30 days; shown as red warning above online status.</summary>
@@ -205,8 +205,8 @@ public sealed class MainForm : MaterialForm
                 if (days <= 30)
                 {
                     _secretWarnLbl.Text = days <= 0
-                        ? L.MainForm_013
-                        : L.Format(L.MainForm_014, (int)days);
+                        ? L.MainForm_TheEmailDeliveryTokenHas
+                        : L.Format(L.MainForm_TheEmailDeliveryTokenExpires, (int)days);
                     _warnPanel.Visible = true;
                     return;
                 }
@@ -233,13 +233,13 @@ public sealed class MainForm : MaterialForm
         _branding = BrandingCache.Load();
         ApplyBranding();
 
-        SetLoginStatus(L.MainForm_015);
+        SetLoginStatus(L.MainForm_LookingForLocalAgent);
         _broker = await BrokerClient.TryConnectAsync();
         if (_broker is null) { Show(_noAgentView); return; }
 
         // Status: server name, online state, and local VNC lock.
-        _serverNameLbl.Text = L.MainForm_061 + AgentInfo.ServerName();
-        _remoteLbl.Text = L.MainForm_016 + (LocalVncLock.IsLocked() ? L.MainForm_066 : L.MainForm_017);
+        _serverNameLbl.Text = L.MainForm_Server + AgentInfo.ServerName();
+        _remoteLbl.Text = L.MainForm_RemoteAccessOnThisDevice + (LocalVncLock.IsLocked() ? L.MainForm_DISABLED : L.MainForm_Enabled);
         Show(_authView);
 
         // Live environment indicator: poll local agent status pipe for realtime C2/tunnel.
@@ -253,8 +253,8 @@ public sealed class MainForm : MaterialForm
 
             // Broker ssh -L may become usable a few seconds after reserving the port due to
             // cold SSH handshake. Avoid false "not responding" warnings by pinging for about 15s.
-            _onlineLbl.Text = L.MainForm_018; _onlineLbl.ForeColor = Color.Goldenrod;
-            SetLoginStatus(L.MainForm_019);
+            _onlineLbl.Text = L.MainForm_Connecting; _onlineLbl.ForeColor = Color.Goldenrod;
+            SetLoginStatus(L.MainForm_ConnectingToTheServer);
             bool online = false;
             for (int i = 0; i < 15 && !online; i++)
             {
@@ -263,7 +263,7 @@ public sealed class MainForm : MaterialForm
             }
             _onlineLbl.Text = online ? "● Online" : "● Offline";
             _onlineLbl.ForeColor = online ? Color.MediumSeaGreen : Color.IndianRed;
-            SetLoginStatus(online ? "" : L.MainForm_020);
+            SetLoginStatus(online ? "" : L.MainForm_TheServerIsNotResponding);
 
             if (online) await RefreshBrandingAsync(); // fresh branding through tunnel, even before login
         }
@@ -271,7 +271,7 @@ public sealed class MainForm : MaterialForm
         {
             _onlineLbl.Text = "● Offline";
             _onlineLbl.ForeColor = Color.IndianRed;
-            SetLoginStatus(L.MainForm_062 + ex.Message);
+            SetLoginStatus(L.MainForm_ChannelError + ex.Message);
         }
 
         // Windows Hello button only when this device has credentialId and Hello is available.
@@ -287,7 +287,7 @@ public sealed class MainForm : MaterialForm
 
     private void OpenForgotPassword()
     {
-        if (_api is null) { SetLoginStatus(L.MainForm_021); return; }
+        if (_api is null) { SetLoginStatus(L.MainForm_NoConnectionToTheServer); return; }
         using var f = new ForgotPasswordForm(_api);
         f.ShowDialog(this);
     }
@@ -303,10 +303,10 @@ public sealed class MainForm : MaterialForm
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var card = new MaterialCard { Width = 470, Height = 250, Anchor = AnchorStyles.None };
         var icon = new MaterialLabel { Text = "⚠", Font = new Font("Segoe UI", 36F), AutoSize = true, Location = new Point(24, 18) };
-        var title = new MaterialLabel { Text = L.MainForm_063, Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Location = new Point(90, 28) };
+        var title = new MaterialLabel { Text = L.MainForm_NoLocalAgent, Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Location = new Point(90, 28) };
         var body = new MaterialLabel
         {
-            Text = L.MainForm_022,
+            Text = L.MainForm_RemoteAgentServiceIsNotRunning,
             AutoSize = false, Location = new Point(28, 84), Size = new Size(414, 100),
         };
         _noAgentSupportLbl.AutoSize = false; _noAgentSupportLbl.Location = new Point(28, 192); _noAgentSupportLbl.Size = new Size(414, 48);
@@ -334,7 +334,7 @@ public sealed class MainForm : MaterialForm
         _loginCard.Anchor = AnchorStyles.None;
         _setupCard.Anchor = AnchorStyles.None;
         _loginCard.Size = new Size(360, 420);
-        var lt = new MaterialLabel { Text = L.MainForm_023, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
+        var lt = new MaterialLabel { Text = L.MainForm_SignIn_2, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _user.SetBounds(20, 56, 320, 48);
         _pass.SetBounds(20, 110, 320, 48);
         _totp.SetBounds(20, 164, 320, 48);
@@ -350,10 +350,10 @@ public sealed class MainForm : MaterialForm
 
         // Setup card for first sign-in, hidden initially.
         _setupCard.Size = new Size(420, 470); _setupCard.Visible = false;
-        var st = new MaterialLabel { Text = L.MainForm_024, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
+        var st = new MaterialLabel { Text = L.MainForm_FirstSignInSetup, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _newPass.SetBounds(20, 56, 380, 48);
         _newPass2.SetBounds(20, 110, 380, 48);
-        var ql = new MaterialLabel { Text = L.MainForm_064, AutoSize = true, Location = new Point(20, 168) };
+        var ql = new MaterialLabel { Text = L.MainForm_ScanWithAnAuthenticatorApp, AutoSize = true, Location = new Point(20, 168) };
         _qr.Location = new Point(20, 196);
         _enrollCode.SetBounds(200, 210, 200, 48);
         _finishBtn.SetBounds(200, 270, 200, 40);
@@ -374,7 +374,7 @@ public sealed class MainForm : MaterialForm
         // Lower-left: online indicator + client version. Theme selector moved to Settings.
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 56 };
         _envLbl.AutoSize = true; _envLbl.MaximumSize = new Size(200, 0);
-        _envLbl.Location = new Point(12, 8); _envLbl.Text = L.MainForm_025; _envLbl.ForeColor = Color.Gray;
+        _envLbl.Location = new Point(12, 8); _envLbl.Text = L.MainForm_Environment; _envLbl.ForeColor = Color.Gray;
         _verLbl.AutoSize = true; _verLbl.Location = new Point(12, 32);
         _verLbl.Text = "ver: " + ClientUpdater.RunningVersionString();
         _verLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
@@ -449,7 +449,7 @@ public sealed class MainForm : MaterialForm
     private async Task<bool> HandleMandatoryUpdateAsync(LoginResponse login)
     {
         if (!login.MustUpdate) return false;
-        SetLoginStatus(L.MainForm_026);
+        SetLoginStatus(L.MainForm_DownloadingRequiredUpdate);
         if (!string.IsNullOrWhiteSpace(login.UpdateFileName)
             && await ClientUpdater.ApplyKnownAsync(_api!, login.UpdateFileName!, login.UpdateSha256))
         {
@@ -459,16 +459,16 @@ public sealed class MainForm : MaterialForm
             return true;
         }
         MessageBox.Show(
-            L.MainForm_027,
-            L.MainForm_028, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        SetLoginStatus(L.MainForm_029);
+            L.MainForm_ThisClientIsOutdatedAnd,
+            L.MainForm_UpdateRequired, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        SetLoginStatus(L.MainForm_OutdatedClientUpdateRequired);
         return true;
     }
 
     private async Task DoLoginAsync()
     {
         SetLoginStatus("");
-        if (_api is null) { SetLoginStatus(L.MainForm_065); return; }
+        if (_api is null) { SetLoginStatus(L.MainForm_NoConnectionToTheServer_2); return; }
         try
         {
             _loginBtn.Enabled = false;
@@ -486,23 +486,23 @@ public sealed class MainForm : MaterialForm
         {
             SetLoginStatus(ex.Code switch
             {
-                "totp_required" => L.MainForm_030,
-                "totp_invalid" => L.MainForm_031,
-                "invalid_credentials" => L.MainForm_032,
-                "device_locked" => L.MainForm_033,
-                _ => L.MainForm_034 + ex.Code,
+                "totp_required" => L.MainForm_EnterTheTOTPCode,
+                "totp_invalid" => L.MainForm_InvalidTOTPCode,
+                "invalid_credentials" => L.MainForm_InvalidUsernameOrPassword,
+                "device_locked" => L.MainForm_ThisDeviceIsSignIn,
+                _ => L.MainForm_SignInFailed + ex.Code,
             });
         }
-        catch (Exception ex) { SetLoginStatus(L.ForgotPasswordForm_019 + ex.Message); }
+        catch (Exception ex) { SetLoginStatus(L.ForgotPasswordForm_Error + ex.Message); }
         finally { _loginBtn.Enabled = true; }
     }
 
     private async Task DoHelloLoginAsync()
     {
         SetLoginStatus("");
-        if (_api is null) { SetLoginStatus(L.MainForm_065); return; }
+        if (_api is null) { SetLoginStatus(L.MainForm_NoConnectionToTheServer_2); return; }
         if (_cfg.HelloCredentialId is not { } credId || string.IsNullOrWhiteSpace(_cfg.HelloUsername))
-        { SetLoginStatus(L.MainForm_035); return; }
+        { SetLoginStatus(L.MainForm_WindowsHelloIsNotSet); return; }
         var user = _cfg.HelloUsername!;
         try
         {
@@ -510,7 +510,7 @@ public sealed class MainForm : MaterialForm
             SetLoginStatus("Windows Hello…");
             var challenge = await _api.HelloChallengeAsync(user);
             var sig = await WindowsHello.SignAsync(HelloKeyName(user), challenge);
-            if (sig is null) { SetLoginStatus(L.MainForm_036); return; }
+            if (sig is null) { SetLoginStatus(L.MainForm_WindowsHelloWasCancelledOr); return; }
             _login = await _api.HelloLoginAsync(user, credId, sig, ClientUpdater.RunningVersionString(), _cfg.Channel);
             if (await HandleMandatoryUpdateAsync(_login)) return;
             _api.SetToken(_login.Token);
@@ -524,11 +524,11 @@ public sealed class MainForm : MaterialForm
         {
             SetLoginStatus(ex.Code switch
             {
-                "challenge_expired" => L.MainForm_037,
-                "hello_unknown" => L.MainForm_038,
-                "hello_invalid" => L.MainForm_039,
-                "invalid_credentials" => L.MainForm_040,
-                _ => L.MainForm_041 + ex.Code,
+                "challenge_expired" => L.MainForm_HelloSignInExpiredTry,
+                "hello_unknown" => L.MainForm_ThisHelloDeviceIsNo,
+                "hello_invalid" => L.MainForm_TheHelloSignatureIsInvalid,
+                "invalid_credentials" => L.MainForm_TheUserIsInactiveOr,
+                _ => L.MainForm_HelloSignInFailed + ex.Code,
             });
             if (ex.Code == "hello_unknown")
             {
@@ -536,7 +536,7 @@ public sealed class MainForm : MaterialForm
                 _helloBtn.Visible = false;
             }
         }
-        catch (Exception ex) { SetLoginStatus(L.ForgotPasswordForm_019 + ex.Message); }
+        catch (Exception ex) { SetLoginStatus(L.ForgotPasswordForm_Error + ex.Message); }
         finally { _helloBtn.Enabled = true; }
     }
 
@@ -547,9 +547,9 @@ public sealed class MainForm : MaterialForm
         if (_cfg.HelloCredentialId is not null) return;           // already configured
         if (!await WindowsHello.IsAvailableAsync()) return;        // no Hello on this device
         if (MessageBox.Show(
-                L.MainForm_042 +
-                L.MainForm_043,
-                L.MainForm_044, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                L.MainForm_WouldYouLikeToSign +
+                L.MainForm_ThePrivateKeyStaysIn,
+                L.MainForm_SetUpWindowsHello, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
         try
         {
@@ -557,12 +557,12 @@ public sealed class MainForm : MaterialForm
             if (pub is null) return; // user canceled the Hello prompt
             var credId = await _api.RegisterHelloAsync(pub, Environment.MachineName);
             _cfg.HelloCredentialId = credId; _cfg.HelloUsername = _username; try { _cfg.Save(); } catch { }
-            MessageBox.Show(L.MainForm_045,
+            MessageBox.Show(L.MainForm_WindowsHelloIsSetUp,
                 "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(L.MainForm_046 + ex.Message, "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(L.MainForm_WindowsHelloSetupError + ex.Message, "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 
@@ -600,18 +600,18 @@ public sealed class MainForm : MaterialForm
             _finishBtn.Enabled = false;
             if (_login!.MustChangePassword)
             {
-                if (_newPass.Text.Length < 10) { _setupStatus.Text = L.MainForm_047; return; }
-                if (_newPass.Text != _newPass2.Text) { _setupStatus.Text = L.MainForm_048; return; }
+                if (_newPass.Text.Length < 10) { _setupStatus.Text = L.MainForm_PasswordMustBeAtLeast; return; }
+                if (_newPass.Text != _newPass2.Text) { _setupStatus.Text = L.MainForm_TheTwoPasswordsDoNot; return; }
                 await _api!.ChangePasswordAsync(_newPass.Text);
             }
             if (_login.TotpEnrollRequired)
             {
-                if (string.IsNullOrWhiteSpace(_enrollCode.Text)) { _setupStatus.Text = L.MainForm_049; return; }
+                if (string.IsNullOrWhiteSpace(_enrollCode.Text)) { _setupStatus.Text = L.MainForm_EnterTheAuthenticatorCode; return; }
                 await _api!.ConfirmTotpAsync(_enrollCode.Text.Trim());
             }
             await EnterMainAsync();
         }
-        catch (Exception ex) { _setupStatus.Text = L.ForgotPasswordForm_019 + ex.Message; }
+        catch (Exception ex) { _setupStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
         finally { _finishBtn.Enabled = true; }
     }
 
@@ -647,7 +647,7 @@ public sealed class MainForm : MaterialForm
         // Channel is resolved from this device's fleet channel by hostname; fallback is local config.
         if (_api is not null)
         {
-            SetLoginStatus(L.MainForm_050);
+            SetLoginStatus(L.MainForm_CheckingForUpdates);
             var channel = await ResolveUpdateChannelAsync();
             if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); _cleaned = true; Application.Exit(); return; }
         }
@@ -656,7 +656,7 @@ public sealed class MainForm : MaterialForm
 
         // Create views + menu according to role; operators only see Devices.
         _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin");
-        AddNav(L.MainForm_051, _devicesView);
+        AddNav(L.MainForm_Devices, _devicesView);
         if (_role == "admin")
         {
             _usersView = new UsersView(_api!, _username);
@@ -665,20 +665,20 @@ public sealed class MainForm : MaterialForm
             _bootstrapView = new BootstrapView(_api!);
             _logView = new LogView(_api!);
             _serverSettingsView = new ServerSettingsView(_api!);
-            AddNav(L.MainForm_052, _usersView);
-            AddNav(L.MainForm_067, _groupsView);
-            AddNav(L.MainForm_053, _channelsView);
+            AddNav(L.MainForm_Users, _usersView);
+            AddNav(L.MainForm_Groups, _groupsView);
+            AddNav(L.MainForm_ChannelsMSI, _channelsView);
             AddNav("Bootstrap", _bootstrapView);
-            AddNav(L.MainForm_054, _logView);
-            AddNav(L.MainForm_055, _serverSettingsView);
+            AddNav(L.MainForm_Log, _logView);
+            AddNav(L.MainForm_ServerSettings, _serverSettingsView);
             _ = CheckSecretExpiryAsync();
         }
 
         // Settings + About are visible to everyone; local settings are not admin-dependent.
         _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin");
         _aboutView = new AboutView(_cfg);
-        AddNav(L.MainForm_056, _settingsView);
-        AddNav(L.MainForm_057, _aboutView);
+        AddNav(L.MainForm_Settings, _settingsView);
+        AddNav(L.MainForm_About, _aboutView);
 
         ApplyThemeMode(_cfg.ThemeMode);
         Show(_mainView);
@@ -713,7 +713,7 @@ internal sealed class ShutdownOverlay : Form
         ForeColor = dark ? Color.White : Color.FromArgb(33, 33, 33);
         Controls.Add(new Label
         {
-            Text = L.MainForm_058,
+            Text = L.MainForm_SigningOut,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
             Font = new Font("Segoe UI", 11F, FontStyle.Regular),

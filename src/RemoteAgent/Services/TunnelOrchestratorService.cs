@@ -35,7 +35,7 @@ public sealed class TunnelOrchestratorService(
             await foreach (var cmd in bus.ReadAllAsync(stoppingToken))
             {
                 try { await HandleAsync(cmd, stoppingToken); }
-                catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_001, cmd.Type); }
+                catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_TunnelCommandProcessingFailedType, cmd.Type); }
             }
         }
         catch (OperationCanceledException) { /* shutdown */ }
@@ -61,7 +61,7 @@ public sealed class TunnelOrchestratorService(
                     cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
                 break;
             default:
-                logger.LogWarning(L.TunnelOrchestratorService_015, cmd.Type);
+                logger.LogWarning(L.TunnelOrchestratorService_UnknownCommandType, cmd.Type);
                 break;
         }
     }
@@ -74,15 +74,15 @@ public sealed class TunnelOrchestratorService(
         // Local VNC lock: when the device is locally disabled, do not open a tunnel and log the attempt.
         if (RemoteAgent.Vnc.VncLock.IsLocked())
         {
-            RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_002);
-            logger.LogWarning(L.TunnelOrchestratorService_003);
+            RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis);
+            logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedThisDevice);
             await uplink.ReportAccessResultAsync(cmd.Nonce, "locked", ct);
             return;
         }
 
         if (remotePort <= 0)
         {
-            logger.LogWarning(L.TunnelOrchestratorService_004, remotePort);
+            logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelWithInvalidRemote, remotePort);
             await uplink.ReportAccessResultAsync(cmd.Nonce, "denied", ct);
             return;
         }
@@ -118,8 +118,8 @@ public sealed class TunnelOrchestratorService(
         {
             if (!unattendedAllowed)
             {
-                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_005);
-                logger.LogWarning(L.TunnelOrchestratorService_006);
+                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessDENIEDNoSigned);
+                logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedNoActive);
                 return "no-user";
             }
             return "auto"; // unattended allowed; proceed without consent
@@ -129,22 +129,22 @@ public sealed class TunnelOrchestratorService(
 
         // The WTS prompt blocks until answer/timeout; run it in the background to keep async flow free.
         var outcome = await Task.Run(() => RemoteAgent.Consent.ConsentPrompt.Ask(
-            L.TunnelOrchestratorService_007,
-            L.TunnelOrchestratorService_008,
+            L.TunnelOrchestratorService_RemoteAccess,
+            L.TunnelOrchestratorService_AnAdministratorWantsToConnect,
             timeoutSeconds: 30), ct);
 
         switch (outcome)
         {
             case RemoteAgent.Consent.ConsentPrompt.Outcome.Granted:
-                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_009);
+                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessALLOWEDByThe);
                 return "granted";
             case RemoteAgent.Consent.ConsentPrompt.Outcome.Timeout:
-                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_010);
-                logger.LogWarning(L.TunnelOrchestratorService_011);
+                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessTheUserDid);
+                logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelConsentTimeout);
                 return "timeout";
             default:
-                RemoteAgent.Vnc.VncLock.Log(L.Format(L.TunnelOrchestratorService_012, outcome));
-                logger.LogWarning(L.TunnelOrchestratorService_013, outcome);
+                RemoteAgent.Vnc.VncLock.Log(L.Format(L.TunnelOrchestratorService_RemoteAccessDENIEDByThe, outcome));
+                logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedConsentOutcome, outcome);
                 return "denied";
         }
     }
@@ -166,7 +166,7 @@ public sealed class TunnelOrchestratorService(
                 await Task.Delay(TimeSpan.FromSeconds(30), ct);
                 if (_tunnel is { IsRunning: true } && DateTimeOffset.UtcNow - _lastActivity > idle)
                 {
-                    logger.LogInformation(L.TunnelOrchestratorService_014, idle.TotalSeconds);
+                    logger.LogInformation(L.TunnelOrchestratorService_TunnelIdleTimeoutIdleS, idle.TotalSeconds);
                     await CloseTunnelAsync();
                 }
             }

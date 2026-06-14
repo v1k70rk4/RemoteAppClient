@@ -22,7 +22,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
     {
         if (IsRunning)
         {
-            logger.LogInformation(L.SshReverseTunnel_001);
+            logger.LogInformation(L.SshReverseTunnel_TunnelAlreadyRunningSkippingNew);
             return;
         }
 
@@ -74,7 +74,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         };
 
         logger.LogInformation(
-            L.SshReverseTunnel_002,
+            L.SshReverseTunnel_StartingReverseTunnelBastionHost,
             options.BastionHost, options.BastionPort, remotePort, options.LocalForwardPort);
 
         proc.Start();
@@ -99,7 +99,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, L.SshReverseTunnel_003);
+            logger.LogWarning(ex, L.SshReverseTunnel_ErrorWhileStoppingTunnel);
         }
         finally
         {

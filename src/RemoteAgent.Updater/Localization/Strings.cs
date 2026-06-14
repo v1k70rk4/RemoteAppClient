@@ -60,17 +60,17 @@ internal static partial class Strings
         return dash > 0 ? normalized[..dash] : normalized;
     }
 
-    public static string SupervisorWorker_001 => Get(nameof(SupervisorWorker_001));
-    public static string SupervisorWorker_002 => Get(nameof(SupervisorWorker_002));
-    public static string SupervisorWorker_003 => Get(nameof(SupervisorWorker_003));
-    public static string SupervisorWorker_004 => Get(nameof(SupervisorWorker_004));
-    public static string SupervisorWorker_005 => Get(nameof(SupervisorWorker_005));
-    public static string SupervisorWorker_006 => Get(nameof(SupervisorWorker_006));
-    public static string SupervisorWorker_007 => Get(nameof(SupervisorWorker_007));
-    public static string SupervisorWorker_008 => Get(nameof(SupervisorWorker_008));
-    public static string SupervisorWorker_009 => Get(nameof(SupervisorWorker_009));
-    public static string SupervisorWorker_010 => Get(nameof(SupervisorWorker_010));
-    public static string SupervisorWorker_011 => Get(nameof(SupervisorWorker_011));
-    public static string SupervisorWorker_012 => Get(nameof(SupervisorWorker_012));
-    public static string SupervisorWorker_013 => Get(nameof(SupervisorWorker_013));
+    public static string SupervisorWorker_AgentHungHeartbeatAbout0 => Get(nameof(SupervisorWorker_AgentHungHeartbeatAbout0));
+    public static string SupervisorWorker_RemoteAgentIsNotRunningState => Get(nameof(SupervisorWorker_RemoteAgentIsNotRunningState));
+    public static string SupervisorWorker_AgentStoppedRestarted => Get(nameof(SupervisorWorker_AgentStoppedRestarted));
+    public static string SupervisorWorker_AgentStartFailed => Get(nameof(SupervisorWorker_AgentStartFailed));
+    public static string SupervisorWorker_TooManyFailedRecoveryAttempts => Get(nameof(SupervisorWorker_TooManyFailedRecoveryAttempts));
+    public static string SupervisorWorker_EmptyUpdateReadyNoTarget => Get(nameof(SupervisorWorker_EmptyUpdateReadyNoTarget));
+    public static string SupervisorWorker_UpdateDetectedReplacingTarget => Get(nameof(SupervisorWorker_UpdateDetectedReplacingTarget));
+    public static string SupervisorWorker_CouldNotReplaceTheExe => Get(nameof(SupervisorWorker_CouldNotReplaceTheExe));
+    public static string SupervisorWorker_AgentUpdatedExeReplacement => Get(nameof(SupervisorWorker_AgentUpdatedExeReplacement));
+    public static string SupervisorWorker_UpdateAppliedRemoteAgentRestarted => Get(nameof(SupervisorWorker_UpdateAppliedRemoteAgentRestarted));
+    public static string SupervisorWorker_ServiceDidNotStopWithin => Get(nameof(SupervisorWorker_ServiceDidNotStopWithin));
+    public static string SupervisorWorker_SupervisorCycleError => Get(nameof(SupervisorWorker_SupervisorCycleError));
+    public static string SupervisorWorker_KillFailed => Get(nameof(SupervisorWorker_KillFailed));
 }

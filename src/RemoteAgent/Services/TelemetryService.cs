@@ -27,7 +27,7 @@ public sealed class TelemetryService(
     {
         if (string.IsNullOrWhiteSpace(_opt.IngestUrl))
         {
-            logger.LogWarning(L.TelemetryService_001);
+            logger.LogWarning(L.TelemetryService_NoTelemetryURLConfiguredService);
             return;
         }
 
@@ -46,10 +46,10 @@ public sealed class TelemetryService(
                 if (resp.IsSuccessStatusCode)
                 {
                     status.MarkServerContact(); // status-pipe "last server contact"
-                    logger.LogDebug(L.TelemetryService_002);
+                    logger.LogDebug(L.TelemetryService_TelemetrySent);
                 }
                 else
-                    logger.LogWarning(L.TelemetryService_003, (int)resp.StatusCode);
+                    logger.LogWarning(L.TelemetryService_TelemetryRejectedHTTPCode, (int)resp.StatusCode);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -57,7 +57,7 @@ public sealed class TelemetryService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.TelemetryService_004);
+                logger.LogWarning(ex, L.TelemetryService_TelemetriaSendingFailed);
                 http?.Dispose();
                 http = null; // rebuild on next cycle, for example if enrollment completed meanwhile
             }

@@ -162,7 +162,7 @@ public static class EnrollCommand
         using var proc = Process.Start(psi)!;
         proc.WaitForExit();
         if (proc.ExitCode != 0 || !File.Exists(keyPath + ".pub"))
-            throw new InvalidOperationException(L.EnrollCommand_001);
+            throw new InvalidOperationException(L.EnrollCommand_SshKeygenFailedSSHKey);
 
         TightenAcl(keyPath);
         return File.ReadAllText(keyPath + ".pub").Trim();

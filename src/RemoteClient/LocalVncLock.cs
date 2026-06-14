@@ -42,7 +42,7 @@ public static class LocalVncLock
     public static bool RunElevated(bool lockIt)
     {
         var exe = ResolveAgentExe()
-                  ?? throw new InvalidOperationException(L.LocalVncLock_001);
+                  ?? throw new InvalidOperationException(L.LocalVncLock_TheRemoteAgentServiceExecutableWas);
         var psi = new ProcessStartInfo(exe, lockIt ? "vnc-lock" : "vnc-unlock") { UseShellExecute = true, Verb = "runas" };
         using var p = Process.Start(psi);
         if (p is null) return false;

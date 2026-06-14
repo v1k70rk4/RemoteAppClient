@@ -25,11 +25,11 @@ public sealed class CertificateAuthority : IDisposable
 
         if (!File.Exists(opt.CaCertPath) || !File.Exists(opt.CaKeyPath))
             throw new InvalidOperationException(
-                L.Format(L.CertificateAuthority_001, opt.CaCertPath, opt.CaKeyPath) +
-                L.CertificateAuthority_002);
+                L.Format(L.CertificateAuthority_CAFilesAreMissing, opt.CaCertPath, opt.CaKeyPath) +
+                L.CertificateAuthority_GenerateThemDuringProvisioningDeploy);
 
         _caCert = X509Certificate2.CreateFromPemFile(opt.CaCertPath, opt.CaKeyPath);
-        logger.LogInformation(L.CertificateAuthority_003, _caCert.Subject);
+        logger.LogInformation(L.CertificateAuthority_CALoadedSubject, _caCert.Subject);
     }
 
     /// <summary>CA certificate in PEM; agents pin this.</summary>
