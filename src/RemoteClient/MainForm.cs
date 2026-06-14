@@ -667,7 +667,7 @@ public sealed class MainForm : MaterialForm
             _logView = new LogView(_api!);
             _serverSettingsView = new ServerSettingsView(_api!);
             AddNav(L.MainForm_052, _usersView);
-            AddNav("Csoportok", _groupsView);
+            AddNav(L.MainForm_067, _groupsView);
             AddNav(L.MainForm_053, _channelsView);
             AddNav("Bootstrap", _bootstrapView);
             AddNav(L.MainForm_054, _logView);

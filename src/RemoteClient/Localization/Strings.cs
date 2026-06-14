@@ -393,6 +393,7 @@ internal static partial class Strings
     public static string MainForm_064 => Get(nameof(MainForm_064));
     public static string MainForm_065 => Get(nameof(MainForm_065));
     public static string MainForm_066 => Get(nameof(MainForm_066));
+    public static string MainForm_067 => Get(nameof(MainForm_067));
     public static string MsiPanel_001 => Get(nameof(MsiPanel_001));
     public static string MsiPanel_002 => Get(nameof(MsiPanel_002));
     public static string MsiPanel_003 => Get(nameof(MsiPanel_003));

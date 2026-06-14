@@ -339,6 +339,7 @@ internal static partial class Strings
         [nameof(MainForm_064)] = "Olvasd be authenticator appal:",
         [nameof(MainForm_065)] = "Nincs kapcsolat a szerverrel.",
         [nameof(MainForm_066)] = "LETILTVA",
+        [nameof(MainForm_067)] = "Csoportok",
         [nameof(MsiPanel_001)] = "Konzol-kliens telepítése",
         [nameof(MsiPanel_002)] = "Start menü parancsikon a klienshez",
         [nameof(MsiPanel_003)] = "Gyártás és letöltés",
