@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# MariaDB adatbázis + alkalmazás-user létrehozása a RemoteServer-hez.
-# Idempotens: újrafuttatható. A jelszót a gépen generálja, és csak root által
-# olvasható env-fájlba írja (/etc/remoteserver/db.env) — sehol máshol nem jelenik meg.
+# Creates the MariaDB database and application user for RemoteServer.
+# Idempotent: can be re-run. The password is generated on the machine and written
+# only to a root-readable env file (/etc/remoteserver/db.env).
 set -euo pipefail
 
 DB_NAME="remoteserver"
@@ -12,11 +12,11 @@ ENV_FILE="${ENV_DIR}/db.env"
 sudo mkdir -p "$ENV_DIR"
 
 if sudo test -f "$ENV_FILE"; then
-  echo "[setup-db] $ENV_FILE már létezik — jelszó újrahasználva."
+  echo "[setup-db] $ENV_FILE already exists - reusing password."
   DB_PASS="$(sudo sed -n 's/.*Password=\([^;]*\).*/\1/p' "$ENV_FILE")"
 else
   DB_PASS="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 32)"
-  echo "[setup-db] új DB-jelszó generálva."
+  echo "[setup-db] new DB password generated."
 fi
 
 sudo mariadb <<SQL
@@ -31,4 +31,4 @@ CONN="Server=localhost;Port=3306;Database=${DB_NAME};User Id=${DB_USER};Password
 printf 'ConnectionStrings__MariaDb=%s\n' "$CONN" | sudo tee "$ENV_FILE" >/dev/null
 sudo chmod 600 "$ENV_FILE"
 sudo chown root:root "$ENV_FILE"
-echo "[setup-db] kész. Env: $ENV_FILE (root-only)."
+echo "[setup-db] done. Env: $ENV_FILE (root-only)."

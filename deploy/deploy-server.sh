@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# RemoteServer telepítése/frissítése: nem-root service-user, aláíró kulcs,
-# systemd unit keményítéssel. A /tmp/remoteserver.tar.gz-t várja (self-contained build).
-# Idempotens: újrafuttatható (frissítéshez is).
+# Installs/updates RemoteServer with a non-root service user, signing keys,
+# and a hardened systemd unit. Expects /tmp/remoteserver.tar.gz (self-contained build).
+# Idempotent: can be re-run for updates too.
 set -euo pipefail
 
 APP_DIR="/opt/remoteserver"
@@ -9,38 +9,39 @@ ENV_DIR="/etc/remoteserver"
 SVC_USER="remotesrv"
 TARBALL="/tmp/remoteserver.tar.gz"
 
-# 1) nem-root service-user
+# 1) non-root service user
 if ! id "$SVC_USER" &>/dev/null; then
   sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$SVC_USER"
-  echo "[deploy] service-user létrehozva: $SVC_USER"
+  echo "[deploy] service user created: $SVC_USER"
 fi
 
-# 1b) update-csomagok mappája (KÜLÖN /var/lib alatt — túléli a redeployt!)
+# 1b) update package directory (separate under /var/lib, survives redeploys)
 sudo mkdir -p /var/lib/remoteserver/packages
 sudo chown -R "$SVC_USER:$SVC_USER" /var/lib/remoteserver
 
-# 1c) wixl (msitools) az MSI-gyártáshoz — ha még nincs
+# 1c) wixl (msitools) for MSI building, when missing
 if ! command -v wixl >/dev/null 2>&1; then
   sudo apt-get update -qq && sudo apt-get install -y wixl
-  echo "[deploy] wixl telepítve (MSI-gyártás)."
+  echo "[deploy] wixl installed (MSI building)."
 fi
 
-# 2) bináris
+# 2) binaries
 sudo systemctl stop remoteserver.service 2>/dev/null || true
 sudo mkdir -p "$APP_DIR" "$ENV_DIR"
 sudo rm -rf "${APP_DIR:?}"/*
 sudo tar -xzf "$TARBALL" -C "$APP_DIR"
 sudo chmod +x "$APP_DIR/RemoteServer"
 
-# 3) parancs-aláíró kulcs (csak ha még nincs)
+# 3) command-signing key (only when missing)
 if ! sudo test -f "$ENV_DIR/cmd_signing.key"; then
   sudo openssl ecparam -name prime256v1 -genkey -noout -out "$ENV_DIR/cmd_signing.key"
-  echo "[deploy] parancs-aláíró kulcs generálva."
+  echo "[deploy] command-signing key generated."
 fi
-echo "[deploy] >>> AGENT CommandSigningPublicKey (Base64 SPKI) — ezt tedd az agent configba:"
+echo "[deploy] >>> AGENT CommandSigningPublicKey (Base64 SPKI) - put this into the agent config:"
 sudo openssl pkey -in "$ENV_DIR/cmd_signing.key" -pubout -outform DER | base64 -w0; echo
 
-# 3b) kliens-CA (csak ha még nincs) — a szerver csak olvassa (ProtectSystem=full miatt itt kell generálni)
+# 3b) client CA (only when missing). The server only reads it, so generate it here
+# because the systemd unit uses ProtectSystem=full.
 if ! sudo test -f "$ENV_DIR/ca.key"; then
   sudo openssl ecparam -name prime256v1 -genkey -noout -out "$ENV_DIR/ca.key"
   sudo openssl req -new -x509 -key "$ENV_DIR/ca.key" -days 3650 \
@@ -48,30 +49,30 @@ if ! sudo test -f "$ENV_DIR/ca.key"; then
     -addext "basicConstraints=critical,CA:TRUE" \
     -addext "keyUsage=critical,keyCertSign,cRLSign" \
     -out "$ENV_DIR/ca.crt"
-  echo "[deploy] kliens-CA generálva."
+  echo "[deploy] client CA generated."
 fi
-echo "[deploy] >>> CA fingerprint (az agent ezt pinneli a szerver-TLS-hez később):"
+echo "[deploy] >>> CA fingerprint (the agent pins this for server TLS later):"
 sudo openssl x509 -in "$ENV_DIR/ca.crt" -noout -fingerprint -sha256
 
-# 3c) bástya-konfig env (a Host a BASTION_HOST env-ből; a host-kulcs a boxról).
-# Az enroll válaszába kerül; gépspecifikus, ezért NEM a repóból.
+# 3c) bastion config env. Host comes from BASTION_HOST; host key from the box.
+# Included in enrollment responses. Machine-specific, so it does not live in the repo.
 if [ -f /etc/ssh/ssh_host_ed25519_key.pub ]; then
   BKEY="$(sudo awk '{print $1, $2}' /etc/ssh/ssh_host_ed25519_key.pub)"
   sudo tee "$ENV_DIR/bastion.env" >/dev/null <<EOF
 Server__Bastion__Host=${BASTION_HOST:-}
 Server__Bastion__HostKey=${BKEY}
 EOF
-  echo "[deploy] bástya-env írva (Host='${BASTION_HOST:-<üres>}')."
+  echo "[deploy] bastion env written (Host='${BASTION_HOST:-<empty>}')."
 fi
 
-# 3d) DB-titok-titkosító kulcs (32 bájt) — a vnc_secret nyugalmi titkosításához
+# 3d) DB secret encryption key (32 bytes) for vnc_secret encryption at rest
 if ! sudo test -f "$ENV_DIR/secret.key"; then
   sudo openssl rand -out "$ENV_DIR/secret.key" 32
-  echo "[deploy] secret.key generálva."
+  echo "[deploy] secret.key generated."
 fi
 
-# 4) jogosultságok: a config csak a service-useré
-# (a chmod-ot root-oldalon, find-dal — a glob a hívó shellben nem fejthető ki, ha a mappa 700)
+# 4) permissions: config belongs only to the service user
+# Run chmod from the root side with find; caller-side globs cannot expand when the directory is 700.
 sudo chown -R "$SVC_USER:$SVC_USER" "$APP_DIR" "$ENV_DIR"
 sudo find "$ENV_DIR" -type f -exec chmod 600 {} +
 sudo chmod 700 "$ENV_DIR"
@@ -105,4 +106,4 @@ UNIT
 sudo systemctl daemon-reload
 sudo systemctl enable --now remoteserver.service
 sleep 3
-sudo systemctl is-active remoteserver.service && echo "[deploy] RemoteServer fut."
+sudo systemctl is-active remoteserver.service && echo "[deploy] RemoteServer is running."

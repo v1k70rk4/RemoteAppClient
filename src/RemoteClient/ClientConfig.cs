@@ -16,7 +16,7 @@ public sealed class ClientConfig
     public string SshExe { get; set; } = @"C:\Windows\System32\OpenSSH\ssh.exe";
     public string ViewerExe { get; set; } = @"C:\Program Files\TightVNC\tvnviewer.exe";
 
-    /// <summary>A szerver admin API portja a boxon (Kestrel, localhost).</summary>
+    /// <summary>Server admin API port on the box (Kestrel, localhost).</summary>
     public int AdminApiPort { get; set; } = 5000;
 
     /// <summary>Theme mode: "light" | "dark" | "auto" (auto follows Windows settings).</summary>

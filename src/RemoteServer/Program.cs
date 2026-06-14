@@ -79,7 +79,8 @@ app.Use(async (ctx, next) =>
         return;
     }
 
-    // Role gate: operator can only see device/group lists and start open-tunnel.
+    // Role gate: operator can only see device/group lists, start open-tunnel,
+    // and poll the result for tunnel requests they created.
     // Endpoints do filtering/grant checks; every other /admin endpoint is admin-only.
     var user = v.Value.User;
     if (!AuthService.IsAdmin(user))
@@ -88,6 +89,7 @@ app.Use(async (ctx, next) =>
         var p = ctx.Request.Path.Value ?? "";
         bool operatorAllowed =
             (m == "GET" && p == "/admin/devices")
+            || (m == "GET" && p.StartsWith("/admin/devices/access-result/", StringComparison.Ordinal))
             || (m == "POST" && p.StartsWith("/admin/devices/", StringComparison.Ordinal) && p.EndsWith("/open-tunnel", StringComparison.Ordinal));
         if (!operatorAllowed)
         {
@@ -835,8 +837,15 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
 
 // Access request result, polled by console by nonce after opening a tunnel.
 // Empty outcome means no answer yet; agent is working or asking the user.
-app.MapGet("/admin/devices/access-result/{nonce}", (string nonce, AccessResultStore accessResults) =>
-    Results.Json(new AccessResultInfo { Outcome = accessResults.Get(nonce) ?? "" }, AgentJsonContext.Default.AccessResultInfo));
+app.MapGet("/admin/devices/access-result/{nonce}", (string nonce, HttpContext ctx, AccessResultStore accessResults) =>
+{
+    var me = (User)ctx.Items["user"]!;
+    var entry = accessResults.GetEntry(nonce);
+    if (entry is not null && !AuthService.IsAdmin(me) && !string.Equals(entry.Actor, me.Username, StringComparison.Ordinal))
+        return Results.Json(new AuthError { Error = "forbidden" }, AgentJsonContext.Default.AuthError, statusCode: 403);
+
+    return Results.Json(new AccessResultInfo { Outcome = entry?.Outcome ?? "" }, AgentJsonContext.Default.AccessResultInfo);
+});
 
 // Audit log query with filters: action key, actor username, deviceId, limit.
 app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceId, int? limit, AppDbContext db, CancellationToken ct) =>

@@ -31,7 +31,7 @@ public sealed class BootstrapView : UserControl, IContentView
 
         _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
         _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
-        _expiry.Items.AddRange([new ExpiryItem(null, L.EditTokenForm_006), new ExpiryItem(24, L.BootstrapView_002), new ExpiryItem(168, "7 nap"), new ExpiryItem(720, "30 nap")]);
+        _expiry.Items.AddRange([new ExpiryItem(null, L.EditTokenForm_006), new ExpiryItem(24, L.BootstrapView_002), new ExpiryItem(168, L.BootstrapView_038), new ExpiryItem(720, L.BootstrapView_039)]);
         _expiry.SelectedIndex = 0;
         _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
         _maxUses.Items.AddRange([new UsesItem(100000, L.EditTokenForm_011), new UsesItem(1, L.BootstrapView_003), new UsesItem(5, "5"), new UsesItem(10, "10"), new UsesItem(50, "50")]);

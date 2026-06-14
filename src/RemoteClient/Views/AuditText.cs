@@ -34,7 +34,7 @@ internal static class AuditText
         "package-upload" => L.AuditText_022,
         "msi-build" => L.AuditText_023,
         "bootstrap-create" => L.AuditText_024,
-        "token-revoke" => "Token visszavonva",
+        "token-revoke" => L.AuditText_029,
         "token-delete" => L.AuditText_025,
         "token-edit" => L.AuditText_026,
         "settings-update" => L.AuditText_027,

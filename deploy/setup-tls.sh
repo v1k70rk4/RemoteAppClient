@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Let's Encrypt cert DNS-01 challenge-dzsel (Cloudflare API).
-# Nem kell hozzá nyitott 80-as port. Auto-renew: a certbot systemd-timere intézi.
-# Előfeltétel: /etc/letsencrypt/cloudflare.ini a scoped Cloudflare tokennel (chmod 600).
+# Let's Encrypt certificate via DNS-01 challenge (Cloudflare API).
+# No open port 80 is needed. Auto-renewal is handled by the certbot systemd timer.
+# Prerequisite: /etc/letsencrypt/cloudflare.ini with a scoped Cloudflare token (chmod 600).
 #
-# Használat:  DOMAIN=racd.example.com ACME_EMAIL=admin@example.com ./setup-tls.sh
+# Usage: DOMAIN=racd.example.com ACME_EMAIL=admin@example.com ./setup-tls.sh
 set -euo pipefail
 
-DOMAIN="${DOMAIN:?Állítsd be a DOMAIN-t, pl. DOMAIN=racd.example.com}"
-ACME_EMAIL="${ACME_EMAIL:?Állítsd be az ACME_EMAIL-t, pl. ACME_EMAIL=admin@example.com}"
+DOMAIN="${DOMAIN:?Set DOMAIN, for example DOMAIN=racd.example.com}"
+ACME_EMAIL="${ACME_EMAIL:?Set ACME_EMAIL, for example ACME_EMAIL=admin@example.com}"
 CF_INI="/etc/letsencrypt/cloudflare.ini"
 
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-dns-cloudflare
 
 if ! sudo test -f "$CF_INI"; then
-  echo "HIBA: hiányzik $CF_INI (a Cloudflare token)." >&2
+  echo "ERROR: missing $CF_INI (the Cloudflare token)." >&2
   exit 1
 fi
 sudo chmod 600 "$CF_INI"
@@ -26,5 +26,5 @@ sudo certbot certonly \
   --key-type ecdsa \
   --non-interactive --agree-tos -m "$ACME_EMAIL"
 
-echo "=== cert fájlok ==="
+echo "=== certificate files ==="
 sudo ls -l "/etc/letsencrypt/live/${DOMAIN}/"

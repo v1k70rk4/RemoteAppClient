@@ -35,11 +35,11 @@ public static class BootstrapEnroller
                 return;
             }
 
-            Console.WriteLine($"Bootstrap self-enroll → {blob.Url}");
+            Console.WriteLine(L.Format(L.BootstrapEnroller_009, blob.Url));
             var res = await EnrollCommand.EnrollCoreAsync(blob.Token, blob.Url, Environment.MachineName, outDir);
             if (res.Ok)
             {
-                Console.WriteLine($"Bootstrap self-enroll OK: {res.DeviceId}");
+                Console.WriteLine(L.Format(L.BootstrapEnroller_010, res.DeviceId));
                 // Mark the blob as used. The server-side token has AutoApprove=false, so the device is Pending.
                 TryMarkUsed(bootstrapFile);
             }

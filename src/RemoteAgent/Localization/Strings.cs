@@ -68,6 +68,8 @@ internal static partial class Strings
     public static string BootstrapEnroller_006 => Get(nameof(BootstrapEnroller_006));
     public static string BootstrapEnroller_007 => Get(nameof(BootstrapEnroller_007));
     public static string BootstrapEnroller_008 => Get(nameof(BootstrapEnroller_008));
+    public static string BootstrapEnroller_009 => Get(nameof(BootstrapEnroller_009));
+    public static string BootstrapEnroller_010 => Get(nameof(BootstrapEnroller_010));
     public static string BrokerService_001 => Get(nameof(BrokerService_001));
     public static string BrokerService_002 => Get(nameof(BrokerService_002));
     public static string BrokerService_003 => Get(nameof(BrokerService_003));
@@ -116,6 +118,7 @@ internal static partial class Strings
     public static string SshReverseTunnel_003 => Get(nameof(SshReverseTunnel_003));
     public static string StatusPipeService_001 => Get(nameof(StatusPipeService_001));
     public static string StatusPipeService_002 => Get(nameof(StatusPipeService_002));
+    public static string StatusPipeService_003 => Get(nameof(StatusPipeService_003));
     public static string TelemetryService_001 => Get(nameof(TelemetryService_001));
     public static string TelemetryService_002 => Get(nameof(TelemetryService_002));
     public static string TelemetryService_003 => Get(nameof(TelemetryService_003));

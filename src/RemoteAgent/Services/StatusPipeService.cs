@@ -30,7 +30,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Status-pipe indul (pipe: {Pipe}).", PipeName);
+        logger.LogInformation(L.StatusPipeService_003, PipeName);
 
         while (!stoppingToken.IsCancellationRequested)
         {

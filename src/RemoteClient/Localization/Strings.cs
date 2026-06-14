@@ -112,6 +112,7 @@ internal static partial class Strings
     public static string AuditText_026 => Get(nameof(AuditText_026));
     public static string AuditText_027 => Get(nameof(AuditText_027));
     public static string AuditText_028 => Get(nameof(AuditText_028));
+    public static string AuditText_029 => Get(nameof(AuditText_029));
     public static string BootstrapView_001 => Get(nameof(BootstrapView_001));
     public static string BootstrapView_002 => Get(nameof(BootstrapView_002));
     public static string BootstrapView_003 => Get(nameof(BootstrapView_003));
@@ -149,6 +150,8 @@ internal static partial class Strings
     public static string BootstrapView_035 => Get(nameof(BootstrapView_035));
     public static string BootstrapView_036 => Get(nameof(BootstrapView_036));
     public static string BootstrapView_037 => Get(nameof(BootstrapView_037));
+    public static string BootstrapView_038 => Get(nameof(BootstrapView_038));
+    public static string BootstrapView_039 => Get(nameof(BootstrapView_039));
     public static string BrokerClient_001 => Get(nameof(BrokerClient_001));
     public static string ChannelsView_001 => Get(nameof(ChannelsView_001));
     public static string ChannelsView_002 => Get(nameof(ChannelsView_002));

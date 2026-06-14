@@ -40,9 +40,16 @@ public sealed class AccessResultStore
     /// <summary>Gets outcome; null means not available yet and console should keep waiting.</summary>
     public string? Get(string nonce)
     {
+        var entry = GetEntry(nonce);
+        return entry?.Outcome;
+    }
+
+    /// <summary>Gets the full entry for authorization and outcome polling.</summary>
+    public Entry? GetEntry(string nonce)
+    {
         if (!_map.TryGetValue(nonce, out var e)) return null;
         if (e.Expires < DateTimeOffset.UtcNow) { _map.TryRemove(nonce, out _); return null; }
-        return e.Outcome;
+        return e;
     }
 
     private void Prune()
