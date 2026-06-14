@@ -12,8 +12,8 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260612194720_EnrollmentTokenRevoke")]
-    partial class EnrollmentTokenRevoke
+    [Migration("20260614191021_Reset_1_5_0")]
+    partial class Reset_1_5_0
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -43,7 +43,7 @@ namespace RemoteServer.Data.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("DetailJson")
-                        .HasColumnType("json");
+                        .HasColumnType("longtext");
 
                     b.Property<string>("Ip")
                         .HasColumnType("longtext");
@@ -117,6 +117,9 @@ namespace RemoteServer.Data.Migrations
                     b.Property<string>("AgentVersion")
                         .HasColumnType("longtext");
 
+                    b.Property<DateTimeOffset?>("BootTimeUtc")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("CertThumbprint")
                         .HasColumnType("longtext");
 
@@ -147,16 +150,31 @@ namespace RemoteServer.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<string>("IpAddress")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("LastIncident")
                         .HasColumnType("longtext");
 
                     b.Property<DateTimeOffset?>("LastSeenAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("LoggedInUser")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("LoginFailCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("LoginLockedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("Note")
                         .HasColumnType("longtext");
 
                     b.Property<string>("OsVersion")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("PublicIpAddress")
                         .HasColumnType("longtext");
 
                     b.Property<string>("SshPublicKey")
@@ -184,6 +202,12 @@ namespace RemoteServer.Data.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("VncVersion")
+                        .HasColumnType("longtext");
+
+                    b.Property<bool>("VpnActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("WifiSsid")
                         .HasColumnType("longtext");
 
                     b.HasKey("Id");
@@ -272,6 +296,9 @@ namespace RemoteServer.Data.Migrations
                     b.Property<int>("MaxUses")
                         .HasColumnType("int");
 
+                    b.Property<string>("MsiFileName")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("Note")
                         .HasColumnType("longtext");
 
@@ -297,6 +324,39 @@ namespace RemoteServer.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("EnrollmentTokens");
+                });
+
+            modelBuilder.Entity("RemoteServer.Data.Entities.HelloCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("DeviceName")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("PublicKey")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("HelloCredentials");
                 });
 
             modelBuilder.Entity("RemoteServer.Data.Entities.ReleasePackage", b =>
@@ -387,6 +447,70 @@ namespace RemoteServer.Data.Migrations
                     b.ToTable("Roles");
                 });
 
+            modelBuilder.Entity("RemoteServer.Data.Entities.ServerSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("EmailProvider")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("GraphClientId")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("GraphClientSecretEnc")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset?>("GraphSecretExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("GraphSender")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("GraphTenantId")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("OwnerName")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset?>("SecretExpiryNotifiedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("SmtpFrom")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("SmtpHost")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("SmtpPasswordEnc")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("SmtpPort")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("SmtpUseTls")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("SmtpUser")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("SupportEmail")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("SupportPhone")
+                        .HasColumnType("longtext");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ServerSettings");
+                });
+
             modelBuilder.Entity("RemoteServer.Data.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -408,11 +532,20 @@ namespace RemoteServer.Data.Migrations
                     b.Property<bool>("MustChangePassword")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<string>("Name")
+                        .HasColumnType("longtext");
+
                     b.Property<DateTimeOffset?>("PasswordChangedAt")
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset?>("ResetCodeExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ResetCodeHash")
                         .HasColumnType("longtext");
 
                     b.Property<bool>("TotpConfirmed")
@@ -516,6 +649,17 @@ namespace RemoteServer.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("RemoteServer.Data.Entities.HelloCredential", b =>
+                {
+                    b.HasOne("RemoteServer.Data.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("RemoteServer.Data.Entities.UserGrant", b =>
