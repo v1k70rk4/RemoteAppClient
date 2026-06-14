@@ -16,6 +16,7 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly BrokerClient _broker;
     private readonly ClientConfig _cfg;
     private readonly bool _isAdmin;
+    private string _viewerScale;   // TightVNC viewer scale: "auto" (fit to window) or a percent "1".."400"; per-operator, from the account
 
     private readonly List<DeviceInfo> _devices = new();
     private readonly Panel _listHost = new() { Dock = DockStyle.Fill };
@@ -44,9 +45,10 @@ public sealed class DevicesView : UserControl, IContentView
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
 
-    public DevicesView(AdminApi api, BrokerClient broker, ClientConfig cfg, bool isAdmin)
+    public DevicesView(AdminApi api, BrokerClient broker, ClientConfig cfg, bool isAdmin, string viewerScale = "auto")
     {
         _api = api; _broker = broker; _cfg = cfg; _isAdmin = isAdmin;
+        _viewerScale = string.IsNullOrWhiteSpace(viewerScale) ? "auto" : viewerScale;
         Dock = DockStyle.Fill;
         BuildList();
         BuildEditor();
@@ -411,6 +413,9 @@ public sealed class DevicesView : UserControl, IContentView
         catch (Exception ex) { SetStatus(L.DevicesView_ApproveError + ex.Message); }
     }
 
+    /// <summary>Updates the viewer scale used for subsequent connections (from the operator's account preference).</summary>
+    public void SetViewerScale(string scale) => _viewerScale = string.IsNullOrWhiteSpace(scale) ? "auto" : scale;
+
     private void LaunchViewer(int localPort, string password)
     {
         var viewer = ResolveViewer();
@@ -424,6 +429,9 @@ public sealed class DevicesView : UserControl, IContentView
         psi.ArgumentList.Add("-host=127.0.0.1");
         psi.ArgumentList.Add($"-port={localPort}");
         psi.ArgumentList.Add($"-password={password}");
+        // Per-operator viewer scale (TightVNC: -scale=auto -> ConnectionConfig::fitWindow(true), or a percent).
+        // "auto" fits the remote desktop to the window instead of letting it overflow.
+        psi.ArgumentList.Add($"-scale={_viewerScale}");
         Process.Start(psi);
     }
 

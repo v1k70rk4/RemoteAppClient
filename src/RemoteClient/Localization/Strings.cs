@@ -505,6 +505,10 @@ internal static partial class Strings
     public static string SettingsView_English => Get(nameof(SettingsView_English));
     public static string SettingsView_LanguageSavedRestartAffectedComponents => Get(nameof(SettingsView_LanguageSavedRestartAffectedComponents));
     public static string SettingsView_CouldNotSaveLanguage => Get(nameof(SettingsView_CouldNotSaveLanguage));
+    public static string SettingsView_ViewerScale => Get(nameof(SettingsView_ViewerScale));
+    public static string SettingsView_ViewerScaleAuto => Get(nameof(SettingsView_ViewerScaleAuto));
+    public static string SettingsView_ViewerScaleSaved => Get(nameof(SettingsView_ViewerScaleSaved));
+    public static string SettingsView_CouldNotSaveScale => Get(nameof(SettingsView_CouldNotSaveScale));
     public static string UploadPanel_AddFiles => Get(nameof(UploadPanel_AddFiles));
     public static string UploadPanel_File => Get(nameof(UploadPanel_File));
     public static string UploadPanel_Remove => Get(nameof(UploadPanel_Remove));

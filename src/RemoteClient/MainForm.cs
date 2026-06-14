@@ -20,6 +20,7 @@ public sealed class MainForm : MaterialForm
     private BrokerClient? _broker;
     private AdminApi? _api;
     private string _role = "operator";
+    private string _viewerScale = "auto";   // operator's TightVNC viewer scale; loaded at sign-in, roams with the account
     private string _username = "";
     private bool _started;
     private LoginResponse? _login;
@@ -440,6 +441,13 @@ public sealed class MainForm : MaterialForm
         Invalidate(true);
     }
 
+    // Applies a changed viewer-scale preference to the live Devices view. SettingsView already persisted it server-side.
+    private void ApplyViewerScale(string scale)
+    {
+        _viewerScale = string.IsNullOrWhiteSpace(scale) ? "auto" : scale;
+        _devicesView?.SetViewerScale(_viewerScale);
+    }
+
     // ---------------- Login + setup ----------------
 
     /// <summary>
@@ -654,8 +662,11 @@ public sealed class MainForm : MaterialForm
 
         ApplyBranding(); // blue title bar branding
 
+        // Operator viewer-scale preference (roams with the account); applied when launching the VNC viewer.
+        _viewerScale = string.IsNullOrWhiteSpace(_login?.ViewerScale) ? "auto" : _login!.ViewerScale!;
+
         // Create views + menu according to role; operators only see Devices.
-        _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin");
+        _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin", _viewerScale);
         AddNav(L.MainForm_Devices, _devicesView);
         if (_role == "admin")
         {
@@ -675,7 +686,7 @@ public sealed class MainForm : MaterialForm
         }
 
         // Settings + About are visible to everyone; local settings are not admin-dependent.
-        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin");
+        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin", _api!, _viewerScale, ApplyViewerScale);
         _aboutView = new AboutView(_cfg);
         AddNav(L.MainForm_Settings, _settingsView);
         AddNav(L.MainForm_About, _aboutView);

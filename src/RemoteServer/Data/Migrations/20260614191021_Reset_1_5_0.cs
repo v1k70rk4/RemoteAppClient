@@ -247,7 +247,9 @@ namespace RemoteServer.Data.Migrations
                     LastLoginAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: true),
                     ResetCodeHash = table.Column<string>(type: "longtext", nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    ResetCodeExpiresAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: true)
+                    ResetCodeExpiresAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: true),
+                    ViewerScale = table.Column<string>(type: "longtext", nullable: true)
+                        .Annotation("MySql:CharSet", "utf8mb4")
                 },
                 constraints: table =>
                 {

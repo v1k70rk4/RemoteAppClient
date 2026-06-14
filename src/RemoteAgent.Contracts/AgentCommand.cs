@@ -130,6 +130,7 @@ public static class CommandTypes
 [JsonSerializable(typeof(Admin.ChangePasswordRequest))]
 [JsonSerializable(typeof(Admin.TotpConfirmRequest))]
 [JsonSerializable(typeof(Admin.MeResponse))]
+[JsonSerializable(typeof(Admin.ViewerPrefsRequest))]
 [JsonSerializable(typeof(Admin.UserInfo))]
 [JsonSerializable(typeof(Admin.CreateUserRequest))]
 [JsonSerializable(typeof(Admin.CreateUserResponse))]

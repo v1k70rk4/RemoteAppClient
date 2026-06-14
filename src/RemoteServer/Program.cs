@@ -99,7 +99,9 @@ app.Use(async (ctx, next) =>
         bool operatorAllowed =
             (m == "GET" && p == "/admin/devices")
             || (m == "GET" && p.StartsWith("/admin/devices/access-result/", StringComparison.Ordinal))
-            || (m == "POST" && p.StartsWith("/admin/devices/", StringComparison.Ordinal) && p.EndsWith("/open-tunnel", StringComparison.Ordinal));
+            || (m == "POST" && p.StartsWith("/admin/devices/", StringComparison.Ordinal) && p.EndsWith("/open-tunnel", StringComparison.Ordinal))
+            // Operators set their own viewer scale; the pref roams with their account.
+            || (m == "PUT" && p == "/admin/me/viewer-prefs");
         if (!operatorAllowed)
         {
             ctx.Response.StatusCode = 403;
@@ -164,6 +166,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         Role = AuthService.RoleOf(user),
         MustChangePassword = user.MustChangePassword,
         TotpEnrollRequired = !user.TotpConfirmed,
+        ViewerScale = user.ViewerScale,
     };
 
     // First sign-in or no TOTP yet: generate an enrollment secret, store encrypted and unconfirmed.
@@ -241,6 +244,7 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
         Role = AuthService.RoleOf(user),
         MustChangePassword = user.MustChangePassword,
         TotpEnrollRequired = !user.TotpConfirmed,
+        ViewerScale = user.ViewerScale,
     }, AgentJsonContext.Default.LoginResponse);
 });
 
@@ -415,6 +419,7 @@ app.MapGet("/auth/me", async (HttpContext ctx, AuthService auth, CancellationTok
     {
         Username = u.Username, Role = AuthService.RoleOf(u),
         MustChangePassword = u.MustChangePassword, TotpConfirmed = u.TotpConfirmed,
+        ViewerScale = u.ViewerScale,
     }, AgentJsonContext.Default.MeResponse);
 });
 
@@ -1148,6 +1153,22 @@ app.MapPost("/admin/settings/test-email", async (HttpContext ctx, AppDbContext d
     return ok ? Results.Ok(new { ok = true }) : Results.Problem(err ?? "send_failed");
 });
 
+// Per-operator viewer preference (currently only the TightVNC scale: "auto" or 1..400 percent).
+// Stored on the account so it roams to any console the operator signs in from. The /admin gate already
+// validated the session; operators are allowed here (see the operator role gate above).
+app.MapPut("/admin/me/viewer-prefs", async (HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var me = (User)ctx.Items["user"]!;
+    var req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.ViewerPrefsRequest, ct);
+    var scale = NormalizeViewerScale(req?.Scale);
+    if (scale is null) return Results.BadRequest(new AuthError { Error = "invalid_scale" });
+
+    var u = await db.Users.FirstAsync(x => x.Id == me.Id, ct);
+    u.ViewerScale = scale;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
 // Public branding through the tunnel before sign-in; auth gate has an exception for it.
 app.MapGet("/admin/branding", async (AppDbContext db, CancellationToken ct) =>
 {
@@ -1591,6 +1612,14 @@ static async Task SetRoleAsync(AppDbContext db, Guid userId, string roleName, Ca
     db.UserRoles.RemoveRange(existing);
     var role = await db.Roles.FirstAsync(r => r.Name == roleName, ct);
     db.UserRoles.Add(new UserRole { UserId = userId, RoleId = role.Id });
+}
+
+// Normalizes a viewer scale preference: "auto" or an integer percent 1..400. Null/empty -> "auto"; invalid -> null.
+static string? NormalizeViewerScale(string? raw)
+{
+    var s = raw?.Trim().ToLowerInvariant();
+    if (string.IsNullOrEmpty(s) || s == "auto") return "auto";
+    return int.TryParse(s, out var pct) && pct is >= 1 and <= 400 ? pct.ToString() : null;
 }
 
 // Short URL-safe temporary password.

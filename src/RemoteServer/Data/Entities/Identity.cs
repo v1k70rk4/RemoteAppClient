@@ -31,6 +31,12 @@ public sealed class User
     public string? ResetCodeHash { get; set; }
     public DateTimeOffset? ResetCodeExpiresAt { get; set; }
 
+    /// <summary>
+    /// Per-operator TightVNC viewer scale preference: "auto" (fit to window) or a percent string "1".."400".
+    /// Null/empty means auto. Stored on the account so it roams to any console the operator signs in from.
+    /// </summary>
+    public string? ViewerScale { get; set; }
+
     public ICollection<UserRole> UserRoles { get; set; } = [];
     public ICollection<UserGrant> Grants { get; set; } = [];
 }
