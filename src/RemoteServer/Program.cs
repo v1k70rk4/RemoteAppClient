@@ -56,7 +56,10 @@ app.UseWebSockets();
 // then exits without starting the web server. Solves the chicken-and-egg of the very first enrollment
 // (the console needs an enrolled agent's tunnel to reach /admin, but there is no agent yet).
 if (args.Contains("mint-blob"))
-    return await RunMintBlobAsync(app);
+{
+    Environment.ExitCode = await RunMintBlobAsync(app);
+    return;
+}
 
 // === Session auth for /admin: requires a valid Bearer token. Transport is provided by the device SSH tunnel.
 // /auth/* endpoints are public through the tunnel and validate themselves. Until user setup
@@ -1439,7 +1442,6 @@ app.MapDelete("/admin/users/{id:guid}/grants/{grantId:guid}", async (Guid id, Gu
 await SeedAsync(app);
 
 app.Run();
-return 0;
 
 // Seeds the admin/operator roles and the first admin user (temp password logged). Idempotent.
 static async Task SeedAsync(WebApplication a)

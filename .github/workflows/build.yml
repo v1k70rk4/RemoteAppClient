@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write   # the release job needs this to publish a GitHub Release on tags
 
+# Run the Node-20 JS actions on Node 24 (silences the deprecation warning; GitHub forces this anyway).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   windows:
     name: Windows components (agent / updater / client)
@@ -20,22 +24,28 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Each project is already win-x64 + self-contained + single-file in its csproj; we pass the
-      # flags explicitly too so the output is a single .exe regardless of csproj drift.
-      - name: Publish agent + updater + client
+      # Separate steps so a failing publish is pinpointed (a combined step can mask the first failure).
+      # Each csproj is already win-x64 + self-contained + single-file; the flags are repeated for safety.
+      - name: Publish agent
+        run: dotnet publish src/RemoteAgent/RemoteAgent.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
+
+      - name: Publish updater
+        run: dotnet publish src/RemoteAgent.Updater/RemoteAgent.Updater.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
+
+      - name: Publish client
+        run: dotnet publish src/RemoteClient/RemoteClient.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
+
+      - name: List output
         shell: pwsh
-        run: |
-          dotnet publish src/RemoteAgent/RemoteAgent.csproj                 -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/agent
-          dotnet publish src/RemoteAgent.Updater/RemoteAgent.Updater.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/updater
-          dotnet publish src/RemoteClient/RemoteClient.csproj               -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/client
+        run: Get-ChildItem publish -Filter *.exe | ForEach-Object { '{0}  {1:N0} bytes' -f $_.Name, $_.Length }
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
           path: |
-            publish/agent/RemoteAgent.exe
-            publish/updater/RemoteAgent.Updater.exe
-            publish/client/RemoteClient.exe
+            publish/RemoteAgent.exe
+            publish/RemoteAgent.Updater.exe
+            publish/RemoteClient.exe
           if-no-files-found: error
 
   server:
