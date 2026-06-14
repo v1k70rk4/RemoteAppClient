@@ -1,144 +1,125 @@
-# RemoteAppClient — első indítás (előkészítés)
+# 🚀 RemoteAppClient — első indítás
 
-Ez a leírás egy **nulláról** felálló rendszer beállítását vezeti végig: szerver → első admin →
-első bootstrap blob → első gép. A `RemoteServer mint-blob` parancs a végén ellenőrzi, hogy minden a helyén van-e.
+Nulláról felálló rendszer beállítása **a `deploy/` szkriptekkel**: szerver → első admin →
+első bootstrap blob → első gép. A végén a `RemoteServer mint-blob` **leellenőrzi**, hogy minden a helyén van-e.
 
-## Áttekintés
-
-- **Szerver**: Linux, a `RemoteServer` self-contained (nincs külön .NET runtime). Mellette **MariaDB** (10.11+),
-  **nginx** (TLS + reverse proxy), és egy **SSH bastion** (az agentek `ssh -R` reverse tunnelt nyitnak ide).
-- **Endpointok** az nginx mögött:
-  - `/agent` (WSS, C2), `/api/*`, `/auth/*` — **publikusan** elérhetők (az agentek ezeken jönnek be);
-  - `/admin/*` — **csak localhostról** (a kliens a gép SSH-tunneljén át éri el). Ezt az nginx korlátozza.
-- **Endpoint-gépek (Windows)**: kell rajtuk **OpenSSH kliens** (ssh.exe + ssh-keygen.exe). Win10 / Server 2019+
-  alapból tartalmazza; Server 2016-on kézzel kell (az agent a `System32\OpenSSH` és a `Program Files\OpenSSH`
-  helyet is nézi).
+A szkriptek **idempotensek** (újrafuttathatók), és a titkokat a gépen generálják — semmi nem kerül a repóba.
 
 ---
 
-## 1. MariaDB
+## 🧭 Áttekintés
 
-```sql
-CREATE DATABASE remoteserver CHARACTER SET utf8mb4;
-CREATE USER 'remotesrv'@'localhost' IDENTIFIED BY '<eros-jelszo>';
-GRANT ALL PRIVILEGES ON remoteserver.* TO 'remotesrv'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-Séma betöltése (a teljes 1.5.0 baseline egy fájlban):
-
-```bash
-sudo mysql remoteserver < src/RemoteServer/Data/Migrations/schema.sql
-```
-
-## 2. Kulcsok (`/etc/remoteserver`, csak a `remotesrv` user olvashatja)
-
-**Kötelező, kézzel generálni** (a szerver hibát dob, ha hiányzik):
-
-```bash
-sudo mkdir -p /etc/remoteserver
-
-# Parancs-aláíró kulcs (ECDSA P-256). Az agentek a publikus párját pinnelik.
-sudo openssl ecparam -name prime256v1 -genkey -noout -out /etc/remoteserver/command_signing.key
-
-# Kliens-tanúsítvány CA (a szerver ezzel írja alá az agent certeket)
-sudo openssl ecparam -name prime256v1 -genkey -noout -out /etc/remoteserver/ca.key
-sudo openssl req -x509 -new -key /etc/remoteserver/ca.key -days 3650 \
-    -subj "/CN=RemoteAppClient CA" -out /etc/remoteserver/ca.crt
-
-sudo chown -R remotesrv:remotesrv /etc/remoteserver
-sudo chmod 600 /etc/remoteserver/*.key
-```
-
-**Automatikusan generálódik** induláskor, ha hiányzik (csak a jogosultságra figyelj):
-`secret.key` (DB-titkok titkosítása) és `agent_ca` (SSH CA a tunnelhez).
-
-## 3. `appsettings` (a `RemoteServer` mellett vagy env-ből)
-
-```jsonc
-{
-  "ConnectionStrings": { "MariaDb": "Server=localhost;Database=remoteserver;User=remotesrv;Password=<jelszo>;" },
-  "Server": {
-    "PublicUrl": "https://racd.example.com",          // a blobba ágyazott URL
-    "CommandSigningKeyPath": "/etc/remoteserver/command_signing.key",
-    "CaCertPath": "/etc/remoteserver/ca.crt",
-    "CaKeyPath":  "/etc/remoteserver/ca.key",
-    "SecretKeyPath": "/etc/remoteserver/secret.key",
-    "PackagesDir": "/var/lib/remoteserver/packages",
-    "MinClientVersion": "1.1.1.0",
-    "Bastion": {
-      "Host": "racd.example.com",                     // ahova az agent ssh -R nyit
-      "Port": 22,
-      "User": "agent",
-      "HostKey": "ssh-ed25519 AAAA...",               // a bastion host kulcsa (pinninghez), comment nélkül
-      "SshCaKeyPath": "/etc/remoteserver/agent_ca",
-      "TunnelPortMin": 50000, "TunnelPortMax": 60000
-    }
-  }
-}
-```
-
-> A connection string és a titkok mehetnek env-ből is (`ConnectionStrings__MariaDb=...`), ahogy a systemd unit beállítja.
-
-## 4. SSH bastion
-
-- Egy korlátozott `agent` user, amihez az agentek az **SSH CA-val aláírt** kulcsukkal csatlakoznak és **csak reverse
-  port-forwardot** kapnak (`ssh -R`). A bastion `sshd_config`-ban a `TrustedUserCAKeys` az `agent_ca.pub`-ra mutasson.
-- A bastion **host kulcsát** tedd a `Bastion:HostKey`-be (pinning) — `ssh-keyscan <host>` adja a sort.
-
-## 5. nginx
-
-- TLS termináció, majd proxy a `RemoteServer`-hez (pl. `127.0.0.1:5000`).
-- `/agent` WebSocket-upgrade-del.
-- **`/admin/` csak localhostról** (`allow 127.0.0.1; deny all;`) — a kliens a gép SSH-tunneljén át éri el; kívülről nem.
-- `/api/`, `/auth/`, `/` publikus.
-
-## 6. systemd
-
-A `RemoteServer` fusson `remotesrv` userként, a connection stringgel az `Environment`-ben, `WorkingDirectory` az install dir.
+- **Szerver**: Linux + **MariaDB** (10.11+) + **nginx** (TLS, reverse proxy) + **SSH bástya**. A `RemoteServer` self-contained.
+- **Endpointok** az nginx mögött: `/agent` (WSS), `/api/*`, `/auth/*` **publikus**; `/admin/*` **csak localhost**
+  (a kliens a gép SSH-tunneljén át éri el — ezt a `setup-nginx.sh` `allow 127.0.0.1; deny all`-lal állítja be).
+- **Endpoint-gépek (Windows)**: az MSI mindent feltesz; **OpenSSH kliens** kell (Win10/Server 2019+ alapból; Server 2016-on kézzel).
 
 ---
 
-## 7. Első admin
+## 🖥️ Szerver beállítása (sorrendben)
+
+Másold a `deploy/` mappát és a `schema.sql`-t a szerverre, majd:
+
+### 1) Adatbázis
+```bash
+deploy/setup-db.sh
+# -> létrehozza a 'remoteserver' DB-t + usert, és a connection stringet ide írja:
+#    /etc/remoteserver/db.env  (a jelszó a gépen generálódik)
+```
+
+### 2) Séma betöltése (a baseline egy fájlban)
+```bash
+sudo mariadb remoteserver < src/RemoteServer/Data/Migrations/schema.sql
+```
+
+### 3) Szerver telepítése (kulcsokkal, systemddel)
+A szerver buildje legyen `/tmp/remoteserver.tar.gz`-ben — ezt a **GitHub Release**
+`RemoteServer-linux-x64.tar.gz`-jából is veheted (átnevezve), vagy:
+`dotnet publish src/RemoteServer/RemoteServer.csproj -c Release -r linux-x64 --self-contained -o out && tar -C out -czf /tmp/remoteserver.tar.gz .`
+
+```bash
+BASTION_HOST=racd.example.com deploy/deploy-server.sh
+```
+Ez **legenerálja**: parancs-aláíró kulcs (`cmd_signing.key`), kliens-**CA** (`ca.key`/`ca.crt`),
+`secret.key`, `bastion.env` (host + host-key), systemd unit (db.env + bastion.env), és **elindítja** a service-t.
+A kimenetben **kiírja**:
+- 🔑 az agent **`CommandSigningPublicKey`**-ét (ezt az agent configjába kell) és
+- a **CA fingerprintet** (a TLS-pinninghez).
+
+### 4) Public URL
+A blobhoz/MSI-hez kell a publikus URL (nincs az appsettings-ben). Tedd env-be és indítsd újra:
+```bash
+echo "Server__PublicUrl=https://racd.example.com" | sudo tee -a /etc/remoteserver/bastion.env
+sudo systemctl restart remoteserver
+```
+
+### 5) Bástya (reverse tunnel)
+```bash
+deploy/setup-bastion.sh
+# -> 'agent' korlátozott SSH user (csak reverse forward), SSH CA (agent_ca),
+#    sshd: TrustedUserCAKeys + GatewayPorts=no (a forward csak a bástya localhostján látszik)
+```
+
+### 6) TLS (Let's Encrypt, Cloudflare DNS-01)
+Előfeltétel: `/etc/letsencrypt/cloudflare.ini` (szűkített Cloudflare token, `chmod 600`).
+```bash
+DOMAIN=racd.example.com ACME_EMAIL=admin@example.com deploy/setup-tls.sh
+```
+
+### 7) nginx
+```bash
+DOMAIN=racd.example.com deploy/setup-nginx.sh
+# -> TLS, /agent WebSocket, mTLS (kliens-CA), és /admin CSAK localhostról
+```
+
+### 8) Hardening
+```bash
+deploy/harden.sh        # ufw (443 + SSH), fail2ban, sshd (root off, jelszó off)
+```
+
+---
+
+## 👤 Első admin
 
 Az **első indításkor** a szerver legseedeli a `admin` usert egy **ideiglenes jelszóval**, amit a logba ír:
-
 ```bash
 journalctl -u remoteserver | grep BOOTSTRAP
 ```
+(A `mint-blob` is legseedeli, ha még nincs user.) Az első bejelentkezéskor **jelszócsere + TOTP** kötelező.
 
-(A `mint-blob` is legseedeli, ha még nincs user.) Az első bejelentkezéskor jelszócsere + TOTP kötelező.
-
-## 8. Első bootstrap blob — `mint-blob`
+## 🎟️ Első bootstrap blob — `mint-blob`
 
 A kliens még nem használható (nincs enrollolt agent a tunnelhez), ezért az **első blobot a szerveren** generáljuk.
-Ugyanazzal a konfiggal (connection string!) futtasd, mint a service:
+Ugyanazzal a környezettel futtasd, mint a service (a `db.env`/`bastion.env`-ből):
 
 ```bash
-sudo -u remotesrv ConnectionStrings__MariaDb="Server=localhost;Database=remoteserver;User=remotesrv;Password=<jelszo>;" \
-    /opt/remoteserver/RemoteServer mint-blob
+sudo systemd-run --quiet --wait --collect --pipe --uid=remotesrv --working-directory=/opt/remoteserver \
+  --property=EnvironmentFile=/etc/remoteserver/db.env \
+  --property=EnvironmentFile=-/etc/remoteserver/bastion.env \
+  /opt/remoteserver/RemoteServer mint-blob
 ```
 
 A parancs **leellenőrzi** a feltételeket (DB+séma, admin, parancs-aláíró kulcs, CA, PublicUrl, bastion), és ha minden
-megvan, **kiírja a blobot**. Ha valami hiányzik, `!!`-vel jelzi és nem generál.
+megvan, **kiírja a blobot**. Ami hiányzik, azt `!!`-vel jelzi és nem generál.
 
-## 9. Első gép enrollálása
+## 💻 Első gép enrollálása
 
-A blobbal két út:
-- **MSI**: a kliensben/admin API-ból gyártott MSI a blobot beágyazza → telepítéskor a gép Pending-be enrollál.
-- **Kézzel** egy gépen: `RemoteAgent.exe bootstrap "<blob>"` (majd a service indulásakor self-enroll).
+A komponens-csomagokat töltsd fel a szerverre (**GitHub Release** exéi: `agent`/`updater`/`client`,
+és a `vnc` a `deploy/fetch-tightvnc.sh`-ból), majd:
+- **MSI** (a kliensből / admin API-ból gyártva) — a blobot + a TightVNC-t beágyazza → telepítéskor a gép Pending-be enrollál, **vagy**
+- **kézzel** egy gépen: `RemoteAgent.exe bootstrap "<blob>"`.
 
-A gép **Pending**-be kerül (a blob `autoApprove=false`). Hagyd jóvá az admin felületen, utána csatlakozhatsz.
+A gép **Pending**-be kerül (`autoApprove=false`) → hagyd jóvá az admin felületen → csatlakozhatsz.
 
 ---
 
-## Gyors ellenőrző lista
+## ✅ Ellenőrző lista
 
-- [ ] MariaDB db + user + `schema.sql`
-- [ ] `command_signing.key`, `ca.crt`+`ca.key` generálva (`/etc/remoteserver`, `remotesrv` tulaj)
-- [ ] `appsettings`: connection string, `PublicUrl`, kulcs-utak, `Bastion`
-- [ ] bastion sshd (agent CA + host key pinning)
-- [ ] nginx (`/admin` csak localhost, `/agent` WSS)
-- [ ] systemd fut, `journalctl`-ben az admin temp jelszó
-- [ ] `RemoteServer mint-blob` → minden `OK`, blob kiírva
-- [ ] első gépen OpenSSH kliens (Server 2016-on kézzel)
+- [ ] `setup-db.sh` lefutott (DB + `db.env`)
+- [ ] `schema.sql` betöltve
+- [ ] `deploy-server.sh` lefutott → kulcsok generálva, service fut, agent-pubkey + CA-fingerprint feljegyezve
+- [ ] `Server__PublicUrl` beállítva (env), service újraindítva
+- [ ] `setup-bastion.sh`, `setup-tls.sh`, `setup-nginx.sh`, `harden.sh`
+- [ ] admin temp jelszó a `journalctl`-ben
+- [ ] `RemoteServer mint-blob` → minden **OK**, blob kiírva
+- [ ] első gépen OpenSSH kliens (Server 2016-on kézzel) → enroll → jóváhagyás → csatlakozás
