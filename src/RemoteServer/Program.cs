@@ -418,7 +418,7 @@ app.MapGet("/auth/me", async (HttpContext ctx, AuthService auth, CancellationTok
     }, AgentJsonContext.Default.MeResponse);
 });
 
-// === Agent WSS parancscsatorna ===
+// === Agent WSS command channel ===
 // Agents keep their outbound connection here; the server pushes signed commands over it.
 // In production, nginx terminates TLS and validates the client certificate (mTLS).
 // Device ID comes from the certificate CN. Without a cert, ?deviceId= is the dev fallback.
@@ -440,7 +440,7 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
 
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
     registry.Register(deviceId, socket);
-    log.LogInformation("Agent csatlakozott: {Device}", deviceId);
+    log.LogInformation(L.Program_AgentConnectedDevice, deviceId);
 
     // On connect, deliver pending Queued commands in a short scope so DbContext is not
     // held for the entire connection lifetime.
@@ -1472,7 +1472,7 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
     void Req(bool ok, string label, string fix) { Console.WriteLine($"  [{(ok ? "OK" : "!!")}] {label}{(ok ? "" : "  -> " + fix)}"); if (!ok) missing++; }
     void Note(bool ok, string label) => Console.WriteLine($"  [{(ok ? "OK" : "--")}] {label}");
 
-    Console.WriteLine("=== RemoteServer first-run ellenorzes ===");
+    Console.WriteLine(L.Program_MintBlobFirstRunCheck);
 
     // DB reachable + schema applied
     bool schemaOk = false;
@@ -1481,7 +1481,7 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         try { _ = await db.Roles.AnyAsync(); schemaOk = true; } catch { /* unreachable or no schema */ }
     }
-    Req(schemaOk, "DB elerheto + sema fent", "futtasd a schema.sql-t es ellenorizd a 'MariaDb' connection stringet");
+    Req(schemaOk, L.Program_MintBlobDbReachableSchemaApplied, L.Program_MintBlobRunSchemaAndCheckConnection);
 
     if (schemaOk) { try { await SeedAsync(a); } catch { /* reported via admin check */ } }
 
@@ -1492,22 +1492,22 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             try { adminOk = await db.Users.AnyAsync(); } catch { }
         }
-    Note(adminOk, "Admin felhasznalo letezik (temp jelszo a szerver logban; elso belepeskor csere)");
+    Note(adminOk, L.Program_MintBlobAdminExists);
 
     Req(!string.IsNullOrWhiteSpace(opt.CommandSigningKeyPath) && File.Exists(opt.CommandSigningKeyPath),
-        "Parancs-alairo kulcs (Server:CommandSigningKeyPath)",
+        L.Program_MintBlobCommandSigningKey,
         "openssl ecparam -name prime256v1 -genkey -noout -out <path>");
     Req(File.Exists(opt.CaCertPath) && File.Exists(opt.CaKeyPath),
-        "CA cert + kulcs (Server:CaCertPath / CaKeyPath)", "generald a CA-t (lasd FIRST-RUN.md)");
+        L.Program_MintBlobCaCertAndKey, L.Program_MintBlobGenerateCaSeeFirstRun);
     Req(!string.IsNullOrWhiteSpace(opt.PublicUrl),
-        $"PublicUrl ({(string.IsNullOrWhiteSpace(opt.PublicUrl) ? "ures" : opt.PublicUrl)})", "allitsd be Server:PublicUrl-t");
+        $"PublicUrl ({(string.IsNullOrWhiteSpace(opt.PublicUrl) ? L.Program_MintBlobEmpty : opt.PublicUrl)})", L.Program_MintBlobSetServerPublicUrl);
     Note(!string.IsNullOrWhiteSpace(opt.Bastion.Host) && !string.IsNullOrWhiteSpace(opt.Bastion.HostKey),
-        "Bastion host + host-key (a reverse tunnelhez kell, de a blobhoz nem)");
-    Note(File.Exists(opt.SecretKeyPath), "Secret-kulcs (auto-generalt, ha hianyzik)");
+        L.Program_MintBlobBastionHostAndHostKey);
+    Note(File.Exists(opt.SecretKeyPath), L.Program_MintBlobSecretKey);
 
     if (missing > 0)
     {
-        Console.WriteLine($"\n{missing} kotelezo elem hianyzik - potold, majd futtasd ujra. Blob nem keszult.");
+        Console.WriteLine(L.Format(L.Program_MintBlobMissingRequiredItems, missing));
         return 2;
     }
 
@@ -1517,14 +1517,14 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
         var enroll = scope.ServiceProvider.GetRequiredService<EnrollmentService>();
         var (raw, _) = await enroll.CreateTokenAsync(100000, null, null, "first-run", default, autoApprove: false);
         var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = opt.PublicUrl.TrimEnd('/'), Token = raw });
-        Console.WriteLine("\n=== Bootstrap blob (autoApprove=false -> a gepek Pending-be kerulnek, kezi jovahagyas kell) ===\n");
+        Console.WriteLine(L.Program_MintBlobHeader);
         Console.WriteLine(blob);
-        Console.WriteLine("\nHasznalat: az agenten  RemoteAgent.exe bootstrap \"<blob>\"  vagy az elso MSI ezt agyazza be.");
+        Console.WriteLine(L.Program_MintBlobUsage);
         return 0;
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine($"\nBlob-generalas hiba: {ex.Message}");
+        Console.Error.WriteLine(L.Format(L.Program_MintBlobGenerationError, ex.Message));
         return 1;
     }
 }
