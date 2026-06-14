@@ -26,12 +26,13 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
     private const string CompBootstrap = "A1A1A1A1-0001-4001-8001-000000000003";
     private const string CompClient = "A1A1A1A1-0001-4001-8001-000000000004";
     private const string CompShortcut = "A1A1A1A1-0001-4001-8001-000000000005";
+    private const string CompVnc = "A1A1A1A1-0001-4001-8001-000000000006";
 
     public sealed record Result(bool Ok, string? FileName, string? Error);
 
     public async Task<Result> BuildAsync(
         string agentExe, string? updaterExe, string? clientExe, string bootstrapBlob,
-        string version, string label, bool startMenuShortcut, string? ownerName, CancellationToken ct)
+        string version, string label, bool startMenuShortcut, string? ownerName, string? vncMsi, CancellationToken ct)
     {
         var work = Path.Combine(_opt.PackagesDir, "msi-build", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);
@@ -43,7 +44,8 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var iconPath = await TryWriteIconAsync(work, ct); // null when no embedded icon exists
 
             var wxsPath = Path.Combine(work, "product.wxs");
-            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, clientExe, bootstrapPath, iconPath, SanitizeVersion(version), label, startMenuShortcut, ownerName), ct);
+            var vncSource = !string.IsNullOrWhiteSpace(vncMsi) && File.Exists(vncMsi) ? vncMsi : null;
+            await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, clientExe, bootstrapPath, iconPath, SanitizeVersion(version), label, startMenuShortcut, ownerName, vncSource), ct);
 
             // File name: "{Owner}_RemoteAppClient_{group}.msi", accent-free for portability.
             var ownerTok = string.IsNullOrWhiteSpace(ownerName) ? "" : FileToken(ownerName) + "_";
@@ -90,10 +92,11 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         catch { return null; }
     }
 
-    private string GenerateWxs(string agentExe, string? updaterExe, string? clientExe, string bootstrapPath, string? iconPath, string version, string label, bool startMenuShortcut, string? ownerName)
+    private string GenerateWxs(string agentExe, string? updaterExe, string? clientExe, string bootstrapPath, string? iconPath, string version, string label, bool startMenuShortcut, string? ownerName, string? vncMsi)
     {
         bool hasClient = !string.IsNullOrWhiteSpace(clientExe);
         bool hasIcon = !string.IsNullOrWhiteSpace(iconPath);
+        bool hasVnc = !string.IsNullOrWhiteSpace(vncMsi);
         bool shortcut = startMenuShortcut && hasClient;
         // Important: Windows Installer does not open UTF-8 (65001) MSI databases (error 1620),
         // so use 1252 and fold display names to ASCII for compatibility.
@@ -142,6 +145,18 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         sb.AppendLine("""            <RemoveFolder Id="RF.InstallDir" On="uninstall" />""");
         sb.AppendLine("""          </Component>""");
 
+        // Bundle the TightVNC MSI under INSTALLDIR\vnc; the agent installs it on first run (EnsureInstalledAsync
+        // looks exactly here), so a fresh install brings up VNC without depending on the separate "vnc" rollout.
+        if (hasVnc)
+        {
+            sb.AppendLine("""          <Directory Id="VNCDIR" Name="vnc">""");
+            sb.AppendLine($"""            <Component Id="C.Vnc" Guid="{CompVnc}" Win64="yes">""");
+            sb.AppendLine($"""              <File Id="F.Vnc" Name="tightvnc.msi" Source="{X(vncMsi!)}" KeyPath="yes" />""");
+            sb.AppendLine("""              <RemoveFolder Id="RF.VncDir" On="uninstall" />""");
+            sb.AppendLine("""            </Component>""");
+            sb.AppendLine("""          </Directory>""");
+        }
+
         sb.AppendLine("""        </Directory>""");
         sb.AppendLine("""      </Directory>""");
 
@@ -164,6 +179,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         if (!string.IsNullOrWhiteSpace(updaterExe)) sb.AppendLine("""      <ComponentRef Id="C.Updater" />""");
         if (hasClient) sb.AppendLine("""      <ComponentRef Id="C.Client" />""");
         sb.AppendLine("""      <ComponentRef Id="C.Bootstrap" />""");
+        if (hasVnc) sb.AppendLine("""      <ComponentRef Id="C.Vnc" />""");
         if (shortcut) sb.AppendLine("""      <ComponentRef Id="C.Shortcut" />""");
         sb.AppendLine("""    </Feature>""");
 

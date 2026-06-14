@@ -572,6 +572,25 @@ app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx,
     return Results.NoContent();
 });
 
+// Delete a device and its dependent rows (telemetry, commands, sessions). Audit history is kept.
+// The agent keeps its local enrollment, so to fully re-provision a device, re-enroll it afterwards.
+app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    var gid = device.Id;
+    var host = device.Hostname;
+
+    // No FK cascade: these store DeviceId as a plain Guid, so remove them explicitly.
+    await db.DeviceTelemetry.Where(t => t.DeviceId == gid).ExecuteDeleteAsync(ct);
+    await db.Set<RemoteServer.Data.Entities.Command>().Where(c => c.DeviceId == gid).ExecuteDeleteAsync(ct);
+    await db.Set<RemoteServer.Data.Entities.RemoteSession>().Where(s => s.DeviceId == gid).ExecuteDeleteAsync(ct);
+    db.Devices.Remove(device);
+    await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "device-delete", null, host);
+    return Results.NoContent();
+});
+
 // List and create groups.
 app.MapGet("/admin/groups", async (AppDbContext db, CancellationToken ct) =>
 {
@@ -888,6 +907,27 @@ app.MapPost("/admin/devices/{deviceId}/send-message", async (
     return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
 });
 
+// Commands tab: a fixed power action on the device (restart / force-restart / cancel / logout). The agent
+// maps the keyword to a vetted action — no shell string crosses the wire. The outcome
+// (scheduled / cancelled / logged-out / no-user / failed) comes back via access-result; the console polls.
+app.MapPost("/admin/devices/{deviceId}/power", async (
+    string deviceId, string? action, HttpContext ctx, AppDbContext db, CommandService commands, AccessResultStore accessResults, CancellationToken ct) =>
+{
+    var act = (action ?? "").Trim().ToLowerInvariant();
+    if (act is not ("restart" or "force-restart" or "cancel" or "logout"))
+        return Results.BadRequest(new { error = "bad_action" });
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    var me = (User)ctx.Items["user"]!;
+
+    var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Power,
+        new CommandData { PowerAction = act }, createdBy: null, ct);
+    if (cmd is null) return Results.NotFound();
+    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+    await AuditAsync(db, ctx, "device-power", device.Id, act);
+    return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
+});
+
 // Audit log query with filters: action key, actor username, deviceId, limit.
 app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceId, int? limit, AppDbContext db, CancellationToken ct) =>
 {
@@ -1153,12 +1193,22 @@ app.MapPost("/admin/msi", async (
         }
     }
 
+    // Bundle the current TightVNC (vnc) MSI so the agent installs it on first run — no separate rollout needed.
+    string? vncMsi = null;
+    var vncPkg = await db.ReleasePackages.Where(p => p.Channel == ch && p.Component == "vnc")
+        .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
+    if (vncPkg is not null)
+    {
+        var vp = Path.Combine(opt.Value.PackagesDir, vncPkg.FileName);
+        if (File.Exists(vp)) vncMsi = vp;
+    }
+
     // Group bootstrap: AutoApprove=false site token makes installed devices Pending.
     var (rawToken, tokenEntity) = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = rawToken });
 
     var ownerName = (await db.ServerSettings.FirstOrDefaultAsync(ct))?.OwnerName;
-    var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ownerName, ct);
+    var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ownerName, vncMsi, ct);
     if (!res.Ok) return Results.Problem(res.Error ?? "msi_failed");
 
     // Bind the blob to the generated MSI so the bootstrap view can show which MSI owns it.

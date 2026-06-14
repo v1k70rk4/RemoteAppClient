@@ -51,7 +51,9 @@ public static class VncProvisioner
         if (!File.Exists(msiPath))
             throw new FileNotFoundException(L.VncProvisioner_TightVNCMSINotFound, msiPath);
 
-        var psi = new ProcessStartInfo("msiexec", $"/i \"{msiPath}\" /quiet /norestart ADDLOCAL=Server")
+        // ADDLOCAL=ALL installs both the Server (incoming) and the Viewer (tvnviewer.exe). Console machines
+        // run the same package, and the client launches tvnviewer.exe, so the viewer must be present too.
+        var psi = new ProcessStartInfo("msiexec", $"/i \"{msiPath}\" /quiet /norestart ADDLOCAL=ALL")
         {
             UseShellExecute = false,
         };
@@ -67,21 +69,67 @@ public static class VncProvisioner
     /// Watchdog: keeps tvnserver installed, hardened and running. Re-hardens only on configuration
     /// drift (which restarts the service), so a healthy server is left untouched on every tick.
     /// </summary>
+    private static bool _viewerRepairTried;
+
     public static async Task EnsureHealthyAsync(string password, string msiPath)
     {
         if (!ServiceExists())
         {
             await EnsureInstalledAsync(msiPath);
-            ApplyHardening(password); // writes config + starts the service
-            return;
+            ApplyHardening(password); // writes config + starts the service (ADDLOCAL=ALL also brings the viewer)
         }
-        if (!IsHardened(password))
+        else if (!IsHardened(password))
         {
             ApplyHardening(password); // re-applies config and restarts (also brings it up if stopped)
-            return;
         }
-        if (!IsRunning())
+        else if (!IsRunning())
+        {
             RunNet("start", ServiceName);
+        }
+
+        // Viewer self-heal: console machines need tvnviewer.exe even when only the Server was installed
+        // (older "vnc" rollouts used ADDLOCAL=Server). Add it via maintenance on the cached package — no
+        // download needed — then re-harden, since reconfigure can reset the server config. Once per run.
+        if (!_viewerRepairTried && ServiceExists() && !IsViewerInstalled())
+        {
+            _viewerRepairTried = true;
+            if (EnsureViewer())
+                ApplyHardening(password);
+        }
+    }
+
+    /// <summary>Whether the TightVNC viewer (tvnviewer.exe) is present in any known TightVNC install dir.</summary>
+    public static bool IsViewerInstalled()
+    {
+        foreach (var dir in ViewerDirs())
+            if (File.Exists(Path.Combine(dir, "tvnviewer.exe"))) return true;
+        return false;
+    }
+
+    private static IEnumerable<string> ViewerDirs()
+    {
+        var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        yield return Path.Combine(pf, "TightVNC");
+        if (!string.IsNullOrEmpty(pfx86)) yield return Path.Combine(pfx86, "TightVNC");
+        foreach (var (_, _, loc) in EnumTightVnc())
+            if (!string.IsNullOrWhiteSpace(loc)) yield return loc!;
+    }
+
+    /// <summary>Reconfigures the installed TightVNC to add all features (incl. Viewer) via the cached MSI.</summary>
+    private static bool EnsureViewer()
+    {
+        var pc = EnumTightVnc().Select(e => e.subKey).FirstOrDefault();
+        if (string.IsNullOrEmpty(pc)) return false;
+        try
+        {
+            var psi = new ProcessStartInfo("msiexec", $"/i {pc} ADDLOCAL=ALL /quiet /norestart")
+            { UseShellExecute = false, CreateNoWindow = true };
+            using var p = Process.Start(psi)!;
+            p.WaitForExit();
+            return p.ExitCode is 0 or 3010;
+        }
+        catch { return false; }
     }
 
     /// <summary>Whether tvnserver is currently in the RUNNING state.</summary>

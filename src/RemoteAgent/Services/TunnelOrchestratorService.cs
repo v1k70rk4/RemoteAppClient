@@ -63,6 +63,9 @@ public sealed class TunnelOrchestratorService(
             case CommandTypes.Message:
                 await MessageCommandAsync(cmd, ct);
                 break;
+            case CommandTypes.Power:
+                await PowerCommandAsync(cmd, ct);
+                break;
             default:
                 logger.LogWarning(L.TunnelOrchestratorService_UnknownCommandType, cmd.Type);
                 break;
@@ -192,6 +195,26 @@ public sealed class TunnelOrchestratorService(
             _ => "busy", // Denied / Error
         };
         await uplink.ReportAccessResultAsync(cmd.Nonce, result, ct);
+    }
+
+    /// <summary>
+    /// "power" command: a fixed, server-vetted power action (no shell string on the wire). Reports the
+    /// outcome via the uplink so the console gets feedback: "scheduled" | "cancelled" | "logged-out" |
+    /// "no-user" | "failed". Restart uses a 60s grace, so the report reaches the console before reboot.
+    /// </summary>
+    private async Task PowerCommandAsync(AgentCommand cmd, CancellationToken ct)
+    {
+        var outcome = cmd.Data?.PowerAction switch
+        {
+            "restart"       => RemoteAgent.Power.PowerControl.Restart(force: false) ? "scheduled" : "failed",
+            "force-restart" => RemoteAgent.Power.PowerControl.Restart(force: true)  ? "scheduled" : "failed",
+            "cancel"        => Cancelled(),
+            "logout"        => RemoteAgent.Power.PowerControl.LogoffActiveUser() ? "logged-out" : "no-user",
+            _               => "failed",
+        };
+        await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
+
+        static string Cancelled() { RemoteAgent.Power.PowerControl.Cancel(); return "cancelled"; }
     }
 
     private async Task CloseTunnelAsync()

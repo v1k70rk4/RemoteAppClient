@@ -29,6 +29,7 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_General);
     private readonly MaterialButton _tabPermissions = TabBtn(L.UsersView_Permissions);
     private readonly MaterialButton _tabMessages = TabBtn(L.DevicesView_Messages);
+    private readonly MaterialButton _tabCommands = TabBtn(L.DevicesView_Commands);
     private readonly MaterialButton _tabLog = TabBtn("LOG");
     private readonly MaterialButton _tabTelemetry = TabBtn(L.DevicesView_Telemetry);
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
@@ -39,6 +40,7 @@ public sealed class DevicesView : UserControl, IContentView
     private DeviceGeneralPanel? _generalPanel;
     private DevicePermissionsPanel? _permPanel;
     private DeviceMessagesPanel? _msgPanel;
+    private DeviceCommandsPanel? _cmdPanel;
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
 
@@ -88,6 +90,17 @@ public sealed class DevicesView : UserControl, IContentView
             Item(L.DevicesView_Telemetry, "telemetry");
             Item(L.UsersView_Permissions, "permissions");
 
+            // Power commands directly in the menu (each confirms first; cancel is a safe undo).
+            menu.Items.Add(new ToolStripSeparator());
+            var power = new ToolStripMenuItem(L.DevicesView_Commands);
+            power.DropDownItems.Add(L.DeviceCommandsPanel_Restart, null, async (_, _) => await RunPowerAsync("restart", confirm: true));
+            power.DropDownItems.Add(L.DeviceCommandsPanel_ForceRestart, null, async (_, _) => await RunPowerAsync("force-restart", confirm: true));
+            power.DropDownItems.Add(L.DeviceCommandsPanel_CancelRestart, null, async (_, _) => await RunPowerAsync("cancel", confirm: false));
+            power.DropDownItems.Add(L.DeviceCommandsPanel_Logout, null, async (_, _) => await RunPowerAsync("logout", confirm: true));
+            menu.Items.Add(power);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(L.DevicesView_Delete, null, async (_, _) => await DeleteSelectedAsync());
+
             _list.MouseUp += (_, e) =>
             {
                 if (e.Button != MouseButtons.Right) return;
@@ -104,6 +117,7 @@ public sealed class DevicesView : UserControl, IContentView
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
         void RightBtn(string text, EventHandler onClick) { var b = ViewUi.ToolbarButton(text); b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; actions.Controls.Add(b); }
         // Properties/Messages/Log/Telemetry/Permissions now live in the right-click menu on the list.
+        if (_isAdmin) RightBtn(L.DevicesView_Delete, async (_, _) => await DeleteSelectedAsync());
         if (_isAdmin) RightBtn(L.DevicesView_UnlockSignIn, async (_, _) => await UnlockSelectedAsync());
         if (_isAdmin) RightBtn(L.DevicesView_Approve, async (_, _) => await ApproveSelectedAsync());
         _connectBtn.Margin = new Padding(4, 0, 4, 0);
@@ -120,11 +134,12 @@ public sealed class DevicesView : UserControl, IContentView
         _tabGeneral.Click += (_, _) => SelectTab("general");
         _tabPermissions.Click += (_, _) => SelectTab("permissions");
         _tabMessages.Click += (_, _) => SelectTab("messages");
+        _tabCommands.Click += (_, _) => SelectTab("commands");
         _tabLog.Click += async (_, _) => await SelectTabAsync("log");
         _tabTelemetry.Click += (_, _) => SelectTab("telemetry");
 
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabMessages, _tabLog, _tabTelemetry]);
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabMessages, _tabCommands, _tabLog, _tabTelemetry]);
 
         _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _tabContent));
     }
@@ -222,10 +237,11 @@ public sealed class DevicesView : UserControl, IContentView
             _editing = d;
             _editorTitle.Text = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
 
-            _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
+            _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _cmdPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
             _generalPanel = new DeviceGeneralPanel(_api, d, groups);
             _permPanel = new DevicePermissionsPanel(_api, d);
             _msgPanel = new DeviceMessagesPanel(_api, d, () => ConnectDeviceAsync(d));
+            _cmdPanel = new DeviceCommandsPanel(_api, d);
             _logPanel = new LogPanel(_api, deviceId: d.DeviceId);
             _telemetryPanel = new DeviceTelemetryPanel(d);
 
@@ -239,7 +255,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     private async Task SelectTabAsync(string tab)
     {
-        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabMessages, "messages"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
+        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabMessages, "messages"), (_tabCommands, "commands"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
             b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
 
         _tabContent.Controls.Clear();
@@ -248,6 +264,7 @@ public sealed class DevicesView : UserControl, IContentView
             case "general" when _generalPanel is not null: _tabContent.Controls.Add(_generalPanel); break;
             case "permissions" when _permPanel is not null: _tabContent.Controls.Add(_permPanel); break;
             case "messages" when _msgPanel is not null: _tabContent.Controls.Add(_msgPanel); break;
+            case "commands" when _cmdPanel is not null: _tabContent.Controls.Add(_cmdPanel); break;
             case "telemetry" when _telemetryPanel is not null: _tabContent.Controls.Add(_telemetryPanel); break;
             case "log" when _logPanel is not null: _tabContent.Controls.Add(_logPanel); await _logPanel.ShownAsync(); break;
         }
@@ -323,6 +340,50 @@ public sealed class DevicesView : UserControl, IContentView
         finally { _connectBtn.Enabled = true; }
     }
 
+    /// <summary>Runs a power action on the selected device (right-click menu). Confirms first when asked.</summary>
+    private async Task RunPowerAsync(string action, bool confirm)
+    {
+        if (SelectedDevice() is not { } d) { SetStatus(L.DevicesView_SelectADevice); return; }
+        var host = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
+        if (confirm)
+        {
+            var msg = action switch
+            {
+                "force-restart" => L.Format(L.DeviceCommandsPanel_ConfirmForceRestart, host),
+                "logout" => L.Format(L.DeviceCommandsPanel_ConfirmLogout, host),
+                _ => L.Format(L.DeviceCommandsPanel_ConfirmRestart, host),
+            };
+            if (MessageBox.Show(msg, L.DeviceCommandsPanel_Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        }
+        try
+        {
+            SetStatus(L.DeviceCommandsPanel_Sending);
+            var outcome = await WaitPowerAsync(await _api.PowerAsync(d.DeviceId, action));
+            SetStatus(outcome switch
+            {
+                "scheduled" => L.DeviceCommandsPanel_Scheduled,
+                "cancelled" => L.DeviceCommandsPanel_Cancelled,
+                "logged-out" => L.DeviceCommandsPanel_LoggedOut,
+                "no-user" => L.DeviceCommandsPanel_NoUser,
+                "failed" => L.DeviceCommandsPanel_Failed,
+                _ => L.DeviceCommandsPanel_NoAnswer,
+            });
+        }
+        catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
+    }
+
+    private async Task<string> WaitPowerAsync(string? nonce)
+    {
+        if (string.IsNullOrEmpty(nonce)) return "";
+        for (int i = 0; i < 15; i++)
+        {
+            try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
+            catch { /* transient */ }
+            await Task.Delay(1000);
+        }
+        return "";
+    }
+
     private async Task UnlockSelectedAsync()
     {
         if (SelectedDevice() is not { } sel) { SetStatus(L.DevicesView_SelectADevice); return; }
@@ -330,6 +391,15 @@ public sealed class DevicesView : UserControl, IContentView
         if (MessageBox.Show(L.Format(L.DevicesView_UnlockSignInOnThis, sel.Hostname), L.DevicesView_UnlockSignIn, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         try { await _api.UnlockDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_SignInLockCleared, sel.Hostname)); await RefreshAsync(); }
         catch (Exception ex) { SetStatus(L.DevicesView_UnlockError + ex.Message); }
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (SelectedDevice() is not { } sel) { SetStatus(L.DevicesView_SelectADevice); return; }
+        var host = string.IsNullOrEmpty(sel.Hostname) ? sel.DeviceId : sel.Hostname;
+        if (MessageBox.Show(L.Format(L.DevicesView_DeleteConfirm, host), L.DevicesView_Delete, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.DeleteDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_Deleted, host)); await RefreshAsync(); }
+        catch (Exception ex) { SetStatus(L.DevicesView_DeleteError + ex.Message); }
     }
 
     private async Task ApproveSelectedAsync()
@@ -343,11 +413,33 @@ public sealed class DevicesView : UserControl, IContentView
 
     private void LaunchViewer(int localPort, string password)
     {
-        var psi = new ProcessStartInfo(_cfg.ViewerExe) { UseShellExecute = false };
+        var viewer = ResolveViewer();
+        if (viewer is null)
+        {
+            SetStatus(L.DevicesView_ViewerNotFound);
+            MessageBox.Show(L.DevicesView_ViewerNotFound, "VNC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        var psi = new ProcessStartInfo(viewer) { UseShellExecute = false };
         psi.ArgumentList.Add("-host=127.0.0.1");
         psi.ArgumentList.Add($"-port={localPort}");
         psi.ArgumentList.Add($"-password={password}");
         Process.Start(psi);
+    }
+
+    /// <summary>Locates the TightVNC viewer: configured path first, then standard install dirs and a copy next to the client.</summary>
+    private string? ResolveViewer()
+    {
+        var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var candidates = new[]
+        {
+            _cfg.ViewerExe,
+            Path.Combine(pf, "TightVNC", "tvnviewer.exe"),
+            string.IsNullOrEmpty(pfx86) ? "" : Path.Combine(pfx86, "TightVNC", "tvnviewer.exe"),
+            Path.Combine(AppContext.BaseDirectory, "tvnviewer.exe"),
+        };
+        return candidates.FirstOrDefault(p => !string.IsNullOrEmpty(p) && File.Exists(p));
     }
 
     private static async Task<T> RetryAsync<T>(Func<Task<T>> action, int attempts = 4)

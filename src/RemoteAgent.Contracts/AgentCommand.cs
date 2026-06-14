@@ -89,6 +89,11 @@ public sealed class CommandData
     [JsonPropertyName("messageFrom")] public string? MessageFrom { get; set; }
     /// <summary>The message body for the "text" kind.</summary>
     [JsonPropertyName("messageText")] public string? MessageText { get; set; }
+
+    // For "power" commands (Commands tab). Canonicalized only for the power command type, so existing
+    // command signatures stay unchanged. The agent maps the keyword to a fixed action (no shell string
+    // travels the wire): "restart" | "force-restart" | "cancel" | "logout".
+    [JsonPropertyName("powerAction")] public string? PowerAction { get; set; }
 }
 
 /// <summary>Known command types. Arbitrary strings are ignored.</summary>
@@ -100,6 +105,8 @@ public static class CommandTypes
     public const string Ping = "ping";
     /// <summary>Show a WTS prompt to the signed-in user: availability question or a plain message.</summary>
     public const string Message = "message";
+    /// <summary>Power action on the device: restart / force-restart / cancel / logout (see CommandData.PowerAction).</summary>
+    public const string Power = "power";
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

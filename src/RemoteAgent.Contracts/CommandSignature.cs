@@ -27,6 +27,10 @@ public static class CommandSignature
         // form (and signatures) stay unchanged — older agents keep verifying them.
         if (cmd.Type == CommandTypes.Message)
             s += $"|{cmd.Data?.MessageKind}|{cmd.Data?.MessageFrom}|{cmd.Data?.MessageText}";
+
+        // Likewise, power fields are appended only for power commands.
+        if (cmd.Type == CommandTypes.Power)
+            s += $"|{cmd.Data?.PowerAction}";
         return s;
     }
 

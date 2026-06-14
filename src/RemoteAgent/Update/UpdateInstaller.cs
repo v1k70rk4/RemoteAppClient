@@ -99,7 +99,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
 
     /// <summary>
     /// TightVNC (vnc) update: downloads the MSI, verifies SHA-256, then installs it locally
-    /// with msiexec /i ... ADDLOCAL=Server, just like the provisioner. Settings are preserved.
+    /// with msiexec /i ... ADDLOCAL=ALL (server + viewer), just like the provisioner. Settings are preserved.
     /// </summary>
     private async Task ApplyVncMsiAsync(string? version, string url, string sha256, CancellationToken ct)
     {
@@ -127,7 +127,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
                 return;
             }
 
-            var psi = new ProcessStartInfo("msiexec", $"/i \"{msi}\" /quiet /norestart ADDLOCAL=Server")
+            var psi = new ProcessStartInfo("msiexec", $"/i \"{msi}\" /quiet /norestart ADDLOCAL=ALL")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

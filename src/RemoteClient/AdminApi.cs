@@ -217,6 +217,14 @@ public sealed class AdminApi : IDisposable
         return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
     }
 
+    /// <summary>Commands tab: runs a fixed power action (restart/force-restart/cancel/logout). Returns the nonce to poll.</summary>
+    public async Task<string?> PowerAsync(string deviceId, string action, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/power?action={Uri.EscapeDataString(action)}", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
+    }
+
     /// <summary>Fetches audit log with filters. Empty filter = all. action/actor/deviceId are optional.</summary>
     public async Task<List<AuditEntryInfo>> GetAuditAsync(string? action = null, string? actor = null, string? deviceId = null, int limit = 200, CancellationToken ct = default)
     {
@@ -280,6 +288,13 @@ public sealed class AdminApi : IDisposable
     public async Task UnlockDeviceAsync(string deviceId, CancellationToken ct = default)
     {
         using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/unlock", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Deletes a device and its dependent rows (telemetry, commands, sessions).</summary>
+    public async Task DeleteDeviceAsync(string deviceId, CancellationToken ct = default)
+    {
+        using var resp = await _http.DeleteAsync($"/admin/devices/{deviceId}", ct);
         resp.EnsureSuccessStatusCode();
     }
 

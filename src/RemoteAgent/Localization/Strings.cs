@@ -135,6 +135,7 @@ internal static partial class Strings
     public static string TunnelOrchestratorService_ThankYouTitle => Get(nameof(TunnelOrchestratorService_ThankYouTitle));
     public static string TunnelOrchestratorService_ThankYouBody => Get(nameof(TunnelOrchestratorService_ThankYouBody));
     public static string TunnelOrchestratorService_MessageFromTitle => Get(nameof(TunnelOrchestratorService_MessageFromTitle));
+    public static string PowerControl_RestartComment => Get(nameof(PowerControl_RestartComment));
     public static string TunnelOrchestratorService_RemoteAccessALLOWEDByThe => Get(nameof(TunnelOrchestratorService_RemoteAccessALLOWEDByThe));
     public static string TunnelOrchestratorService_RemoteAccessTheUserDid => Get(nameof(TunnelOrchestratorService_RemoteAccessTheUserDid));
     public static string TunnelOrchestratorService_OpenTunnelConsentTimeout => Get(nameof(TunnelOrchestratorService_OpenTunnelConsentTimeout));
