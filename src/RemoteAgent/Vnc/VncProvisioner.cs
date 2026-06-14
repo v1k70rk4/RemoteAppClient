@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Win32;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Vnc;
 
@@ -24,19 +25,19 @@ public static class VncProvisioner
         {
             var installed = await EnsureInstalledAsync(msi);
             ApplyHardening(password);
-            Console.WriteLine(installed ? "TightVNC telepítve és bekonfigurálva." : "TightVNC már telepítve; konfiguráció frissítve.");
+            Console.WriteLine(installed ? L.VncProvisioner_001 : L.VncProvisioner_002);
             Console.WriteLine($"  VNC port:  127.0.0.1:5900 (loopback-only)");
-            Console.WriteLine($"  jelszó:    {password}");
+            Console.WriteLine(L.Format(L.VncProvisioner_003, password));
             return 0;
         }
         catch (UnauthorizedAccessException)
         {
-            Console.Error.WriteLine("Nincs jogosultság (admin/SYSTEM kell az MSI-telepítéshez és a HKLM íráshoz).");
+            Console.Error.WriteLine(L.VncProvisioner_004);
             return 5;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("VNC provisioning hiba: " + ex.Message);
+            Console.Error.WriteLine(L.VncProvisioner_007 + ex.Message);
             return 1;
         }
     }
@@ -48,7 +49,7 @@ public static class VncProvisioner
             return false;
 
         if (!File.Exists(msiPath))
-            throw new FileNotFoundException("A TightVNC MSI nem található.", msiPath);
+            throw new FileNotFoundException(L.VncProvisioner_005, msiPath);
 
         var psi = new ProcessStartInfo("msiexec", $"/i \"{msiPath}\" /quiet /norestart ADDLOCAL=Server")
         {
@@ -58,7 +59,7 @@ public static class VncProvisioner
         await proc.WaitForExitAsync();
         // 0 = siker, 3010 = siker, újraindítás ajánlott.
         if (proc.ExitCode is not (0 or 3010))
-            throw new InvalidOperationException($"msiexec hibakód: {proc.ExitCode}");
+            throw new InvalidOperationException(L.Format(L.VncProvisioner_006, proc.ExitCode));
         return true;
     }
 

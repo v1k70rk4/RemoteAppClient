@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RemoteServer.Data;
 using RemoteServer.Security;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Services;
 
@@ -24,9 +25,9 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
 
     public async Task<(bool Ok, string? Error)> SendAsync(string to, string subject, string body, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(to)) return (false, "Hiányzó címzett.");
+        if (string.IsNullOrWhiteSpace(to)) return (false, L.EmailSender_001);
         var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
-        if (s is null) return (false, "Nincs e-mail beállítás.");
+        if (s is null) return (false, L.EmailSender_002);
 
         try
         {
@@ -34,21 +35,21 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
             {
                 "smtp"  => await SendSmtpAsync(s, to, subject, body, ct),
                 "graph" => await SendGraphAsync(s, to, subject, body, ct),
-                _       => (false, "Nincs aktív e-mail provider beállítva."),
+                _       => (false, L.EmailSender_003),
             };
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "E-mail küldés hiba ({Provider}).", s.EmailProvider);
+            logger.LogWarning(ex, L.EmailSender_004, s.EmailProvider);
             return (false, ex.Message);
         }
     }
 
     private async Task<(bool, string?)> SendSmtpAsync(Data.Entities.ServerSettings s, string to, string subject, string body, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(s.SmtpHost)) return (false, "Hiányzó SMTP host.");
+        if (string.IsNullOrWhiteSpace(s.SmtpHost)) return (false, L.EmailSender_005);
         var from = string.IsNullOrWhiteSpace(s.SmtpFrom) ? s.SmtpUser : s.SmtpFrom;
-        if (string.IsNullOrWhiteSpace(from)) return (false, "Hiányzó feladó (SmtpFrom/SmtpUser).");
+        if (string.IsNullOrWhiteSpace(from)) return (false, L.EmailSender_006);
 
         using var msg = new MailMessage(from!, to, subject, body) { IsBodyHtml = false };
         using var client = new SmtpClient(s.SmtpHost, s.SmtpPort) { EnableSsl = s.SmtpUseTls };
@@ -63,9 +64,9 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
     private async Task<(bool, string?)> SendGraphAsync(Data.Entities.ServerSettings s, string to, string subject, string body, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(s.GraphTenantId) || string.IsNullOrWhiteSpace(s.GraphClientId) || string.IsNullOrWhiteSpace(s.GraphSender))
-            return (false, "Hiányzó Graph beállítás (tenant/client/sender).");
+            return (false, L.EmailSender_007);
         var secret = protector.TryUnprotect(s.GraphClientSecretEnc);
-        if (string.IsNullOrWhiteSpace(secret)) return (false, "Hiányzó Graph client secret.");
+        if (string.IsNullOrWhiteSpace(secret)) return (false, L.EmailSender_008);
 
         // 1) token — client credentials
         using var tokenReq = new HttpRequestMessage(HttpMethod.Post,
@@ -81,11 +82,11 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
         };
         using var tokenResp = await Http.SendAsync(tokenReq, ct);
         var tokenJson = await tokenResp.Content.ReadAsStringAsync(ct);
-        if (!tokenResp.IsSuccessStatusCode) return (false, $"Token hiba ({(int)tokenResp.StatusCode}): {Trim(tokenJson)}");
+        if (!tokenResp.IsSuccessStatusCode) return (false, L.Format(L.EmailSender_010, (int)tokenResp.StatusCode, Trim(tokenJson)));
 
         using var tokenDoc = JsonDocument.Parse(tokenJson);
         if (!tokenDoc.RootElement.TryGetProperty("access_token", out var atEl) || atEl.GetString() is not { } accessToken)
-            return (false, "A token-válasz nem tartalmaz access_token-t.");
+            return (false, L.EmailSender_009);
 
         // 2) sendMail
         var payload = BuildSendMailJson(to, subject, body);
@@ -99,7 +100,7 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
         using var mailResp = await Http.SendAsync(mailReq, ct);
         if (mailResp.IsSuccessStatusCode) return (true, null);
         var err = await mailResp.Content.ReadAsStringAsync(ct);
-        return (false, $"sendMail hiba ({(int)mailResp.StatusCode}): {Trim(err)}");
+        return (false, L.Format(L.EmailSender_011, (int)mailResp.StatusCode, Trim(err)));
     }
 
     private static string BuildSendMailJson(string to, string subject, string body)

@@ -3,6 +3,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RemoteAgent.Updater;
 
+RemoteAgent.Globalization.RuntimeLanguage.ApplyFromSharedSettings();
+
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddWindowsService(o => o.ServiceName = "RemoteAgent.Updater");

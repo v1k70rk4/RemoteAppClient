@@ -5,6 +5,7 @@ using MaterialSkin.Controls;
 using QRCoder;
 using RemoteAgent.Admin;
 using RemoteClient.Views;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
@@ -37,20 +38,20 @@ public sealed class MainForm : MaterialForm
     private RemoteAgent.Admin.BrandingInfo? _branding;
     private readonly MaterialCard _loginCard = new();
     private readonly MaterialCard _setupCard = new();
-    private readonly MaterialTextBox2 _user = new() { Hint = "Felhasználó" };
-    private readonly MaterialTextBox2 _pass = new() { Hint = "Jelszó", UseSystemPasswordChar = true };
-    private readonly MaterialTextBox2 _totp = new() { Hint = "TOTP (ha van)" };
-    private readonly MaterialButton _loginBtn = new() { Text = "Belépés" };
-    private readonly MaterialButton _helloBtn = new() { Text = "Belépés Windows Hello-val", Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Visible = false };
+    private readonly MaterialTextBox2 _user = new() { Hint = L.CredentialDialog_002 };
+    private readonly MaterialTextBox2 _pass = new() { Hint = L.MainForm_001, UseSystemPasswordChar = true };
+    private readonly MaterialTextBox2 _totp = new() { Hint = L.MainForm_059 };
+    private readonly MaterialButton _loginBtn = new() { Text = L.MainForm_002 };
+    private readonly MaterialButton _helloBtn = new() { Text = L.MainForm_003, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Visible = false };
     private readonly MaterialLabel _loginStatus = new() { Visible = true };
-    private readonly MaterialLabel _forgotLink = new() { Text = "Elfelejtett jelszó?", AutoSize = true, ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
+    private readonly MaterialLabel _forgotLink = new() { Text = L.MainForm_004, AutoSize = true, ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
     private bool _loggedInViaHello;
     // Setup
-    private readonly MaterialTextBox2 _newPass = new() { Hint = "Új jelszó (min. 10)", UseSystemPasswordChar = true };
-    private readonly MaterialTextBox2 _newPass2 = new() { Hint = "Új jelszó újra", UseSystemPasswordChar = true };
+    private readonly MaterialTextBox2 _newPass = new() { Hint = L.ForgotPasswordForm_004, UseSystemPasswordChar = true };
+    private readonly MaterialTextBox2 _newPass2 = new() { Hint = L.MainForm_005, UseSystemPasswordChar = true };
     private readonly PictureBox _qr = new() { SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(160, 160) };
-    private readonly MaterialTextBox2 _enrollCode = new() { Hint = "Hitelesítő kód" };
-    private readonly MaterialButton _finishBtn = new() { Text = "Befejezés" };
+    private readonly MaterialTextBox2 _enrollCode = new() { Hint = L.MainForm_006 };
+    private readonly MaterialButton _finishBtn = new() { Text = L.MainForm_007 };
     private readonly MaterialLabel _setupStatus = new();
 
     // Fő nézet — egyablakos: bal oldali menü + jobb oldali tartalom-host
@@ -138,7 +139,7 @@ public sealed class MainForm : MaterialForm
             try
             {
                 _broker ??= await BrokerClient.TryConnectAsync()
-                    ?? throw new InvalidOperationException("Nincs helyi agent (a bróker nem elérhető).");
+                    ?? throw new InvalidOperationException(L.MainForm_008);
                 return await _broker.ForwardAsync(_cfg.AdminApiPort, ct);
             }
             catch when (attempt == 0)
@@ -148,7 +149,7 @@ public sealed class MainForm : MaterialForm
                 _broker = null;
             }
         }
-        throw new InvalidOperationException("Nem sikerült admin-forwardot nyitni a helyi brókeren.");
+        throw new InvalidOperationException(L.MainForm_009);
     }
 
     private bool _envBusy;
@@ -163,9 +164,9 @@ public sealed class MainForm : MaterialForm
             var s = await StatusClient.QueryAgentAsync();
             if (_api is not null && !string.IsNullOrWhiteSpace(s?.DeviceId)) _api.DeviceId = s!.DeviceId;
             string text; Color color;
-            if (s is null) { text = "● Agent nem elérhető"; color = Color.Gray; }
-            else if (!s.C2Connected) { text = "● Szerver: nincs kapcsolat"; color = Color.IndianRed; }
-            else { text = s.TunnelActive ? "● Online · tunnel kész" : "● Online"; color = Color.MediumSeaGreen; }
+            if (s is null) { text = L.MainForm_010; color = Color.Gray; }
+            else if (!s.C2Connected) { text = L.MainForm_060; color = Color.IndianRed; }
+            else { text = s.TunnelActive ? L.MainForm_011 : "● Online"; color = Color.MediumSeaGreen; }
             if (!_envLbl.IsDisposed) { _envLbl.Text = text; _envLbl.ForeColor = color; }
         }
         catch { /* a jelző nem kritikus */ }
@@ -189,7 +190,7 @@ public sealed class MainForm : MaterialForm
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(_branding?.SupportPhone)) parts.Add("☎ " + _branding!.SupportPhone);
         if (!string.IsNullOrWhiteSpace(_branding?.SupportEmail)) parts.Add("✉ " + _branding!.SupportEmail);
-        return parts.Count == 0 ? "" : "Támogatás:  " + string.Join("    ", parts);
+        return parts.Count == 0 ? "" : L.MainForm_012 + string.Join("    ", parts);
     }
 
     /// <summary>Admin: a Graph secret 30 napon belül lejár-e → piros jelzés az online felett.</summary>
@@ -204,8 +205,8 @@ public sealed class MainForm : MaterialForm
                 if (days <= 30)
                 {
                     _secretWarnLbl.Text = days <= 0
-                        ? "⚠ A levélküldési token LEJÁRT"
-                        : $"⚠ A levélküldési token {(int)days} napon belül lejár";
+                        ? L.MainForm_013
+                        : L.Format(L.MainForm_014, (int)days);
                     _warnPanel.Visible = true;
                     return;
                 }
@@ -232,13 +233,13 @@ public sealed class MainForm : MaterialForm
         _branding = BrandingCache.Load();
         ApplyBranding();
 
-        SetLoginStatus("Helyi agent keresése…");
+        SetLoginStatus(L.MainForm_015);
         _broker = await BrokerClient.TryConnectAsync();
         if (_broker is null) { Show(_noAgentView); return; }
 
         // Státusz: szerver neve + online + helyi VNC-zár.
-        _serverNameLbl.Text = "Szerver:  " + AgentInfo.ServerName();
-        _remoteLbl.Text = "Távoli elérés ezen a gépen:  " + (LocalVncLock.IsLocked() ? "LETILTVA" : "Engedélyezve");
+        _serverNameLbl.Text = L.MainForm_061 + AgentInfo.ServerName();
+        _remoteLbl.Text = L.MainForm_016 + (LocalVncLock.IsLocked() ? L.MainForm_066 : L.MainForm_017);
         Show(_authView);
 
         // Élő környezet-jelző: a helyi agent status-pipe-ját pollozzuk (C2 / tunnel valós időben).
@@ -252,8 +253,8 @@ public sealed class MainForm : MaterialForm
 
             // A bróker ssh -L tunnele pár másodperccel a port lefoglalása UTÁN épül fel
             // (hideg SSH-handshake). Ne ijesszünk azonnal „nem válaszol"-lal: ~15 mp-ig pingelünk.
-            _onlineLbl.Text = "● Kapcsolódás…"; _onlineLbl.ForeColor = Color.Goldenrod;
-            SetLoginStatus("Kapcsolódás a szerverhez…");
+            _onlineLbl.Text = L.MainForm_018; _onlineLbl.ForeColor = Color.Goldenrod;
+            SetLoginStatus(L.MainForm_019);
             bool online = false;
             for (int i = 0; i < 15 && !online; i++)
             {
@@ -262,7 +263,7 @@ public sealed class MainForm : MaterialForm
             }
             _onlineLbl.Text = online ? "● Online" : "● Offline";
             _onlineLbl.ForeColor = online ? Color.MediumSeaGreen : Color.IndianRed;
-            SetLoginStatus(online ? "" : "A szerver nem válaszol — próbálj belépni, a tunnel lehet, hogy most épül.");
+            SetLoginStatus(online ? "" : L.MainForm_020);
 
             if (online) await RefreshBrandingAsync(); // friss branding a tunnelen át (login előtt is)
         }
@@ -270,7 +271,7 @@ public sealed class MainForm : MaterialForm
         {
             _onlineLbl.Text = "● Offline";
             _onlineLbl.ForeColor = Color.IndianRed;
-            SetLoginStatus("Csatorna hiba: " + ex.Message);
+            SetLoginStatus(L.MainForm_062 + ex.Message);
         }
 
         // Windows Hello gomb: csak ha ezen a gépen be van állítva (van credentialId) ÉS elérhető a Hello.
@@ -286,7 +287,7 @@ public sealed class MainForm : MaterialForm
 
     private void OpenForgotPassword()
     {
-        if (_api is null) { SetLoginStatus("Nincs kapcsolat a szerverrel — előbb épüljön fel a tunnel."); return; }
+        if (_api is null) { SetLoginStatus(L.MainForm_021); return; }
         using var f = new ForgotPasswordForm(_api);
         f.ShowDialog(this);
     }
@@ -302,10 +303,10 @@ public sealed class MainForm : MaterialForm
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var card = new MaterialCard { Width = 470, Height = 250, Anchor = AnchorStyles.None };
         var icon = new MaterialLabel { Text = "⚠", Font = new Font("Segoe UI", 36F), AutoSize = true, Location = new Point(24, 18) };
-        var title = new MaterialLabel { Text = "Nincs helyi agent", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Location = new Point(90, 28) };
+        var title = new MaterialLabel { Text = L.MainForm_063, Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Location = new Point(90, 28) };
         var body = new MaterialLabel
         {
-            Text = "Ezen a gépen nem fut a RemoteAgent szolgáltatás,\nezért a konzol nem használható.\n\nTelepítsd (újra) az agentet, majd indítsd újra a klienst.",
+            Text = L.MainForm_022,
             AutoSize = false, Location = new Point(28, 84), Size = new Size(414, 100),
         };
         _noAgentSupportLbl.AutoSize = false; _noAgentSupportLbl.Location = new Point(28, 192); _noAgentSupportLbl.Size = new Size(414, 48);
@@ -333,7 +334,7 @@ public sealed class MainForm : MaterialForm
         _loginCard.Anchor = AnchorStyles.None;
         _setupCard.Anchor = AnchorStyles.None;
         _loginCard.Size = new Size(360, 420);
-        var lt = new MaterialLabel { Text = "Bejelentkezés", Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
+        var lt = new MaterialLabel { Text = L.MainForm_023, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _user.SetBounds(20, 56, 320, 48);
         _pass.SetBounds(20, 110, 320, 48);
         _totp.SetBounds(20, 164, 320, 48);
@@ -349,10 +350,10 @@ public sealed class MainForm : MaterialForm
 
         // Setup kártya (első belépés) — kezdetben rejtett
         _setupCard.Size = new Size(420, 470); _setupCard.Visible = false;
-        var st = new MaterialLabel { Text = "Első belépés — beállítás", Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
+        var st = new MaterialLabel { Text = L.MainForm_024, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _newPass.SetBounds(20, 56, 380, 48);
         _newPass2.SetBounds(20, 110, 380, 48);
-        var ql = new MaterialLabel { Text = "Olvasd be authenticator appal:", AutoSize = true, Location = new Point(20, 168) };
+        var ql = new MaterialLabel { Text = L.MainForm_064, AutoSize = true, Location = new Point(20, 168) };
         _qr.Location = new Point(20, 196);
         _enrollCode.SetBounds(200, 210, 200, 48);
         _finishBtn.SetBounds(200, 270, 200, 40);
@@ -373,7 +374,7 @@ public sealed class MainForm : MaterialForm
         // Bal alsó sarok: Online-jelző + kliens verzió (a téma-kapcsoló átkerült a Beállításokba).
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 56 };
         _envLbl.AutoSize = true; _envLbl.MaximumSize = new Size(200, 0);
-        _envLbl.Location = new Point(12, 8); _envLbl.Text = "● Környezet…"; _envLbl.ForeColor = Color.Gray;
+        _envLbl.Location = new Point(12, 8); _envLbl.Text = L.MainForm_025; _envLbl.ForeColor = Color.Gray;
         _verLbl.AutoSize = true; _verLbl.Location = new Point(12, 32);
         _verLbl.Text = "ver: " + ClientUpdater.RunningVersionString();
         _verLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
@@ -448,7 +449,7 @@ public sealed class MainForm : MaterialForm
     private async Task<bool> HandleMandatoryUpdateAsync(LoginResponse login)
     {
         if (!login.MustUpdate) return false;
-        SetLoginStatus("Kötelező frissítés letöltése…");
+        SetLoginStatus(L.MainForm_026);
         if (!string.IsNullOrWhiteSpace(login.UpdateFileName)
             && await ClientUpdater.ApplyKnownAsync(_api!, login.UpdateFileName!, login.UpdateSha256))
         {
@@ -458,16 +459,16 @@ public sealed class MainForm : MaterialForm
             return true;
         }
         MessageBox.Show(
-            "Ez a kliens elavult, és a kötelező frissítés nem sikerült.\nFrissítsd/telepítsd újra a klienst, vagy szólj az adminnak.",
-            "Frissítés szükséges", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        SetLoginStatus("Elavult kliens — frissítés szükséges.");
+            L.MainForm_027,
+            L.MainForm_028, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        SetLoginStatus(L.MainForm_029);
         return true;
     }
 
     private async Task DoLoginAsync()
     {
         SetLoginStatus("");
-        if (_api is null) { SetLoginStatus("Nincs kapcsolat a szerverrel."); return; }
+        if (_api is null) { SetLoginStatus(L.MainForm_065); return; }
         try
         {
             _loginBtn.Enabled = false;
@@ -485,23 +486,23 @@ public sealed class MainForm : MaterialForm
         {
             SetLoginStatus(ex.Code switch
             {
-                "totp_required" => "Add meg a TOTP kódot.",
-                "totp_invalid" => "Hibás TOTP kód.",
-                "invalid_credentials" => "Hibás felhasználónév vagy jelszó.",
-                "device_locked" => "Ez a gép a sok sikertelen próba miatt belépés-zárolt. Hívd a support-ot a feloldáshoz.",
-                _ => "Bejelentkezés sikertelen: " + ex.Code,
+                "totp_required" => L.MainForm_030,
+                "totp_invalid" => L.MainForm_031,
+                "invalid_credentials" => L.MainForm_032,
+                "device_locked" => L.MainForm_033,
+                _ => L.MainForm_034 + ex.Code,
             });
         }
-        catch (Exception ex) { SetLoginStatus("Hiba: " + ex.Message); }
+        catch (Exception ex) { SetLoginStatus(L.ForgotPasswordForm_019 + ex.Message); }
         finally { _loginBtn.Enabled = true; }
     }
 
     private async Task DoHelloLoginAsync()
     {
         SetLoginStatus("");
-        if (_api is null) { SetLoginStatus("Nincs kapcsolat a szerverrel."); return; }
+        if (_api is null) { SetLoginStatus(L.MainForm_065); return; }
         if (_cfg.HelloCredentialId is not { } credId || string.IsNullOrWhiteSpace(_cfg.HelloUsername))
-        { SetLoginStatus("Nincs beállítva Windows Hello ezen a gépen."); return; }
+        { SetLoginStatus(L.MainForm_035); return; }
         var user = _cfg.HelloUsername!;
         try
         {
@@ -509,7 +510,7 @@ public sealed class MainForm : MaterialForm
             SetLoginStatus("Windows Hello…");
             var challenge = await _api.HelloChallengeAsync(user);
             var sig = await WindowsHello.SignAsync(HelloKeyName(user), challenge);
-            if (sig is null) { SetLoginStatus("Windows Hello megszakítva vagy nem elérhető."); return; }
+            if (sig is null) { SetLoginStatus(L.MainForm_036); return; }
             _login = await _api.HelloLoginAsync(user, credId, sig, ClientUpdater.RunningVersionString(), _cfg.Channel);
             if (await HandleMandatoryUpdateAsync(_login)) return;
             _api.SetToken(_login.Token);
@@ -523,11 +524,11 @@ public sealed class MainForm : MaterialForm
         {
             SetLoginStatus(ex.Code switch
             {
-                "challenge_expired" => "A Hello-belépés lejárt, próbáld újra.",
-                "hello_unknown" => "Ez a Hello-eszköz nincs (már) regisztrálva — lépj be jelszóval.",
-                "hello_invalid" => "A Hello-aláírás érvénytelen.",
-                "invalid_credentials" => "A felhasználó nem aktív vagy nem létezik.",
-                _ => "Hello-belépés sikertelen: " + ex.Code,
+                "challenge_expired" => L.MainForm_037,
+                "hello_unknown" => L.MainForm_038,
+                "hello_invalid" => L.MainForm_039,
+                "invalid_credentials" => L.MainForm_040,
+                _ => L.MainForm_041 + ex.Code,
             });
             if (ex.Code == "hello_unknown")
             {
@@ -535,7 +536,7 @@ public sealed class MainForm : MaterialForm
                 _helloBtn.Visible = false;
             }
         }
-        catch (Exception ex) { SetLoginStatus("Hiba: " + ex.Message); }
+        catch (Exception ex) { SetLoginStatus(L.ForgotPasswordForm_019 + ex.Message); }
         finally { _helloBtn.Enabled = true; }
     }
 
@@ -546,9 +547,9 @@ public sealed class MainForm : MaterialForm
         if (_cfg.HelloCredentialId is not null) return;           // már be van állítva
         if (!await WindowsHello.IsAvailableAsync()) return;        // nincs Hello a gépen
         if (MessageBox.Show(
-                "Szeretnél legközelebb Windows Hello-val (ujjlenyomat/PIN) belépni ezen a gépen?\n\n" +
-                "A privát kulcs a gép TPM-jében marad; a szerver csak a publikus kulcsot tárolja, és bármikor visszavonhatod.",
-                "Windows Hello beállítása", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                L.MainForm_042 +
+                L.MainForm_043,
+                L.MainForm_044, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
         try
         {
@@ -556,12 +557,12 @@ public sealed class MainForm : MaterialForm
             if (pub is null) return; // a felhasználó megszakította a Hello-promptot
             var credId = await _api.RegisterHelloAsync(pub, Environment.MachineName);
             _cfg.HelloCredentialId = credId; _cfg.HelloUsername = _username; try { _cfg.Save(); } catch { }
-            MessageBox.Show("Windows Hello beállítva — legközelebb ujjlenyomattal/PIN-nel léphetsz be ezen a gépen.",
+            MessageBox.Show(L.MainForm_045,
                 "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Windows Hello beállítás hiba: " + ex.Message, "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(L.MainForm_046 + ex.Message, "Windows Hello", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 
@@ -599,18 +600,18 @@ public sealed class MainForm : MaterialForm
             _finishBtn.Enabled = false;
             if (_login!.MustChangePassword)
             {
-                if (_newPass.Text.Length < 10) { _setupStatus.Text = "A jelszó legyen min. 10 karakter."; return; }
-                if (_newPass.Text != _newPass2.Text) { _setupStatus.Text = "A két jelszó nem egyezik."; return; }
+                if (_newPass.Text.Length < 10) { _setupStatus.Text = L.MainForm_047; return; }
+                if (_newPass.Text != _newPass2.Text) { _setupStatus.Text = L.MainForm_048; return; }
                 await _api!.ChangePasswordAsync(_newPass.Text);
             }
             if (_login.TotpEnrollRequired)
             {
-                if (string.IsNullOrWhiteSpace(_enrollCode.Text)) { _setupStatus.Text = "Add meg a hitelesítő kódot."; return; }
+                if (string.IsNullOrWhiteSpace(_enrollCode.Text)) { _setupStatus.Text = L.MainForm_049; return; }
                 await _api!.ConfirmTotpAsync(_enrollCode.Text.Trim());
             }
             await EnterMainAsync();
         }
-        catch (Exception ex) { _setupStatus.Text = "Hiba: " + ex.Message; }
+        catch (Exception ex) { _setupStatus.Text = L.ForgotPasswordForm_019 + ex.Message; }
         finally { _finishBtn.Enabled = true; }
     }
 
@@ -647,7 +648,7 @@ public sealed class MainForm : MaterialForm
         // alapján a szerverről; fallback a lokális configra (offline / nem-flotta gép).
         if (_api is not null)
         {
-            SetLoginStatus("Frissítés keresése…");
+            SetLoginStatus(L.MainForm_050);
             var channel = await ResolveUpdateChannelAsync();
             if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); _cleaned = true; Application.Exit(); return; }
         }
@@ -656,7 +657,7 @@ public sealed class MainForm : MaterialForm
 
         // Nézetek + menü létrehozása a jogosultság szerint (operator csak az Eszközöket látja).
         _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin");
-        AddNav("Eszközök", _devicesView);
+        AddNav(L.MainForm_051, _devicesView);
         if (_role == "admin")
         {
             _usersView = new UsersView(_api!, _username);
@@ -665,20 +666,20 @@ public sealed class MainForm : MaterialForm
             _bootstrapView = new BootstrapView(_api!);
             _logView = new LogView(_api!);
             _serverSettingsView = new ServerSettingsView(_api!);
-            AddNav("Felhasználók", _usersView);
+            AddNav(L.MainForm_052, _usersView);
             AddNav("Csoportok", _groupsView);
-            AddNav("Csatornák / MSI", _channelsView);
+            AddNav(L.MainForm_053, _channelsView);
             AddNav("Bootstrap", _bootstrapView);
-            AddNav("Napló", _logView);
-            AddNav("Szerver beállítások", _serverSettingsView);
+            AddNav(L.MainForm_054, _logView);
+            AddNav(L.MainForm_055, _serverSettingsView);
             _ = CheckSecretExpiryAsync();
         }
 
         // Beállítások + Névjegy MINDENKINEK (lokális beállítások; nem admin-függő).
         _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin");
         _aboutView = new AboutView(_cfg);
-        AddNav("Beállítások", _settingsView);
-        AddNav("Névjegy", _aboutView);
+        AddNav(L.MainForm_056, _settingsView);
+        AddNav(L.MainForm_057, _aboutView);
 
         ApplyThemeMode(_cfg.ThemeMode);
         Show(_mainView);
@@ -713,7 +714,7 @@ internal sealed class ShutdownOverlay : Form
         ForeColor = dark ? Color.White : Color.FromArgb(33, 33, 33);
         Controls.Add(new Label
         {
-            Text = "Kilépés folyamatban…",
+            Text = L.MainForm_058,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
             Font = new Font("Segoe UI", 11F, FontStyle.Regular),

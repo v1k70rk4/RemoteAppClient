@@ -1,6 +1,7 @@
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Security;
 
@@ -14,7 +15,7 @@ public static class CertHelper
     public static X509Certificate2 LoadClientCertificate(string thumbprint)
     {
         if (string.IsNullOrWhiteSpace(thumbprint))
-            throw new InvalidOperationException("Nincs kliens-tanúsítvány ujjlenyomat konfigurálva.");
+            throw new InvalidOperationException(L.CertHelper_001);
 
         var normalized = thumbprint.Replace(" ", "").Replace(":", "").ToUpperInvariant();
         using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
@@ -27,7 +28,7 @@ public static class CertHelper
         }
 
         throw new InvalidOperationException(
-            $"A(z) {normalized} ujjlenyomatú kliens-tanúsítvány nem található a LocalMachine\\My store-ban.");
+            L.Format(L.CertHelper_002, normalized));
     }
 
     /// <summary>
@@ -38,7 +39,7 @@ public static class CertHelper
     public static X509Certificate2 LoadClientCertificateFromPfx(string path, string? password = null)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            throw new InvalidOperationException($"A kliens-tanúsítvány PFX nem található: '{path}'.");
+            throw new InvalidOperationException(L.Format(L.CertHelper_003, path));
 
         return X509CertificateLoader.LoadPkcs12FromFile(path, password, X509KeyStorageFlags.PersistKeySet);
     }
@@ -47,7 +48,7 @@ public static class CertHelper
     public static X509Certificate2 LoadClientCertificateFromProtectedPfx(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            throw new InvalidOperationException($"A DPAPI-védett PFX nem található: '{path}'.");
+            throw new InvalidOperationException(L.Format(L.CertHelper_004, path));
 
         var pfxBytes = Dpapi.Unprotect(File.ReadAllBytes(path));
         return X509CertificateLoader.LoadPkcs12(pfxBytes, password: null, X509KeyStorageFlags.PersistKeySet);

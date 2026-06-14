@@ -15,6 +15,9 @@ using RemoteServer.Security;
 using RemoteServer.Services;
 using RemoteServer.Signing;
 using RemoteServer.Telemetry;
+using L = RemoteServer.Localization.Strings;
+
+RemoteAgent.Globalization.RuntimeLanguage.ApplyFromSharedSettings();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -122,7 +125,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     if (user is null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
     {
         await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed",
-            user is null ? "ismeretlen felhasználó" : "hibás jelszó", ct);
+            user is null ? L.Program_001 : L.Program_002, ct);
         return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
     }
 
@@ -134,7 +137,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         {
             // A hibás TOTP is sikertelen próba — de a „totp_required" (még nem írt be kódot) nem.
             if (!string.IsNullOrWhiteSpace(req.Totp))
-                await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed", "hibás TOTP", ct);
+                await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed", L.Program_003, ct);
             return Results.Json(new AuthError { Error = string.IsNullOrWhiteSpace(req.Totp) ? "totp_required" : "totp_invalid" },
                 AgentJsonContext.Default.AuthError, statusCode: 401);
         }
@@ -241,7 +244,7 @@ app.MapPost("/auth/hello/register", async (HttpContext ctx, AppDbContext db, Aut
     {
         UserId = v.Value.User.Id,
         PublicKey = req.PublicKey,
-        DeviceName = string.IsNullOrWhiteSpace(req.DeviceName) ? "ismeretlen gép" : req.DeviceName.Trim(),
+        DeviceName = string.IsNullOrWhiteSpace(req.DeviceName) ? L.Program_004 : req.DeviceName.Trim(),
     };
     db.HelloCredentials.Add(cred);
     await db.SaveChangesAsync(ct);
@@ -318,7 +321,7 @@ app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext 
     {
         // Nem stimmel (rossz e-mail vagy nincs ilyen user) → naplózott sikertelen próba + counter.
         await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-code-failed",
-            user is null ? "ismeretlen felhasználó" : "e-mail nem egyezett", ct);
+            user is null ? L.Program_001 : L.Program_027, ct);
     }
     // A válasz mindig OK (anti-enumeration).
     return Results.NoContent();
@@ -346,7 +349,7 @@ app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, Aut
         || !string.Equals(user.ResetCodeHash, Sha256Hex(req.Code.Trim().ToUpperInvariant()), StringComparison.Ordinal))
     {
         await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-reset-failed",
-            user is null ? "ismeretlen felhasználó" : "érvénytelen vagy lejárt token", ct);
+            user is null ? L.Program_001 : L.Program_005, ct);
         return Results.Json(new AuthError { Error = "invalid_code" }, AgentJsonContext.Default.AuthError, statusCode: 400);
     }
 
@@ -436,11 +439,11 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
         await PumpIncomingAsync(socket, deviceId, accessResults, scopes, log, ctx.RequestAborted);
     }
     catch (OperationCanceledException) { /* leállás/lekapcsolódás */ }
-    catch (WebSocketException ex) { log.LogDebug(ex, "WS lezárult: {Device}", deviceId); }
+    catch (WebSocketException ex) { log.LogDebug(ex, L.Program_006, deviceId); }
     finally
     {
         registry.Unregister(deviceId, socket);
-        log.LogInformation("Agent lekapcsolódott: {Device}", deviceId);
+        log.LogInformation(L.Program_007, deviceId);
     }
 });
 
@@ -734,7 +737,7 @@ app.MapPost("/admin/channels/{channel}/rollout", async (
         var cmd = await commands.EnqueueAsync(d.DeviceId, CommandTypes.Update, data, createdBy: null, ct);
         if (cmd is not null) sent++;
     }
-    await AuditAsync(db, ctx, "rollout", null, $"{comp} · {channel} · {pkg.Version} → {sent} gép");
+    await AuditAsync(db, ctx, "rollout", null, L.Format(L.Program_008, comp, channel, pkg.Version, sent));
     return Results.Ok(new { channel, component = comp, version = pkg.Version, devices = devices.Count, sent, skipped });
 });
 
@@ -900,7 +903,7 @@ app.MapPost("/admin/bootstrap", async (
 {
     var url = !string.IsNullOrWhiteSpace(serverUrl) ? serverUrl : opt.Value.PublicUrl;
     if (string.IsNullOrWhiteSpace(url))
-        return Results.BadRequest(new { error = "no_server_url", hint = "állítsd be a Server:PublicUrl-t vagy add meg: ?serverUrl=" });
+        return Results.BadRequest(new { error = "no_server_url", hint = L.Program_009 });
 
     var (raw, _) = await enroll.CreateTokenAsync(maxUses ?? 100000, expiresInHours, groupId, note: "bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = raw });
@@ -1022,8 +1025,8 @@ app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretPro
         detail += $"; smtp={Q(s.SmtpHost)}:{s.SmtpPort} tls={s.SmtpUseTls} user={Q(s.SmtpUser)} from={Q(s.SmtpFrom)}";
     if (s.EmailProvider == "graph")
         detail += $"; graph tenant={Q(s.GraphTenantId)} client={Q(s.GraphClientId)} sender={Q(s.GraphSender)} expires={s.GraphSecretExpiresAt:yyyy-MM-dd}";
-    if (!string.IsNullOrEmpty(upd.SmtpPassword)) detail += "; smtpPassword=változott";
-    if (!string.IsNullOrEmpty(upd.GraphClientSecret)) detail += "; graphSecret=változott";
+    if (!string.IsNullOrEmpty(upd.SmtpPassword)) detail += L.Program_010;
+    if (!string.IsNullOrEmpty(upd.GraphClientSecret)) detail += L.Program_011;
 
     await AuditAsync(db, ctx, "settings-update", null, detail);
     return Results.NoContent();
@@ -1039,8 +1042,8 @@ app.MapPost("/admin/settings/test-email", async (HttpContext ctx, AppDbContext d
 
     var (ok, err) = await email.SendAsync(req.To.Trim(),
         "RemoteAppClient teszt e-mail",
-        "Ez egy teszt e-mail a RemoteAppClient szerver-beállításokból. Ha megkaptad, a küldés működik.", ct);
-    await AuditAsync(db, ctx, "settings-test-email", null, ok ? req.To.Trim() : $"hiba: {err}");
+        L.Program_012, ct);
+    await AuditAsync(db, ctx, "settings-test-email", null, ok ? req.To.Trim() : L.Format(L.Program_028, err));
     return ok ? Results.Ok(new { ok = true }) : Results.Problem(err ?? "send_failed");
 });
 
@@ -1338,7 +1341,7 @@ using (var scope = app.Services.CreateScope())
         await sdb.SaveChangesAsync();
         sdb.UserRoles.Add(new UserRole { UserId = admin.Id, RoleId = (await sdb.Roles.FirstAsync(r => r.Name == "admin")).Id });
         await sdb.SaveChangesAsync();
-        app.Logger.LogWarning("BOOTSTRAP admin létrehozva — felhasználónév: admin, IDEIGLENES jelszó: {Temp} (első belépéskor cserélni kell)", temp);
+        app.Logger.LogWarning(L.Program_013, temp);
     }
 }
 
@@ -1360,7 +1363,7 @@ static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Gu
     catch (Exception ex)
     {
         // Az audit hiba ne befolyásolja a választ — de legalább naplózzuk (eddig néma volt).
-        try { ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("Audit").LogWarning(ex, "Audit írás hiba: {Action}", action); } catch { }
+        try { ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("Audit").LogWarning(ex, L.Program_014, action); } catch { }
     }
 }
 
@@ -1452,16 +1455,16 @@ static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, Ht
 
     if (justLocked && device is not null)
     {
-        await AuditAsync(db, ctx, "device-locked", device.Id, $"{LoginFailLockThreshold} sikertelen próba (utolsó: {username})", actorOverride: "system");
+        await AuditAsync(db, ctx, "device-locked", device.Id, L.Format(L.Program_015, LoginFailLockThreshold, username), actorOverride: "system");
 
         var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
         var to = s?.SupportEmail;
         if (!string.IsNullOrWhiteSpace(to))
         {
-            var body = $"A(z) „{device.Hostname}” gépről {LoginFailLockThreshold} sikertelen belépési/jelszó-próba történt — a gép BELÉPÉS-ZÁROLVA.\n\n" +
-                       $"Utolsó próbált felhasználónév: {username}\nForrás IP: {PublicIpOf(ctx) ?? "-"}\nIdő: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC\n\n" +
-                       "Feloldás: a kliensben Eszközök → a gép → „Belépés feloldása” (csak admin).";
-            await email.SendAsync(to!, "RemoteAppClient – gép belépés-zárolva (sikertelen próbák)", body, ct);
+            var body = L.Format(L.Program_016, device.Hostname, LoginFailLockThreshold) +
+                       L.Format(L.Program_017, username, PublicIpOf(ctx) ?? "-", DateTimeOffset.UtcNow) +
+                       L.Program_018;
+            await email.SendAsync(to!, L.Program_019, body, ct);
         }
     }
 }
@@ -1487,10 +1490,10 @@ static string SetResetCode(RemoteServer.Data.Entities.User user)
 static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Data.Entities.User user, string code, CancellationToken ct)
 {
     if (string.IsNullOrWhiteSpace(user.Email)) return false;
-    var body = $"Jelszó-helyreállítási token a(z) {user.Username} fiókhoz: {code}\n\n" +
-               "A token 30 percig érvényes. Írd be a kliens „Jelszó helyreállítás” ablakába, és állíts be új jelszót.\n" +
-               "Ha nem te kérted, hagyd figyelmen kívül ezt a levelet.";
-    var (ok, _) = await email.SendAsync(user.Email!, "RemoteAppClient – jelszó-helyreállítási token", body, ct);
+    var body = L.Format(L.Program_020, user.Username, code) +
+               L.Program_021 +
+               L.Program_022;
+    var (ok, _) = await email.SendAsync(user.Email!, L.Program_023, body, ct);
     return ok;
 }
 
@@ -1572,7 +1575,7 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
             if (msg is { Type: "access-result" } && !string.IsNullOrEmpty(msg.Nonce))
             {
                 var entry = accessResults.RecordOutcome(msg.Nonce, msg.Outcome);
-                log.LogInformation("Hozzáférés-eredmény {Device}: {Outcome} (nonce {Nonce})", deviceId, msg.Outcome, msg.Nonce);
+                log.LogInformation(L.Program_024, deviceId, msg.Outcome, msg.Nonce);
 
                 // Naplózás: a kimenetelt audit-sorrá írjuk (ki, melyik gép, eredmény).
                 var action = msg.Outcome switch
@@ -1599,9 +1602,9 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                     });
                     await adb.SaveChangesAsync(ct);
                 }
-                catch (Exception ex) { log.LogWarning(ex, "Audit-írás (access) sikertelen."); }
+                catch (Exception ex) { log.LogWarning(ex, L.Program_025); }
             }
         }
-        catch (JsonException) { log.LogDebug("Értelmezhetetlen agent-üzenet {Device}.", deviceId); }
+        catch (JsonException) { log.LogDebug(L.Program_026, deviceId); }
     }
 }

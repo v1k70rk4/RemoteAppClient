@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RemoteAgent.Configuration;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Commands;
 
@@ -37,7 +38,7 @@ public sealed class CommandVerifier : IDisposable
         else
         {
             _logger.LogWarning(
-                "Nincs CommandSigningPublicKey konfigurálva — minden parancs el lesz utasítva.");
+                L.CommandVerifier_001);
         }
     }
 
@@ -48,7 +49,7 @@ public sealed class CommandVerifier : IDisposable
 
         if (string.IsNullOrEmpty(cmd.Nonce) || string.IsNullOrEmpty(cmd.Signature))
         {
-            _logger.LogWarning("Parancs nonce vagy aláírás nélkül, eldobva.");
+            _logger.LogWarning(L.CommandVerifier_002);
             return false;
         }
 
@@ -56,14 +57,14 @@ public sealed class CommandVerifier : IDisposable
         var age = now - cmd.IssuedAt;
         if (age > _maxAgeSeconds || age < -_maxAgeSeconds)
         {
-            _logger.LogWarning("Parancs időbélyege ablakon kívül ({Age}s), eldobva.", age);
+            _logger.LogWarning(L.CommandVerifier_003, age);
             return false;
         }
 
         // Aláírás-ellenőrzés a KÖZÖS logikával (Contracts) — nem csúszhat szét a szerverrel.
         if (!CommandSignature.Verify(cmd, _publicKey))
         {
-            _logger.LogWarning("Parancs aláírása érvénytelen, eldobva.");
+            _logger.LogWarning(L.CommandVerifier_004);
             return false;
         }
 
@@ -71,7 +72,7 @@ public sealed class CommandVerifier : IDisposable
         long expiry = now + _maxAgeSeconds;
         if (!_seenNonces.TryAdd(cmd.Nonce, expiry))
         {
-            _logger.LogWarning("Parancs nonce-a már látott (replay), eldobva.");
+            _logger.LogWarning(L.CommandVerifier_005);
             return false;
         }
 

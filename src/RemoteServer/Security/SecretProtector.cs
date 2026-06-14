@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 using RemoteServer.Configuration;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Security;
 
@@ -21,13 +22,13 @@ public sealed class SecretProtector
         var path = options.Value.SecretKeyPath;
         if (!File.Exists(path))
             throw new InvalidOperationException(
-                $"A titkosító kulcs hiányzik ('{path}'). Generáld provisioning-kor (deploy-server.sh).");
+                L.Format(L.SecretProtector_001, path));
 
         _key = File.ReadAllBytes(path);
         if (_key.Length != 32)
-            throw new InvalidOperationException($"A titkosító kulcs nem 32 bájt ({_key.Length}).");
+            throw new InvalidOperationException(L.Format(L.SecretProtector_002, _key.Length));
 
-        logger.LogInformation("Titok-titkosító kulcs betöltve.");
+        logger.LogInformation(L.SecretProtector_003);
     }
 
     public string Protect(string plaintext)

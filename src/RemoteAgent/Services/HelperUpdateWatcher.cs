@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RemoteAgent.Configuration;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -34,7 +35,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Helper-csere sikertelen.");
+                logger.LogWarning(ex, L.HelperUpdateWatcher_005);
             }
 
             try { await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); }
@@ -47,12 +48,12 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
         var target = (await File.ReadAllTextAsync(marker, ct)).Trim();
         if (string.IsNullOrWhiteSpace(target))
         {
-            logger.LogWarning("Üres update.updater.ready (nincs célpath), eldobva.");
+            logger.LogWarning(L.HelperUpdateWatcher_001);
             TryDelete(marker);
             return;
         }
 
-        logger.LogInformation("Helper-update észlelve → {Target} cseréje.", target);
+        logger.LogInformation(L.HelperUpdateWatcher_002, target);
 
         await RunNetAsync("stop", UpdaterService);
         await Task.Delay(TimeSpan.FromSeconds(2), ct); // az exe felszabaduljon
@@ -66,7 +67,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
 
         if (!copied)
         {
-            logger.LogError("A Helper exe cseréje nem sikerült (zárolt?). Újraindítom a régivel.");
+            logger.LogError(L.HelperUpdateWatcher_003);
             await RunNetAsync("start", UpdaterService);
             return;
         }
@@ -74,7 +75,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
         TryDelete(marker);
         TryDelete(newExe);
         await RunNetAsync("start", UpdaterService);
-        logger.LogInformation("Helper frissítve, a RemoteAgent.Updater újraindítva.");
+        logger.LogInformation(L.HelperUpdateWatcher_004);
     }
 
     private static async Task RunNetAsync(string verb, string service)

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using RemoteAgent.Configuration;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Tunnel;
 
@@ -70,13 +71,13 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         while (DateTime.UtcNow < deadline)
         {
             if (proc.HasExited)
-                throw new InvalidOperationException("Az ssh -L forward nem jött létre (lásd az 'ssh -L:' sorokat a logban).");
+                throw new InvalidOperationException(L.SshLocalForward_001);
             if (PortAccepts(LocalPort))
                 return;
             await Task.Delay(150, ct);
         }
         if (proc.HasExited)
-            throw new InvalidOperationException("Az ssh -L forward nem jött létre (timeout).");
+            throw new InvalidOperationException(L.SshLocalForward_002);
         // Időtúllépés, de az ssh él — feltételezzük, hogy kész (a kliens úgyis újrapróbál).
     }
 
@@ -100,7 +101,7 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         {
             if (!proc.HasExited) { proc.Kill(entireProcessTree: true); await proc.WaitForExitAsync(); }
         }
-        catch (Exception ex) { logger.LogWarning(ex, "Forward leállításakor hiba."); }
+        catch (Exception ex) { logger.LogWarning(ex, L.SshLocalForward_003); }
         finally
         {
             proc.Dispose();

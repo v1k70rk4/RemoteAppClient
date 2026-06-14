@@ -1,16 +1,17 @@
 using System.Drawing;
 using MaterialSkin.Controls;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
 /// <summary>Új felhasználó adatai (a szerver ideiglenes jelszót generál hozzá).</summary>
 public sealed class NewUserForm : MaterialForm
 {
-    private readonly MaterialTextBox2 _username = new() { Hint = "Felhasználónév" };
-    private readonly MaterialTextBox2 _name = new() { Hint = "Megjelenítendő név (pl. Révész Viktor)" };
-    private readonly MaterialTextBox2 _email = new() { Hint = "E-mail (kötelező)" };
-    private readonly MaterialComboBox _role = new() { Hint = "Szerep" };
-    private readonly MaterialSwitch _emailCode = new() { Text = "Reset-kód kiküldése e-mailben", AutoSize = true, Checked = true };
+    private readonly MaterialTextBox2 _username = new() { Hint = L.ForgotPasswordForm_001 };
+    private readonly MaterialTextBox2 _name = new() { Hint = L.NewUserForm_001 };
+    private readonly MaterialTextBox2 _email = new() { Hint = L.NewUserForm_002 };
+    private readonly MaterialComboBox _role = new() { Hint = L.NewUserForm_008 };
+    private readonly MaterialSwitch _emailCode = new() { Text = L.NewUserForm_003, AutoSize = true, Checked = true };
 
     public string Username => _username.Text.Trim();
     public string? FullName => string.IsNullOrWhiteSpace(_name.Text) ? null : _name.Text.Trim();
@@ -21,7 +22,7 @@ public sealed class NewUserForm : MaterialForm
     public NewUserForm()
     {
         ThemeManager.Skin.AddFormToManage(this);
-        Text = "Új felhasználó";
+        Text = L.NewUserForm_004;
         Sizable = false;
         Width = 420; Height = 430;
         StartPosition = FormStartPosition.CenterParent;
@@ -37,12 +38,12 @@ public sealed class NewUserForm : MaterialForm
         _role.Items.AddRange(["operator", "admin"]); _role.SelectedIndex = 0;
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 56, Padding = new Padding(0, 8, 16, 8) };
-        var ok = new MaterialButton { Text = "Létrehozás", DialogResult = DialogResult.OK, AutoSize = true };
-        var cancel = new MaterialButton { Text = "Mégse", DialogResult = DialogResult.Cancel, AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        var ok = new MaterialButton { Text = L.NewUserForm_005, DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new MaterialButton { Text = L.ConsentWaitForm_004, DialogResult = DialogResult.Cancel, AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         ok.Click += (_, _) =>
         {
-            if (Username.Length == 0) { DialogResult = DialogResult.None; MessageBox.Show("Adj meg felhasználónevet."); return; }
-            if (string.IsNullOrWhiteSpace(Email) || !Email!.Contains('@')) { DialogResult = DialogResult.None; MessageBox.Show("Adj meg érvényes e-mail címet (kötelező)."); }
+            if (Username.Length == 0) { DialogResult = DialogResult.None; MessageBox.Show(L.NewUserForm_006); return; }
+            if (string.IsNullOrWhiteSpace(Email) || !Email!.Contains('@')) { DialogResult = DialogResult.None; MessageBox.Show(L.NewUserForm_007); }
         };
         buttons.Controls.AddRange([ok, cancel]);
 

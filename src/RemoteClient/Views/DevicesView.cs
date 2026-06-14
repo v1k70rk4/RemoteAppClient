@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
@@ -21,13 +22,13 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
-    private readonly MaterialTextBox2 _search = new() { Hint = "Keresés: gépnév vagy megjegyzés", Width = 360 };
-    private readonly MaterialButton _connectBtn = new() { Text = "Csatlakozás", AutoSize = true };
+    private readonly MaterialTextBox2 _search = new() { Hint = L.DevicesView_001, Width = 360 };
+    private readonly MaterialButton _connectBtn = new() { Text = L.DevicesView_002, AutoSize = true };
 
     // Szerkesztő
-    private readonly MaterialButton _tabGeneral = TabBtn("Általános");
+    private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_003);
     private readonly MaterialButton _tabLog = TabBtn("LOG");
-    private readonly MaterialButton _tabTelemetry = TabBtn("Telemetria");
+    private readonly MaterialButton _tabTelemetry = TabBtn(L.DevicesView_044);
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
     private DeviceInfo? _editing;
@@ -58,19 +59,19 @@ public sealed class DevicesView : UserControl, IContentView
         _search.Margin = new Padding(4, 0, 16, 0);
         _search.TextChanged += (_, _) => RenderList();
         tools.Controls.Add(_search);
-        var refresh = ViewUi.ToolbarButton("Frissítés", primary: false);
+        var refresh = ViewUi.ToolbarButton(L.AboutView_002, primary: false);
         refresh.Click += async (_, _) => await RefreshAsync();
         tools.Controls.Add(refresh);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
-        _list.Columns.Add("Gép", 160);
-        _list.Columns.Add("Csoport", 110);
-        _list.Columns.Add("Megjegyzés", 160);
+        _list.Columns.Add(L.DevicesView_003, 160);
+        _list.Columns.Add(L.BootstrapView_035, 110);
+        _list.Columns.Add(L.DeviceGeneralPanel_006, 160);
         _list.Columns.Add("Online", 70);
-        _list.Columns.Add("Felhasználó", 150);
-        _list.Columns.Add("Utoljára online", 140);
-        _list.Columns.Add("Publikus IP", 120);
+        _list.Columns.Add(L.CredentialDialog_002, 150);
+        _list.Columns.Add(L.DevicesView_004, 140);
+        _list.Columns.Add(L.DeviceTelemetryPanel_017, 120);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
         _list.ColumnClick += (_, e) => { if (_sortColumn == e.Column) _sortAsc = !_sortAsc; else { _sortColumn = e.Column; _sortAsc = true; } RenderList(); };
 
@@ -78,10 +79,10 @@ public sealed class DevicesView : UserControl, IContentView
         // RightToLeft → a legelőször hozzáadott a legjobboldalibb, ezért fordított sorrendben adjuk.
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
         void RightBtn(string text, EventHandler onClick) { var b = ViewUi.ToolbarButton(text); b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; actions.Controls.Add(b); }
-        if (_isAdmin) RightBtn("Belépés feloldása", async (_, _) => await UnlockSelectedAsync());
-        if (_isAdmin) RightBtn("Jóváhagyás", async (_, _) => await ApproveSelectedAsync());
-        if (_isAdmin) RightBtn("Telemetria", async (_, _) => await EditSelectedAsync("telemetry"));
-        if (_isAdmin) RightBtn("Tulajdonságok", async (_, _) => await EditSelectedAsync());
+        if (_isAdmin) RightBtn(L.DevicesView_005, async (_, _) => await UnlockSelectedAsync());
+        if (_isAdmin) RightBtn(L.DevicesView_006, async (_, _) => await ApproveSelectedAsync());
+        if (_isAdmin) RightBtn(L.DevicesView_044, async (_, _) => await EditSelectedAsync("telemetry"));
+        if (_isAdmin) RightBtn(L.DevicesView_007, async (_, _) => await EditSelectedAsync());
         _connectBtn.Margin = new Padding(4, 0, 4, 0);
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
         actions.Controls.Add(_connectBtn); // legutoljára → legbaloldalibb (Csatlakozás)
@@ -91,7 +92,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     private void BuildEditor()
     {
-        var back = ViewUi.ToolbarButton("← Vissza", primary: false);
+        var back = ViewUi.ToolbarButton(L.ChannelsView_013, primary: false);
         back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
         _tabGeneral.Click += (_, _) => SelectTab("general");
         _tabLog.Click += async (_, _) => await SelectTabAsync("log");
@@ -116,13 +117,13 @@ public sealed class DevicesView : UserControl, IContentView
     {
         try
         {
-            SetStatus("Eszközlista lekérése…");
+            SetStatus(L.DevicesView_008);
             var devices = await RetryAsync(() => _api.GetDevicesAsync());
             _devices.Clear(); _devices.AddRange(devices);
             RenderList();
-            SetStatus($"{devices.Count} eszköz.");
+            SetStatus(L.Format(L.DevicesView_009, devices.Count));
         }
-        catch (Exception ex) { SetStatus("Lista hiba: " + ex.Message); }
+        catch (Exception ex) { SetStatus(L.DevicesView_041 + ex.Message); }
     }
 
     private void RenderList()
@@ -141,10 +142,10 @@ public sealed class DevicesView : UserControl, IContentView
         foreach (var d in items)
         {
             // Oszlopsorrend: Gép | Csoport | Megjegyzés | Online | Felhasználó | Utoljára online | Publikus IP
-            var name = string.IsNullOrEmpty(d.Hostname) ? "(névtelen)" : d.Hostname;
+            var name = string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_010 : d.Hostname;
             if (d.LoginLocked) name = "🔒 " + name;
             var item = new ListViewItem(name) { Tag = d, UseItemStyleForSubItems = false };
-            if (d.LoginLocked) item.ToolTipText = $"Belépés-zárolt ({d.LoginFailCount} sikertelen próba) — Belépés feloldása";
+            if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_011, d.LoginFailCount);
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.Note) ? "—" : d.Note);
             var online = item.SubItems.Add(d.Online ? "● online" : "○ offline");
@@ -189,7 +190,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     private async Task EditSelectedAsync(string initialTab = "general")
     {
-        if (SelectedDevice() is not { } d) { SetStatus("Válassz egy gépet."); return; }
+        if (SelectedDevice() is not { } d) { SetStatus(L.DevicesView_012); return; }
         try
         {
             var groups = await _api.GetGroupsAsync();
@@ -204,7 +205,7 @@ public sealed class DevicesView : UserControl, IContentView
             ShowEditor();
             SelectTab(initialTab);
         }
-        catch (Exception ex) { SetStatus("Tulajdonságok hiba: " + ex.Message); }
+        catch (Exception ex) { SetStatus(L.DevicesView_013 + ex.Message); }
     }
 
     private void SelectTab(string tab) => _ = SelectTabAsync(tab);
@@ -243,33 +244,33 @@ public sealed class DevicesView : UserControl, IContentView
 
     private async Task ConnectSelectedAsync()
     {
-        if (SelectedDevice() is not { } sel) { SetStatus("Válassz egy gépet."); return; }
+        if (SelectedDevice() is not { } sel) { SetStatus(L.DevicesView_012); return; }
         try
         {
             _connectBtn.Enabled = false;
-            SetStatus("Friss adatok lekérése…");
+            SetStatus(L.DevicesView_014);
             var devices = await _api.GetDevicesAsync();
             var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
 
-            if (!d.Online) { MessageBox.Show("A gép nincs online.", "Offline", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-            if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show("Nincs VNC-jelszó a géphez (még nem jelentette).", "Nincs jelszó", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (!d.Online) { MessageBox.Show(L.DevicesView_015, "Offline", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show(L.DevicesView_016, L.DevicesView_017, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
 
-            SetStatus($"Tunnel nyitása: {d.Hostname}…");
+            SetStatus(L.Format(L.DevicesView_018, d.Hostname));
             var result = await _api.OpenTunnelAsync(d.DeviceId);
-            if (result is null) { SetStatus("A tunnel-kérés sikertelen."); return; }
+            if (result is null) { SetStatus(L.DevicesView_019); return; }
 
-            SetStatus("Várakozás a távoli gép válaszára…");
+            SetStatus(L.DevicesView_020);
             var outcome = await WaitAccessAsync(result.Nonce);
             if (outcome is not ("auto" or "granted"))
             {
                 var (title, text) = outcome switch
                 {
-                    "denied"    => ("Elutasítva", "A gépnél lévő felhasználó elutasította a csatlakozást."),
-                    "timeout"   => ("Nincs válasz", "A felhasználó a megadott időn belül nem válaszolt a kérésre."),
-                    "no-user"   => ("Nincs felhasználó", "Senki nincs bejelentkezve, és a felügyelet nélküli hozzáférés tiltott ezen a gépen."),
-                    "locked"    => ("Letiltva", "A gépen a távoli elérés helyileg le van tiltva."),
-                    "cancelled" => ("Megszakítva", ""),
-                    _           => ("Sikertelen", "A csatlakozás nem jött létre."),
+                    "denied"    => (L.DevicesView_021, L.DevicesView_022),
+                    "timeout"   => (L.DevicesView_023, L.DevicesView_024),
+                    "no-user"   => (L.DevicesView_025, L.DevicesView_026),
+                    "locked"    => (L.DevicesView_042, L.DevicesView_027),
+                    "cancelled" => (L.DevicesView_028, ""),
+                    _           => (L.DevicesView_043, L.DevicesView_029),
                 };
                 SetStatus(title);
                 if (!string.IsNullOrEmpty(text))
@@ -277,32 +278,32 @@ public sealed class DevicesView : UserControl, IContentView
                 return;
             }
 
-            SetStatus("Bástya-port elérése a helyi agenten át…");
+            SetStatus(L.DevicesView_030);
             await Task.Delay(1500);
             var localPort = await _broker.ForwardAsync(result.RemotePort);
             LaunchViewer(localPort, d.VncSecret!);
-            SetStatus($"VNC indítva: {d.Hostname}");
+            SetStatus(L.Format(L.DevicesView_031, d.Hostname));
         }
-        catch (Exception ex) { SetStatus("Csatlakozási hiba: " + ex.Message); }
+        catch (Exception ex) { SetStatus(L.DevicesView_032 + ex.Message); }
         finally { _connectBtn.Enabled = true; }
     }
 
     private async Task UnlockSelectedAsync()
     {
-        if (SelectedDevice() is not { } sel) { SetStatus("Válassz egy gépet."); return; }
-        if (!sel.LoginLocked) { SetStatus($"{sel.Hostname} nincs belépés-zárolva."); return; }
-        if (MessageBox.Show($"Feloldod a belépés-zárolást ezen a gépen?\n\n{sel.Hostname}", "Belépés feloldása", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        try { await _api.UnlockDeviceAsync(sel.DeviceId); SetStatus($"{sel.Hostname} belépés-zárolása feloldva."); await RefreshAsync(); }
-        catch (Exception ex) { SetStatus("Feloldás hiba: " + ex.Message); }
+        if (SelectedDevice() is not { } sel) { SetStatus(L.DevicesView_012); return; }
+        if (!sel.LoginLocked) { SetStatus(L.Format(L.DevicesView_033, sel.Hostname)); return; }
+        if (MessageBox.Show(L.Format(L.DevicesView_034, sel.Hostname), L.DevicesView_005, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try { await _api.UnlockDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_035, sel.Hostname)); await RefreshAsync(); }
+        catch (Exception ex) { SetStatus(L.DevicesView_036 + ex.Message); }
     }
 
     private async Task ApproveSelectedAsync()
     {
         if (SelectedDevice() is not { } sel) return;
-        if (string.Equals(sel.Status, "Approved", StringComparison.OrdinalIgnoreCase)) { SetStatus($"{sel.Hostname} már jóváhagyott."); return; }
-        if (MessageBox.Show($"Jóváhagyod ezt a gépet?\n\n{sel.Hostname}\n{sel.DeviceId}", "Jóváhagyás", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        try { await _api.ApproveDeviceAsync(sel.DeviceId); SetStatus($"{sel.Hostname} jóváhagyva."); await RefreshAsync(); }
-        catch (Exception ex) { SetStatus("Jóváhagyás hiba: " + ex.Message); }
+        if (string.Equals(sel.Status, "Approved", StringComparison.OrdinalIgnoreCase)) { SetStatus(L.Format(L.DevicesView_037, sel.Hostname)); return; }
+        if (MessageBox.Show(L.Format(L.DevicesView_038, sel.Hostname, sel.DeviceId), L.DevicesView_006, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try { await _api.ApproveDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_039, sel.Hostname)); await RefreshAsync(); }
+        catch (Exception ex) { SetStatus(L.DevicesView_040 + ex.Message); }
     }
 
     private void LaunchViewer(int localPort, string password)

@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
@@ -47,7 +48,7 @@ public sealed class BrokerClient : IDisposable
             await _pipe.ReadExactlyAsync(buf, ct);
             int localPort = BitConverter.ToInt32(buf, 0);
             if (localPort <= 0)
-                throw new InvalidOperationException("A helyi agent nem tudott forwardot nyitni (lásd az agent EventLogját).");
+                throw new InvalidOperationException(L.BrokerClient_001);
             return localPort;
         }
         finally { _gate.Release(); }

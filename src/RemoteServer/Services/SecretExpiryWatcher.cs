@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RemoteServer.Data;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Services;
 
@@ -19,7 +20,7 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
         while (!stoppingToken.IsCancellationRequested)
         {
             try { await CheckOnceAsync(stoppingToken); }
-            catch (Exception ex) { logger.LogWarning(ex, "Secret-lejárat ellenőrzés hiba."); }
+            catch (Exception ex) { logger.LogWarning(ex, L.SecretExpiryWatcher_001); }
 
             try { await Task.Delay(TimeSpan.FromHours(12), stoppingToken); } catch { return; }
         }
@@ -43,19 +44,19 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
 
         var when = expiry.LocalDateTime.ToString("yyyy.MM.dd");
         var body = days <= 0
-            ? $"A RemoteAppClient levélküldési (Graph) client secret-je LEJÁRT ({when}). Frissítsd a Szerver beállításokban, különben nem megy az e-mail küldés."
-            : $"A RemoteAppClient levélküldési (Graph) client secret-je {(int)days} napon belül lejár ({when}). Hozz létre újat az Azure-ban, és frissítsd a Szerver beállításokban.";
+            ? L.Format(L.SecretExpiryWatcher_002, when)
+            : L.Format(L.SecretExpiryWatcher_003, (int)days, when);
 
-        var (ok, err) = await email.SendAsync(to!, "RemoteAppClient: a levélküldési secret hamarosan lejár", body, ct);
+        var (ok, err) = await email.SendAsync(to!, L.SecretExpiryWatcher_004, body, ct);
         if (ok)
         {
             s.SecretExpiryNotifiedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            logger.LogInformation("Secret-lejárat figyelmeztető elküldve: {To} ({Days} nap).", to, (int)days);
+            logger.LogInformation(L.SecretExpiryWatcher_005, to, (int)days);
         }
         else
         {
-            logger.LogWarning("Secret-lejárat figyelmeztető küldése sikertelen: {Error}", err);
+            logger.LogWarning(L.SecretExpiryWatcher_006, err);
         }
     }
 }

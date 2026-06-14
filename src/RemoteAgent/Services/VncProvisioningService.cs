@@ -7,6 +7,7 @@ using RemoteAgent.Configuration;
 using RemoteAgent.Enrollment;
 using RemoteAgent.Security;
 using RemoteAgent.Vnc;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -29,7 +30,7 @@ public sealed class VncProvisioningService(
         if (VncLock.IsLocked())
         {
             VncLock.Enforce();
-            logger.LogWarning("A VNC helyileg le van tiltva — a provisioning kihagyva.");
+            logger.LogWarning(L.VncProvisioningService_005);
         }
         else
         {
@@ -47,11 +48,11 @@ public sealed class VncProvisioningService(
                         await VncProvisioner.EnsureInstalledAsync(msi);
                         VncProvisioner.ApplyHardening(password);
                         File.WriteAllText(secretFile, password);
-                        logger.LogInformation("VNC provisionálva, gépenkénti jelszó beállítva.");
+                        logger.LogInformation(L.VncProvisioningService_001);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "VNC provisioning kihagyva (admin/SYSTEM jog kell).");
+                        logger.LogWarning(ex, L.VncProvisioningService_006);
                         password = null;
                     }
                 }
@@ -62,7 +63,7 @@ public sealed class VncProvisioningService(
             catch (OperationCanceledException) { /* leállás */ }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "VNC-jelszó jelentése sikertelen.");
+                logger.LogWarning(ex, L.VncProvisioningService_002);
             }
         }
 
@@ -88,9 +89,9 @@ public sealed class VncProvisioningService(
             url, new VncSecretReport { Secret = password }, AgentJsonContext.Default.VncSecretReport, ct);
 
         if (resp.IsSuccessStatusCode)
-            logger.LogInformation("VNC-jelszó jelentve a szervernek.");
+            logger.LogInformation(L.VncProvisioningService_003);
         else
-            logger.LogWarning("VNC-jelszó jelentése elutasítva: HTTP {Code}", (int)resp.StatusCode);
+            logger.LogWarning(L.VncProvisioningService_004, (int)resp.StatusCode);
     }
 
     private HttpClient BuildClient()

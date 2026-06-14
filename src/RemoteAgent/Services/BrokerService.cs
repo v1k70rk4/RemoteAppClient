@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RemoteAgent.Configuration;
 using RemoteAgent.Tunnel;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -33,7 +34,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogWarning("Konzol-bróker indul (pipe: {Pipe}).", PipeName);
+        logger.LogWarning(L.BrokerService_001, PipeName);
 
         // TÖBB instance: mindig van új figyelő, így egy beragadt kezelő (pl. force-killed kliens)
         // sem blokkolja az új csatlakozásokat. Minden kapcsolatot külön task kezel.
@@ -43,7 +44,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             try { pipe = CreatePipe(); }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Bróker pipe létrehozása sikertelen — újrapróba 2s múlva.");
+                logger.LogWarning(ex, L.BrokerService_002);
                 try { await Task.Delay(2000, stoppingToken); } catch { break; }
                 continue;
             }
@@ -55,13 +56,13 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Bróker accept hiba.");
+                logger.LogWarning(ex, L.BrokerService_003);
                 await pipe.DisposeAsync();
                 try { await Task.Delay(1000, stoppingToken); } catch { break; }
                 continue;
             }
 
-            logger.LogWarning("Bróker: kliens csatlakozott.");
+            logger.LogWarning(L.BrokerService_004);
             _ = HandleConnectionAsync(pipe, stoppingToken); // külön task; a ciklus új figyelőt nyit
         }
     }
@@ -90,17 +91,17 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
                         await fwd.StartAsync(remotePort, ct);
                         forwards.Add(fwd);
                         localPort = fwd.LocalPort;
-                        logger.LogWarning("Bróker forward OK: bástya {Remote} -> helyi {Local}.", remotePort, localPort);
+                        logger.LogWarning(L.BrokerService_005, remotePort, localPort);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "Bróker forward SIKERTELEN ({Port}) — lásd az 'ssh -L:' sorokat.", remotePort);
+                        logger.LogWarning(ex, L.BrokerService_006, remotePort);
                         localPort = 0;
                     }
                 }
                 else
                 {
-                    logger.LogWarning("Bróker: nem engedélyezett port kérve ({Port}).", remotePort);
+                    logger.LogWarning(L.BrokerService_007, remotePort);
                 }
 
                 await pipe.WriteAsync(BitConverter.GetBytes(localPort), ct);
@@ -108,12 +109,12 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             }
         }
         catch (OperationCanceledException) { /* leállás */ }
-        catch (Exception ex) { logger.LogWarning(ex, "Bróker handler hiba."); }
+        catch (Exception ex) { logger.LogWarning(ex, L.BrokerService_008); }
         finally
         {
             foreach (var f in forwards) await f.StopAsync();
             try { await pipe.DisposeAsync(); } catch { /* best effort */ }
-            logger.LogWarning("Bróker: kliens lecsatlakozott, forwardok lebontva.");
+            logger.LogWarning(L.BrokerService_009);
         }
     }
 

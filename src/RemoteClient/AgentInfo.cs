@@ -1,4 +1,5 @@
 using System.Text.Json;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
@@ -22,7 +23,7 @@ public static class AgentInfo
     public static string ServerName()
     {
         var url = ServerUrl();
-        if (string.IsNullOrWhiteSpace(url)) return "ismeretlen szerver";
+        if (string.IsNullOrWhiteSpace(url)) return L.AgentInfo_001;
         try { return new Uri(url).Host; } catch { return url; }
     }
 }

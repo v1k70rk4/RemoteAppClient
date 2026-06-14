@@ -1,6 +1,7 @@
 using System.Drawing;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
@@ -10,10 +11,10 @@ public sealed class DeviceGeneralPanel : UserControl
     private readonly AdminApi _api;
     private readonly string _deviceId;
     private readonly MaterialComboBox _group = new() { Width = 240 };
-    private readonly MaterialSwitch _update = new() { Text = "Frissíthető", AutoSize = true };
-    private readonly MaterialSwitch _beta = new() { Text = "BETA csatorna", AutoSize = true };
-    private readonly MaterialComboBox _unattended = new() { Hint = "Felügyelet nélküli hozzáférés", Width = 240 };
-    private readonly MaterialComboBox _consent = new() { Hint = "Hozzájárulás kell", Width = 240 };
+    private readonly MaterialSwitch _update = new() { Text = L.DeviceGeneralPanel_001, AutoSize = true };
+    private readonly MaterialSwitch _beta = new() { Text = L.DeviceGeneralPanel_008, AutoSize = true };
+    private readonly MaterialComboBox _unattended = new() { Hint = L.DeviceGeneralPanel_002, Width = 240 };
+    private readonly MaterialComboBox _consent = new() { Hint = L.DeviceGeneralPanel_003, Width = 240 };
     private readonly MaterialMultiLineTextBox2 _note = new() { Width = 380, Height = 80 };
     private readonly MaterialLabel _status = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
 
@@ -24,7 +25,7 @@ public sealed class DeviceGeneralPanel : UserControl
         _api = api; _deviceId = d.DeviceId;
         Dock = DockStyle.Fill;
 
-        _group.Items.Add(new GroupItem(null, "(nincs)"));
+        _group.Items.Add(new GroupItem(null, L.DeviceGeneralPanel_009));
         foreach (var g in groups) _group.Items.Add(new GroupItem(g.Id, g.Name));
         _group.SelectedIndex = 0;
         for (int i = 0; i < _group.Items.Count; i++)
@@ -36,17 +37,17 @@ public sealed class DeviceGeneralPanel : UserControl
         SetupTri(_consent, d.ConsentRequired);
         _note.Text = d.Note ?? "";
 
-        var save = ViewUi.ToolbarButton("Mentés");
+        var save = ViewUi.ToolbarButton(L.EditTokenForm_012);
         save.Click += async (_, _) => await SaveAsync();
 
         var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
         void Lbl(string t) => body.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
-        Lbl("Csoport"); body.Controls.Add(_group);
+        Lbl(L.BootstrapView_035); body.Controls.Add(_group);
         body.Controls.Add(_update);
         body.Controls.Add(_beta);
-        Lbl("Felügyelet nélküli hozzáférés (unattended)"); body.Controls.Add(_unattended);
-        Lbl("Hozzájárulás kell (consent)"); body.Controls.Add(_consent);
-        Lbl("Megjegyzés"); body.Controls.Add(_note);
+        Lbl(L.DeviceGeneralPanel_004); body.Controls.Add(_unattended);
+        Lbl(L.DeviceGeneralPanel_005); body.Controls.Add(_consent);
+        Lbl(L.DeviceGeneralPanel_006); body.Controls.Add(_note);
         body.Controls.Add(save);
         body.Controls.Add(_status);
         Controls.Add(body);
@@ -54,7 +55,7 @@ public sealed class DeviceGeneralPanel : UserControl
 
     private static void SetupTri(MaterialComboBox combo, bool? value)
     {
-        combo.Items.AddRange(["örökli", "igen", "nem"]);
+        combo.Items.AddRange([L.DeviceGeneralPanel_007, "igen", L.DeviceGeneralPanel_010]);
         combo.SelectedIndex = value switch { null => 0, true => 1, false => 2 };
     }
 
@@ -76,6 +77,6 @@ public sealed class DeviceGeneralPanel : UserControl
             await _api.UpdateDeviceAsync(_deviceId, upd);
             _status.Text = "Mentve.";
         }
-        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
     }
 }

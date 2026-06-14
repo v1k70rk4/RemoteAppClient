@@ -2,6 +2,7 @@ using System.Drawing;
 using MaterialSkin;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
@@ -19,24 +20,24 @@ public sealed class DeviceTelemetryPanel : UserControl
             flow.Controls.Add(new MaterialLabel { Text = string.IsNullOrWhiteSpace(value) ? "—" : value, AutoSize = true, MaximumSize = new Size(420, 0) });
         }
 
-        Row("Gép", d.Hostname);
+        Row(L.DevicesView_003, d.Hostname);
         Row("Online", d.Online ? "online" : "offline");
-        Row("Utoljára online", d.LastSeenAt?.LocalDateTime.ToString("g"));
-        Row("Állapot", d.Status);
-        Row("Csatorna", string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
-        Row("Bejelentkezett felhasználó", d.LoggedInUser ?? "nincs");
-        Row("IP-cím (helyi)", d.IpAddress);
-        Row("Publikus IP", d.PublicIpAddress);
-        Row("Wi-Fi", string.IsNullOrWhiteSpace(d.WifiSsid) ? "vezetékes / nincs Wi-Fi" : d.WifiSsid);
-        Row("VPN", d.VpnActive ? "aktív" : "nincs");
-        Row("Boot idő", d.BootTimeUtc?.LocalDateTime.ToString("g"));
-        Row("Üzemidő (uptime)", Uptime(d.BootTimeUtc));
-        Row("Helyi zár", d.VncLocked ? "LETILTVA" : "—");
-        Row("Belépés-zárolás", d.LoginLocked ? $"ZÁROLVA ({d.LoginFailCount} sikertelen)" : (d.LoginFailCount > 0 ? $"{d.LoginFailCount} sikertelen próba" : "—"));
+        Row(L.DevicesView_004, d.LastSeenAt?.LocalDateTime.ToString("g"));
+        Row(L.BootstrapView_007, d.Status);
+        Row(L.DeviceTelemetryPanel_014, string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
+        Row(L.DeviceTelemetryPanel_001, d.LoggedInUser ?? L.DeviceTelemetryPanel_015);
+        Row(L.DeviceTelemetryPanel_002, d.IpAddress);
+        Row(L.DeviceTelemetryPanel_017, d.PublicIpAddress);
+        Row("Wi-Fi", string.IsNullOrWhiteSpace(d.WifiSsid) ? L.DeviceTelemetryPanel_003 : d.WifiSsid);
+        Row("VPN", d.VpnActive ? L.DeviceTelemetryPanel_004 : L.DeviceTelemetryPanel_015);
+        Row(L.DeviceTelemetryPanel_005, d.BootTimeUtc?.LocalDateTime.ToString("g"));
+        Row(L.DeviceTelemetryPanel_006, Uptime(d.BootTimeUtc));
+        Row(L.DeviceTelemetryPanel_007, d.VncLocked ? L.DeviceTelemetryPanel_018 : "—");
+        Row(L.DeviceTelemetryPanel_008, d.LoginLocked ? L.Format(L.DeviceTelemetryPanel_009, d.LoginFailCount) : (d.LoginFailCount > 0 ? L.Format(L.DeviceTelemetryPanel_010, d.LoginFailCount) : "—"));
         Row("Agent / Helper / VNC", $"{S(d.AgentVersion)} / {S(d.HelperVersion)} / {S(d.VncVersion)}");
-        Row("Kliens / OS", $"{S(d.ClientVersion)} / {S(d.OsVersion)}");
-        Row("Agent-restartok", d.AgentRestarts.ToString());
-        if (!string.IsNullOrWhiteSpace(d.LastIncident)) Row("Utolsó incidens", d.LastIncident);
+        Row(L.DeviceTelemetryPanel_016, $"{S(d.ClientVersion)} / {S(d.OsVersion)}");
+        Row(L.DeviceTelemetryPanel_019, d.AgentRestarts.ToString());
+        if (!string.IsNullOrWhiteSpace(d.LastIncident)) Row(L.DeviceTelemetryPanel_011, d.LastIncident);
         Row("deviceId", d.DeviceId);
 
         Controls.Add(flow);
@@ -49,8 +50,8 @@ public sealed class DeviceTelemetryPanel : UserControl
         if (boot is not { } b || b == default) return null;
         var t = DateTimeOffset.UtcNow - b;
         if (t < TimeSpan.Zero) return null;
-        if (t.TotalDays >= 1) return $"{(int)t.TotalDays} nap {t.Hours} óra";
-        if (t.TotalHours >= 1) return $"{(int)t.TotalHours} óra {t.Minutes} perc";
+        if (t.TotalDays >= 1) return L.Format(L.DeviceTelemetryPanel_012, (int)t.TotalDays, t.Hours);
+        if (t.TotalHours >= 1) return L.Format(L.DeviceTelemetryPanel_013, (int)t.TotalHours, t.Minutes);
         return $"{t.Minutes} perc";
     }
 }

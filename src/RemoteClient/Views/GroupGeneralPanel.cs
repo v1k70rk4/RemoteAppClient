@@ -1,6 +1,7 @@
 using System.Drawing;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
@@ -9,9 +10,9 @@ public sealed class GroupGeneralPanel : UserControl
 {
     private readonly AdminApi _api;
     private readonly Guid? _id;
-    private readonly MaterialTextBox2 _name = new() { Hint = "Csoport neve", Width = 360 };
-    private readonly MaterialSwitch _consent = new() { Text = "Hozzájárulás kell megtekintéshez", AutoSize = true };
-    private readonly MaterialSwitch _unattended = new() { Text = "Unattended (felügyelet nélküli) engedélyezve", AutoSize = true };
+    private readonly MaterialTextBox2 _name = new() { Hint = L.GroupGeneralPanel_003, Width = 360 };
+    private readonly MaterialSwitch _consent = new() { Text = L.GroupGeneralPanel_001, AutoSize = true };
+    private readonly MaterialSwitch _unattended = new() { Text = L.GroupGeneralPanel_002, AutoSize = true };
     private readonly MaterialLabel _status = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
 
     /// <summary>Sikeres mentés után jelez (a nézet frissít / visszatér).</summary>
@@ -30,7 +31,7 @@ public sealed class GroupGeneralPanel : UserControl
         }
         else { _unattended.Checked = true; }
 
-        var save = ViewUi.ToolbarButton("Mentés");
+        var save = ViewUi.ToolbarButton(L.EditTokenForm_012);
         save.Click += async (_, _) => await SaveAsync();
 
         var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
@@ -62,6 +63,6 @@ public sealed class GroupGeneralPanel : UserControl
             _status.Text = "Mentve.";
             Saved?.Invoke();
         }
-        catch (Exception ex) { _status.Text = "Hiba: " + ex.Message; }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_019 + ex.Message; }
     }
 }

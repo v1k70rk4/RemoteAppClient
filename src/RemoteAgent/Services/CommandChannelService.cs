@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using RemoteAgent.Commands;
 using RemoteAgent.Configuration;
 using RemoteAgent.Security;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -30,7 +31,7 @@ public sealed class CommandChannelService(
     {
         if (string.IsNullOrWhiteSpace(_opt.Url))
         {
-            logger.LogWarning("Nincs parancscsatorna URL konfigurálva, a szolgáltatás tétlen.");
+            logger.LogWarning(L.CommandChannelService_001);
             return;
         }
 
@@ -50,7 +51,7 @@ public sealed class CommandChannelService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Parancscsatorna hiba, újracsatlakozás {Delay}s múlva.", delay.TotalSeconds);
+                logger.LogWarning(ex, L.CommandChannelService_002, delay.TotalSeconds);
             }
             finally { status.SetC2Connected(false); } // lekapcsolódtunk → a status-pipe ezt mutatja
 
@@ -79,9 +80,9 @@ public sealed class CommandChannelService(
         // alatt kiderül, a ReceiveAsync dob, és a backoff-loop azonnal újracsatlakozik.
         ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(_opt.KeepAliveTimeoutSeconds);
 
-        logger.LogInformation("Csatlakozás a parancscsatornához: {Url}", _opt.Url);
+        logger.LogInformation(L.CommandChannelService_003, _opt.Url);
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
-        logger.LogInformation("Parancscsatorna él.");
+        logger.LogInformation(L.CommandChannelService_004);
         status.SetC2Connected(true); // a status-pipe ezt jelzi a kliensnek
         uplink.SetSocket(ws);        // innentől tudunk visszafelé is írni (eredmény-jelzés)
 
@@ -120,7 +121,7 @@ public sealed class CommandChannelService(
         }
         catch (JsonException ex)
         {
-            logger.LogWarning(ex, "Értelmezhetetlen parancs üzenet, eldobva.");
+            logger.LogWarning(ex, L.CommandChannelService_005);
             return;
         }
 
@@ -129,11 +130,11 @@ public sealed class CommandChannelService(
 
         if (cmd.Type == CommandTypes.Ping)
         {
-            logger.LogDebug("Ping fogadva.");
+            logger.LogDebug(L.CommandChannelService_006);
             return;
         }
 
-        logger.LogInformation("Hiteles parancs fogadva: {Type}", cmd.Type);
+        logger.LogInformation(L.CommandChannelService_007, cmd.Type);
         await bus.PublishAsync(cmd, ct);
     }
 }

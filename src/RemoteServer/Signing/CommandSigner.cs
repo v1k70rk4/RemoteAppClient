@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using RemoteAgent.Commands;
 using RemoteServer.Configuration;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Signing;
 
@@ -19,7 +20,7 @@ public sealed class CommandSigner : IDisposable
         var path = options.Value.CommandSigningKeyPath;
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             throw new InvalidOperationException(
-                $"A parancs-aláíró privát kulcs nem található: '{path}'. Állítsd be a Server:CommandSigningKeyPath-ot.");
+                L.Format(L.CommandSigner_001, path));
 
         _privateKey = ECDsa.Create();
         _privateKey.ImportFromPem(File.ReadAllText(path));

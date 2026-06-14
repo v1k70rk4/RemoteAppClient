@@ -1,3 +1,4 @@
+using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Enrollment;
 
 /// <summary>
@@ -26,11 +27,11 @@ public static class BootstrapEnroller
 
             BootstrapBlob? blob;
             try { blob = BootstrapCodec.Decode(File.ReadAllText(bootstrapFile)); }
-            catch { Console.Error.WriteLine("Érvénytelen bootstrap.dat — kihagyva."); return; }
+            catch { Console.Error.WriteLine(L.BootstrapEnroller_001); return; }
 
             if (blob is null || string.IsNullOrWhiteSpace(blob.Url) || string.IsNullOrWhiteSpace(blob.Token))
             {
-                Console.Error.WriteLine("Hiányos bootstrap blob (url/token) — kihagyva.");
+                Console.Error.WriteLine(L.BootstrapEnroller_002);
                 return;
             }
 
@@ -44,12 +45,12 @@ public static class BootstrapEnroller
             }
             else
             {
-                Console.Error.WriteLine($"Bootstrap self-enroll sikertelen: {res.ErrorCode}");
+                Console.Error.WriteLine(L.Format(L.BootstrapEnroller_008, res.ErrorCode));
             }
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("Bootstrap self-enroll hiba: " + ex.Message);
+            Console.Error.WriteLine(L.BootstrapEnroller_007 + ex.Message);
         }
     }
 
@@ -59,23 +60,23 @@ public static class BootstrapEnroller
     {
         if (string.IsNullOrWhiteSpace(blob))
         {
-            Console.Error.WriteLine("Használat: RemoteAgent bootstrap <blob>");
+            Console.Error.WriteLine(L.BootstrapEnroller_003);
             return 2;
         }
 
         // Validálás dekódolással, mielőtt lemezre írjuk.
         BootstrapBlob? parsed;
         try { parsed = BootstrapCodec.Decode(blob); }
-        catch { Console.Error.WriteLine("Érvénytelen bootstrap blob."); return 2; }
+        catch { Console.Error.WriteLine(L.BootstrapEnroller_004); return 2; }
         if (parsed is null || string.IsNullOrWhiteSpace(parsed.Url) || string.IsNullOrWhiteSpace(parsed.Token))
         {
-            Console.Error.WriteLine("Hiányos bootstrap blob (url/token).");
+            Console.Error.WriteLine(L.BootstrapEnroller_005);
             return 2;
         }
 
         Directory.CreateDirectory(outDir);
         File.WriteAllText(Path.Combine(outDir, "bootstrap.dat"), blob.Trim());
-        Console.WriteLine($"bootstrap.dat kiírva ide: {outDir}  (a service az első induláskor beléptet)");
+        Console.WriteLine(L.Format(L.BootstrapEnroller_006, outDir));
         return 0;
     }
 

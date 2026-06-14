@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using RemoteAgent.Configuration;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Tunnel;
 
@@ -22,7 +23,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
     {
         if (IsRunning)
         {
-            logger.LogInformation("Tunnel már fut, új indítás kihagyva.");
+            logger.LogInformation(L.SshReverseTunnel_001);
             return;
         }
 
@@ -74,7 +75,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         };
 
         logger.LogInformation(
-            "Reverse tunnel indítása: bástya {Host}:{Port}, távoli port {Remote} -> helyi {Local}.",
+            L.SshReverseTunnel_002,
             options.BastionHost, options.BastionPort, remotePort, options.LocalForwardPort);
 
         proc.Start();
@@ -99,7 +100,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Tunnel leállításakor hiba.");
+            logger.LogWarning(ex, L.SshReverseTunnel_003);
         }
         finally
         {

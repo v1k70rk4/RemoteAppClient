@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using L = RemoteAgent.Updater.Localization.Strings;
 
 namespace RemoteAgent.Updater;
 
@@ -67,7 +68,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Supervisor ciklus hiba.");
+                logger.LogWarning(ex, L.SupervisorWorker_012);
             }
 
             try { await Task.Delay(Poll, stoppingToken); }
@@ -103,7 +104,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
             if (DateTimeOffset.UtcNow < _parkedUntil)
                 return;
 
-            _lastIncident = $"agent beragadt (életjel ~{age.TotalSeconds:F0}s régi) — kényszerített újraindítás";
+            _lastIncident = L.Format(L.SupervisorWorker_001, age.TotalSeconds);
             logger.LogWarning("{Incident}", _lastIncident);
             await RestartHungAgentAsync(ct);
             await RegisterFailureAsync(); // a beragadás-churn is törje meg a breakert
@@ -114,18 +115,18 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         if (DateTimeOffset.UtcNow < _parkedUntil)
             return; // parkolva — nem loopolunk
 
-        logger.LogInformation("A RemoteAgent nem fut ({State}) — indítás.", state);
+        logger.LogInformation(L.SupervisorWorker_002, state);
         if (await StartAsync(AgentService))
         {
             _lastAgentAction = DateTimeOffset.UtcNow;
             _agentRestarts++;
-            _lastIncident = "agent leállt → újraindítva";
+            _lastIncident = L.SupervisorWorker_003;
             // a "tiszta lapot" NEM itt adjuk: csak ha a következő körben egészséges (fut + életjel).
             await WriteStatusAsync();
         }
         else
         {
-            _lastIncident = "agent indítása sikertelen";
+            _lastIncident = L.SupervisorWorker_004;
             logger.LogError("{Incident}", _lastIncident);
             await RegisterFailureAsync();
         }
@@ -147,7 +148,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         if (_consecutiveFailures >= MaxConsecutiveFailures)
         {
             _parkedUntil = DateTimeOffset.UtcNow + ParkDuration;
-            logger.LogError("Túl sok sikertelen helyreállítás ({N}) — parkolás {Min} percre (nincs loop). Reboot után friss próbálkozás.",
+            logger.LogError(L.SupervisorWorker_005,
                 _consecutiveFailures, ParkDuration.TotalMinutes);
         }
         await WriteStatusAsync();
@@ -174,12 +175,12 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         var target = (await File.ReadAllTextAsync(marker, ct)).Trim();
         if (string.IsNullOrWhiteSpace(target))
         {
-            logger.LogWarning("Üres update.ready (nincs célpath), eldobva.");
+            logger.LogWarning(L.SupervisorWorker_006);
             TryDelete(marker);
             return;
         }
 
-        logger.LogInformation("Update észlelve → {Target} cseréje.", target);
+        logger.LogInformation(L.SupervisorWorker_007, target);
 
         await StopWithKillAsync(AgentService, ct);
 
@@ -192,7 +193,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
 
         if (!copied)
         {
-            logger.LogError("Az exe cseréje nem sikerült (zárolt?). A service-t újraindítom a régivel.");
+            logger.LogError(L.SupervisorWorker_008);
             await StartAsync(AgentService);
             _lastAgentAction = DateTimeOffset.UtcNow;
             return;
@@ -202,9 +203,9 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         TryDelete(newExe);
         await StartAsync(AgentService);
         _lastAgentAction = DateTimeOffset.UtcNow;
-        _lastIncident = "agent frissítve (exe-csere)";
+        _lastIncident = L.SupervisorWorker_009;
         await WriteStatusAsync();
-        logger.LogInformation("Update alkalmazva, a RemoteAgent újraindítva.");
+        logger.LogInformation(L.SupervisorWorker_010);
     }
 
     // ---------------- SERVICE OPS (sc.exe) ----------------
@@ -246,10 +247,10 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         var pid = await QueryPidAsync(name);
         if (pid is > 0)
         {
-            logger.LogWarning("A(z) {Service} nem állt le {Sec}s alatt — processz kilövése (PID {Pid}).",
+            logger.LogWarning(L.SupervisorWorker_011,
                 name, StopTimeout.TotalSeconds, pid);
             try { Process.GetProcessById(pid.Value).Kill(entireProcessTree: true); }
-            catch (Exception ex) { logger.LogWarning(ex, "Kill sikertelen."); }
+            catch (Exception ex) { logger.LogWarning(ex, L.SupervisorWorker_013); }
         }
 
         for (int i = 0; i < 10; i++) // adjunk az SCM-nek időt a 'stopped'-re

@@ -4,6 +4,7 @@ using System.Security;
 using System.Text;
 using Microsoft.Extensions.Options;
 using RemoteServer.Configuration;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Services;
 
@@ -50,19 +51,19 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var (code, output) = await RunAsync("wixl", ["-o", outPath, wxsPath, "--arch", "x64"], ct);
             if (code != 0 || !File.Exists(outPath))
             {
-                logger.LogWarning("wixl hiba (rc={Code}): {Output}", code, output);
+                logger.LogWarning(L.MsiBuilder_006, code, output);
                 return new Result(false, null, "wixl_failed");
             }
 
             if (!string.IsNullOrWhiteSpace(_opt.MsiSigning.CertPath))
                 await TrySignAsync(outPath, ct);
 
-            logger.LogInformation("MSI legyártva: {File} ({Size} bájt)", fileName, new FileInfo(outPath).Length);
+            logger.LogInformation(L.MsiBuilder_001, fileName, new FileInfo(outPath).Length);
             return new Result(true, fileName, null);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "MSI gyártás hiba.");
+            logger.LogWarning(ex, L.MsiBuilder_002);
             return new Result(false, null, ex.Message);
         }
         finally
@@ -196,14 +197,14 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             if (code == 0 && File.Exists(signed))
             {
                 File.Move(signed, msiPath, overwrite: true);
-                logger.LogInformation("MSI aláírva.");
+                logger.LogInformation(L.MsiBuilder_003);
             }
             else
             {
-                logger.LogWarning("MSI aláírás kihagyva/sikertelen (osslsigncode rc={Code}): {Output}", code, output);
+                logger.LogWarning(L.MsiBuilder_004, code, output);
             }
         }
-        catch (Exception ex) { logger.LogWarning(ex, "MSI aláírás hiba (kihagyva)."); }
+        catch (Exception ex) { logger.LogWarning(ex, L.MsiBuilder_005); }
     }
 
     /// <summary>Ékezetek/nem-ASCII eltávolítása (a Windows-kompatibilis MSI string-poolhoz).</summary>

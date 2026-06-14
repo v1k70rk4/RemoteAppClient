@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent;
 
@@ -18,11 +19,11 @@ public static class ServiceControl
         var exe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exe))
         {
-            Console.Error.WriteLine("Nem határozható meg az exe útvonala.");
+            Console.Error.WriteLine(L.ServiceControl_001);
             return 1;
         }
 
-        var rc = await InstallServiceAsync(ServiceName, exe, ComposeDisplay(owner, "Agent", group), "RemoteAppClient távelérő agent.");
+        var rc = await InstallServiceAsync(ServiceName, exe, ComposeDisplay(owner, "Agent", group), L.ServiceControl_002);
         if (rc != 0) return rc;
 
         // Updater service is, ha az exe ott van az agent mellett.
@@ -30,7 +31,7 @@ public static class ServiceControl
         if (File.Exists(updaterExe))
             await InstallServiceAsync(UpdaterServiceName, updaterExe, ComposeDisplay(owner, "Updater", group), "RemoteAppClient self-update service.");
         else
-            Console.WriteLine("(RemoteAgent.Updater.exe nincs az agent mellett — az Updater service kihagyva.)");
+            Console.WriteLine(L.ServiceControl_008);
 
         return 0;
     }
@@ -60,21 +61,21 @@ public static class ServiceControl
             await RunScAsync("config", name, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem");
             await ConfigureRecoveryAsync(name);
             await RunScAsync("start", name);
-            Console.WriteLine($"A(z) {name} service frissítve és elindítva.");
+            Console.WriteLine(L.Format(L.ServiceControl_003, name));
             return 0;
         }
 
         var create = await RunScAsync("create", name, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem", "DisplayName=", displayName);
         if (create != 0)
         {
-            Console.Error.WriteLine($"A(z) {name} service létrehozása sikertelen (admin jog kell?).");
+            Console.Error.WriteLine(L.Format(L.ServiceControl_004, name));
             return create;
         }
 
         await RunScAsync("description", name, description);
         await ConfigureRecoveryAsync(name);
         await RunScAsync("start", name);
-        Console.WriteLine($"A(z) {name} service telepítve és elindítva.");
+        Console.WriteLine(L.Format(L.ServiceControl_005, name));
         return 0;
     }
 
@@ -84,7 +85,7 @@ public static class ServiceControl
             return 0;
         await RunScAsync("stop", name);
         var del = await RunScAsync("delete", name);
-        Console.WriteLine(del == 0 ? $"A(z) {name} service eltávolítva." : $"A(z) {name} törlése nem sikerült.");
+        Console.WriteLine(del == 0 ? L.Format(L.ServiceControl_006, name) : L.Format(L.ServiceControl_007, name));
         return del;
     }
 

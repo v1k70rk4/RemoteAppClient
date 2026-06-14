@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RemoteAgent.Configuration;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -28,7 +29,7 @@ public sealed class HeartbeatService(IOptions<AgentOptions> options, ILogger<Hea
                 await File.WriteAllTextAsync(_file, DateTimeOffset.UtcNow.ToString("O"), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex) { logger.LogDebug(ex, "Életjel írása sikertelen."); }
+            catch (Exception ex) { logger.LogDebug(ex, L.HeartbeatService_001); }
 
             try { await Task.Delay(Interval, stoppingToken); }
             catch (OperationCanceledException) { break; }

@@ -1,5 +1,6 @@
 using System.Drawing;
 using MaterialSkin.Controls;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
@@ -19,7 +20,7 @@ public sealed class ConsentWaitForm : MaterialForm
     {
         _api = api; _nonce = nonce;
         ThemeManager.Skin.AddFormToManage(this);
-        Text = "Várakozás a válaszra";
+        Text = L.ConsentWaitForm_001;
         Sizable = false;
         Width = 470; Height = 280;
         StartPosition = FormStartPosition.CenterParent;
@@ -27,13 +28,13 @@ public sealed class ConsentWaitForm : MaterialForm
 
         var lbl = new MaterialLabel
         {
-            Text = "Várakozás a távoli gép felhasználójának jóváhagyására…\n\n" +
-                   "A gépnél ülő felhasználónak egy ablakban engedélyeznie kell a csatlakozást.",
+            Text = L.ConsentWaitForm_002 +
+                   L.ConsentWaitForm_003,
             AutoSize = false, Location = new Point(24, 80), Size = new Size(420, 128),
         };
         var cancel = new MaterialButton
         {
-            Text = "Mégse", Location = new Point(346, 218), AutoSize = false, Width = 96,
+            Text = L.ConsentWaitForm_004, Location = new Point(346, 218), AutoSize = false, Width = 96,
             Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false,
         };
         cancel.Click += (_, _) => { _cancelled = true; Outcome = "cancelled"; DialogResult = DialogResult.Cancel; };

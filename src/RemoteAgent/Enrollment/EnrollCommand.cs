@@ -8,6 +8,7 @@ using System.Text.Json;
 using RemoteAgent.Commands;
 using RemoteAgent.Resources;
 using RemoteAgent.Security;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Enrollment;
 
@@ -161,7 +162,7 @@ public static class EnrollCommand
         using var proc = Process.Start(psi)!;
         proc.WaitForExit();
         if (proc.ExitCode != 0 || !File.Exists(keyPath + ".pub"))
-            throw new InvalidOperationException("ssh-keygen sikertelen (SSH kulcs generálás).");
+            throw new InvalidOperationException(L.EnrollCommand_001);
 
         TightenAcl(keyPath);
         return File.ReadAllText(keyPath + ".pub").Trim();

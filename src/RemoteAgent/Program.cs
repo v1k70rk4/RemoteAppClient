@@ -9,6 +9,8 @@ using RemoteAgent.Services;
 using RemoteAgent.Telemetry;
 using RemoteAgent.Tunnel;
 
+RemoteAgent.Globalization.RuntimeLanguage.ApplyFromSharedSettings();
+
 // "enroll" mód: telepítéskori, emberi lépés — nem a service-t indítja, hanem beléptet.
 if (args is ["enroll", ..])
     return await EnrollCommand.RunAsync(args[1..]);

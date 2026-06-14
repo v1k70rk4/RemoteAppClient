@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using RemoteAgent.Admin;
 using RemoteAgent.Commands;
 using RemoteAgent.Tunnel;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -37,7 +38,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
             try { pipe = CreatePipe(); }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "Status-pipe létrehozása sikertelen — újrapróba 2s múlva.");
+                logger.LogDebug(ex, L.StatusPipeService_001);
                 try { await Task.Delay(2000, stoppingToken); } catch { break; }
                 continue;
             }
@@ -75,7 +76,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
             await pipe.WriteAsync(json, ct);
             await pipe.FlushAsync(ct);
         }
-        catch (Exception ex) { logger.LogDebug(ex, "Status-pipe írás hiba."); }
+        catch (Exception ex) { logger.LogDebug(ex, L.StatusPipeService_002); }
         finally { try { await pipe.DisposeAsync(); } catch { /* best effort */ } }
     }
 

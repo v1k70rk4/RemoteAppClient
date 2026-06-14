@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RemoteAgent.Configuration;
 using RemoteAgent.Security;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Update;
 
@@ -26,7 +27,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
     {
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(sha256))
         {
-            logger.LogWarning("Update parancs URL/hash nélkül, kihagyva.");
+            logger.LogWarning(L.UpdateInstaller_001);
             return;
         }
 
@@ -53,7 +54,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
 
         if (isUpdater && string.IsNullOrWhiteSpace(targetPath))
         {
-            logger.LogWarning("Az Updater exe útvonala nem határozható meg — frissítés kihagyva.");
+            logger.LogWarning(L.UpdateInstaller_002);
             return;
         }
 
@@ -63,7 +64,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         try
         {
             var resolved = ResolveUrl(url);
-            logger.LogInformation("Update letöltése: {Target} {Version} ({Url})", isUpdater ? "updater" : "agent", version, resolved);
+            logger.LogInformation(L.UpdateInstaller_003, isUpdater ? "updater" : "agent", version, resolved);
 
             using (var http = BuildClient())
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
@@ -77,7 +78,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             var actual = Convert.ToHexString(await ComputeSha256Async(tmp, ct));
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogError("Update hash NEM egyezik (várt {Expected}, kapott {Actual}) — eldobva.", expected, actual);
+                logger.LogError(L.UpdateInstaller_004, expected, actual);
                 TryDelete(tmp);
                 return;
             }
@@ -87,11 +88,11 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             File.Move(tmp, newExe);
 
             await File.WriteAllTextAsync(Path.Combine(_dir, markerName), targetPath, ct);
-            logger.LogInformation("Update staging kész ({Version}) — a csere átveszi a másik processz.", version);
+            logger.LogInformation(L.UpdateInstaller_005, version);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Update sikertelen.");
+            logger.LogWarning(ex, L.UpdateInstaller_019);
             TryDelete(tmp);
         }
     }
@@ -107,7 +108,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         try
         {
             var resolved = ResolveUrl(url);
-            logger.LogInformation("TightVNC frissítés letöltése: {Version} ({Url})", version, resolved);
+            logger.LogInformation(L.UpdateInstaller_006, version, resolved);
 
             using (var http = BuildClient())
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
@@ -121,7 +122,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             var actual = Convert.ToHexString(await ComputeSha256Async(msi, ct));
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogError("TightVNC update hash NEM egyezik (várt {Expected}, kapott {Actual}) — eldobva.", expected, actual);
+                logger.LogError(L.UpdateInstaller_007, expected, actual);
                 TryDelete(msi);
                 return;
             }
@@ -134,11 +135,11 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             using var proc = Process.Start(psi)!;
             await proc.WaitForExitAsync(ct);
             if (proc.ExitCode is 0 or 3010) // 3010 = siker, újraindítás javasolt
-                logger.LogInformation("TightVNC frissítve ({Version}).", version);
+                logger.LogInformation(L.UpdateInstaller_008, version);
             else
-                logger.LogWarning("TightVNC msiexec hibakód: {Code}", proc.ExitCode);
+                logger.LogWarning(L.UpdateInstaller_009, proc.ExitCode);
         }
-        catch (Exception ex) { logger.LogWarning(ex, "TightVNC frissítés sikertelen."); }
+        catch (Exception ex) { logger.LogWarning(ex, L.UpdateInstaller_010); }
         finally { TryDelete(msi); }
     }
 
@@ -152,7 +153,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         var targetPath = ClientExePath();
         if (string.IsNullOrWhiteSpace(targetPath))
         {
-            logger.LogWarning("A RemoteClient.exe útvonala nem határozható meg — kliens-frissítés kihagyva.");
+            logger.LogWarning(L.UpdateInstaller_011);
             return;
         }
 
@@ -161,7 +162,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         try
         {
             var resolved = ResolveUrl(url);
-            logger.LogInformation("Kliens-frissítés letöltése: {Version} ({Url})", version, resolved);
+            logger.LogInformation(L.UpdateInstaller_012, version, resolved);
 
             using (var http = BuildClient())
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
@@ -175,7 +176,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             var actual = Convert.ToHexString(await ComputeSha256Async(tmp, ct));
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogError("Kliens update hash NEM egyezik (várt {Expected}, kapott {Actual}) — eldobva.", expected, actual);
+                logger.LogError(L.UpdateInstaller_013, expected, actual);
                 TryDelete(tmp);
                 return;
             }
@@ -199,10 +200,10 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
                 }
             }
 
-            if (copied) logger.LogInformation("Konzol-kliens frissítve ({Version}).", version);
-            else logger.LogWarning("A RemoteClient.exe cseréje nem sikerült (zárolt?) — később újrapróbálható.");
+            if (copied) logger.LogInformation(L.UpdateInstaller_014, version);
+            else logger.LogWarning(L.UpdateInstaller_015);
         }
-        catch (Exception ex) { logger.LogWarning(ex, "Kliens-frissítés sikertelen."); }
+        catch (Exception ex) { logger.LogWarning(ex, L.UpdateInstaller_016); }
         finally { TryDelete(tmp); }
     }
 
@@ -223,9 +224,9 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             {
                 p.Kill(entireProcessTree: true);
                 p.WaitForExit(3000);
-                logger.LogWarning("Futó RemoteClient kilőve a frissítéshez (PID {Pid}).", p.Id);
+                logger.LogWarning(L.UpdateInstaller_017, p.Id);
             }
-            catch (Exception ex) { logger.LogDebug(ex, "RemoteClient kilövése nem sikerült (PID {Pid}).", p.Id); }
+            catch (Exception ex) { logger.LogDebug(ex, L.UpdateInstaller_018, p.Id); }
             finally { p.Dispose(); }
         }
     }

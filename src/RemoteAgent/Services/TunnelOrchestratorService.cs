@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using RemoteAgent.Commands;
 using RemoteAgent.Configuration;
 using RemoteAgent.Tunnel;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -34,7 +35,7 @@ public sealed class TunnelOrchestratorService(
             await foreach (var cmd in bus.ReadAllAsync(stoppingToken))
             {
                 try { await HandleAsync(cmd, stoppingToken); }
-                catch (Exception ex) { logger.LogError(ex, "Tunnel parancs feldolgozása sikertelen: {Type}", cmd.Type); }
+                catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_001, cmd.Type); }
             }
         }
         catch (OperationCanceledException) { /* leállás */ }
@@ -60,7 +61,7 @@ public sealed class TunnelOrchestratorService(
                     cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
                 break;
             default:
-                logger.LogWarning("Ismeretlen parancs: {Type}", cmd.Type);
+                logger.LogWarning(L.TunnelOrchestratorService_015, cmd.Type);
                 break;
         }
     }
@@ -73,15 +74,15 @@ public sealed class TunnelOrchestratorService(
         // HELYI VNC-zár: ha a gépet helyileg letiltották, NEM nyitunk tunnelt, és naplózzuk a próbálkozást.
         if (RemoteAgent.Vnc.VncLock.IsLocked())
         {
-            RemoteAgent.Vnc.VncLock.Log("Távoli elérés (tunnel) ELUTASÍTVA: a gép VNC-je helyileg le van tiltva.");
-            logger.LogWarning("open-tunnel elutasítva — a gép VNC-je helyileg le van tiltva.");
+            RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_002);
+            logger.LogWarning(L.TunnelOrchestratorService_003);
             await uplink.ReportAccessResultAsync(cmd.Nonce, "locked", ct);
             return;
         }
 
         if (remotePort <= 0)
         {
-            logger.LogWarning("open-tunnel érvénytelen távoli porttal ({Port}), kihagyva.", remotePort);
+            logger.LogWarning(L.TunnelOrchestratorService_004, remotePort);
             await uplink.ReportAccessResultAsync(cmd.Nonce, "denied", ct);
             return;
         }
@@ -117,8 +118,8 @@ public sealed class TunnelOrchestratorService(
         {
             if (!unattendedAllowed)
             {
-                RemoteAgent.Vnc.VncLock.Log("Távoli elérés ELUTASÍTVA: nincs bejelentkezett felhasználó és a felügyelet nélküli hozzáférés tiltott.");
-                logger.LogWarning("open-tunnel elutasítva — nincs aktív felhasználó, unattended tiltott.");
+                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_005);
+                logger.LogWarning(L.TunnelOrchestratorService_006);
                 return "no-user";
             }
             return "auto"; // unattended engedett → mehet consent nélkül
@@ -128,22 +129,22 @@ public sealed class TunnelOrchestratorService(
 
         // A WTS prompt blokkol a válaszig/timeoutig — háttérszálon, hogy ne fogja meg az async folyamot.
         var outcome = await Task.Run(() => RemoteAgent.Consent.ConsentPrompt.Ask(
-            "Távoli hozzáférés",
-            "Egy rendszergazda távolról szeretne csatlakozni ehhez a géphez.\n\nEngedélyezed?",
+            L.TunnelOrchestratorService_007,
+            L.TunnelOrchestratorService_008,
             timeoutSeconds: 30), ct);
 
         switch (outcome)
         {
             case RemoteAgent.Consent.ConsentPrompt.Outcome.Granted:
-                RemoteAgent.Vnc.VncLock.Log("Távoli elérés ENGEDÉLYEZVE a felhasználó által.");
+                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_009);
                 return "granted";
             case RemoteAgent.Consent.ConsentPrompt.Outcome.Timeout:
-                RemoteAgent.Vnc.VncLock.Log("Távoli elérés: a felhasználó nem válaszolt (timeout).");
-                logger.LogWarning("open-tunnel — hozzájárulás timeout.");
+                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_010);
+                logger.LogWarning(L.TunnelOrchestratorService_011);
                 return "timeout";
             default:
-                RemoteAgent.Vnc.VncLock.Log($"Távoli elérés ELUTASÍTVA a felhasználó által (hozzájárulás: {outcome}).");
-                logger.LogWarning("open-tunnel elutasítva — hozzájárulás: {Outcome}.", outcome);
+                RemoteAgent.Vnc.VncLock.Log(L.Format(L.TunnelOrchestratorService_012, outcome));
+                logger.LogWarning(L.TunnelOrchestratorService_013, outcome);
                 return "denied";
         }
     }
@@ -165,7 +166,7 @@ public sealed class TunnelOrchestratorService(
                 await Task.Delay(TimeSpan.FromSeconds(30), ct);
                 if (_tunnel is { IsRunning: true } && DateTimeOffset.UtcNow - _lastActivity > idle)
                 {
-                    logger.LogInformation("Tunnel idle-timeout ({Idle}s), lebontás.", idle.TotalSeconds);
+                    logger.LogInformation(L.TunnelOrchestratorService_014, idle.TotalSeconds);
                     await CloseTunnelAsync();
                 }
             }

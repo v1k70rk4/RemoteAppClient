@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Options;
 using RemoteServer.Configuration;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Signing;
 
@@ -25,11 +26,11 @@ public sealed class CertificateAuthority : IDisposable
 
         if (!File.Exists(opt.CaCertPath) || !File.Exists(opt.CaKeyPath))
             throw new InvalidOperationException(
-                $"A CA fájlok hiányoznak ('{opt.CaCertPath}', '{opt.CaKeyPath}'). " +
-                "Generáld provisioning-kor (deploy/deploy-server.sh), a szerver csak olvassa.");
+                L.Format(L.CertificateAuthority_001, opt.CaCertPath, opt.CaKeyPath) +
+                L.CertificateAuthority_002);
 
         _caCert = X509Certificate2.CreateFromPemFile(opt.CaCertPath, opt.CaKeyPath);
-        logger.LogInformation("CA betöltve: {Subject}", _caCert.Subject);
+        logger.LogInformation(L.CertificateAuthority_003, _caCert.Subject);
     }
 
     /// <summary>A CA tanúsítványa PEM-ben (az agent ezt pinneli).</summary>

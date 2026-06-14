@@ -5,6 +5,7 @@ using RemoteServer.Data;
 using RemoteServer.Data.Entities;
 using RemoteServer.Hub;
 using RemoteServer.Signing;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Services;
 
@@ -25,7 +26,7 @@ public sealed class CommandService(
         var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
         if (device is null)
         {
-            logger.LogWarning("Ismeretlen gép, parancs eldobva: {Device}", deviceId);
+            logger.LogWarning(L.CommandService_001, deviceId);
             return null;
         }
 
@@ -75,11 +76,11 @@ public sealed class CommandService(
             entity.Nonce = signed.Nonce;
             entity.Signature = signed.Signature;
             await db.SaveChangesAsync(ct);
-            logger.LogInformation("Parancs kézbesítve {Device}: {Type}", deviceId, entity.Type);
+            logger.LogInformation(L.CommandService_002, deviceId, entity.Type);
         }
         else
         {
-            logger.LogInformation("Gép offline, parancs sorban marad {Device}: {Type}", deviceId, entity.Type);
+            logger.LogInformation(L.CommandService_003, deviceId, entity.Type);
         }
     }
 }

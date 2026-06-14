@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using RemoteServer.Configuration;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Signing;
 
@@ -21,7 +22,7 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
             return null;
         if (!File.Exists(_opt.SshCaKeyPath))
         {
-            logger.LogWarning("SSH-CA kulcs nem található: {Path}", _opt.SshCaKeyPath);
+            logger.LogWarning(L.SshCertificateAuthority_001, _opt.SshCaKeyPath);
             return null;
         }
 
@@ -51,7 +52,7 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
 
             if (proc.ExitCode != 0 || !File.Exists(certPath))
             {
-                logger.LogWarning("ssh-keygen aláírás sikertelen (device {Device}): {Err}", deviceId, err);
+                logger.LogWarning(L.SshCertificateAuthority_002, deviceId, err);
                 return null;
             }
             return (await File.ReadAllTextAsync(certPath, ct)).Trim();

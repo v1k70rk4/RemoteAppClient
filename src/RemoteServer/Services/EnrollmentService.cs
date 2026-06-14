@@ -7,6 +7,7 @@ using RemoteAgent.Enrollment;
 using RemoteServer.Data;
 using RemoteServer.Data.Entities;
 using RemoteServer.Signing;
+using L = RemoteServer.Localization.Strings;
 
 namespace RemoteServer.Services;
 
@@ -55,7 +56,7 @@ public sealed class EnrollmentService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "CSR aláírása sikertelen (device {Device}).", deviceId);
+            logger.LogWarning(ex, L.EnrollmentService_001, deviceId);
             return new Result(null, "bad_csr");
         }
 
@@ -100,7 +101,7 @@ public sealed class EnrollmentService(
         });
 
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Gép beléptetve: {Device} ({Host})", deviceId, req.Hostname);
+        logger.LogInformation(L.EnrollmentService_002, deviceId, req.Hostname);
 
         return new Result(new EnrollResponse
         {

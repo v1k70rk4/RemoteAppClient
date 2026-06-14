@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Win32;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
@@ -41,7 +42,7 @@ public static class LocalVncLock
     public static bool RunElevated(bool lockIt)
     {
         var exe = ResolveAgentExe()
-                  ?? throw new InvalidOperationException("A RemoteAgent szolgáltatás exe-je nem található ezen a gépen.");
+                  ?? throw new InvalidOperationException(L.LocalVncLock_001);
         var psi = new ProcessStartInfo(exe, lockIt ? "vnc-lock" : "vnc-unlock") { UseShellExecute = true, Verb = "runas" };
         using var p = Process.Start(psi);
         if (p is null) return false;

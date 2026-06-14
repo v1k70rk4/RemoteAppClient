@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Win32;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Vnc;
 
@@ -35,12 +36,12 @@ public static class VncLock
             SetFlag(true);
             RunSc("stop", ServiceName);
             RunSc("config", ServiceName, "start=", "disabled");
-            Log("A távoli elérés (VNC) HELYILEG letiltva ezen a gépen.");
-            Console.WriteLine("VNC helyileg LETILTVA (tvnserver leállítva + disabled).");
+            Log(L.VncLock_001);
+            Console.WriteLine(L.VncLock_002);
             return 0;
         }
-        catch (UnauthorizedAccessException) { Console.Error.WriteLine("Admin/SYSTEM jog kell."); return 5; }
-        catch (Exception ex) { Console.Error.WriteLine("Hiba: " + ex.Message); return 1; }
+        catch (UnauthorizedAccessException) { Console.Error.WriteLine(L.VncLock_005); return 5; }
+        catch (Exception ex) { Console.Error.WriteLine(L.VncLock_006 + ex.Message); return 1; }
     }
 
     /// <summary>CLI: vnc-unlock — flag törlése + a tvnserver visszaengedése és indítása.</summary>
@@ -51,12 +52,12 @@ public static class VncLock
             SetFlag(false);
             RunSc("config", ServiceName, "start=", "auto");
             RunSc("start", ServiceName);
-            Log("A távoli elérés (VNC) feloldva ezen a gépen.");
-            Console.WriteLine("VNC FELOLDVA (tvnserver auto + elindítva).");
+            Log(L.VncLock_003);
+            Console.WriteLine(L.VncLock_004);
             return 0;
         }
-        catch (UnauthorizedAccessException) { Console.Error.WriteLine("Admin/SYSTEM jog kell."); return 5; }
-        catch (Exception ex) { Console.Error.WriteLine("Hiba: " + ex.Message); return 1; }
+        catch (UnauthorizedAccessException) { Console.Error.WriteLine(L.VncLock_005); return 5; }
+        catch (Exception ex) { Console.Error.WriteLine(L.VncLock_006 + ex.Message); return 1; }
     }
 
     /// <summary>Idempotens kényszerítés: ha zárolt, a tvnserver biztosan álljon + maradjon disabled.</summary>

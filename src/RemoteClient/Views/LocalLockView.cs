@@ -1,5 +1,6 @@
 using System.Drawing;
 using MaterialSkin.Controls;
+using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
@@ -18,10 +19,10 @@ public sealed class LocalLockView : UserControl, IContentView
         Dock = DockStyle.Fill;
         Padding = new Padding(24, 18, 24, 12);
 
-        var title = new MaterialLabel { Text = "Helyi zár (távoli elérés tiltása ezen a gépen)", Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, 8) };
+        var title = new MaterialLabel { Text = L.LocalLockView_001, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, 8) };
         var help = new MaterialLabel
         {
-            Text = "Ha letiltod, erre a gépre senki sem tud távolról belépni (VNC), amíg HELYBEN (UAC-cal) fel nem oldod — távolról nem visszavonható.",
+            Text = L.LocalLockView_002,
             AutoSize = true, MaximumSize = new Size(760, 0), Dock = DockStyle.Top,
         };
         _state.Font = new Font("Segoe UI", 12F, FontStyle.Bold); _state.AutoSize = true; _state.Dock = DockStyle.Top; _state.Margin = new Padding(0, 8, 0, 8);
@@ -44,27 +45,27 @@ public sealed class LocalLockView : UserControl, IContentView
     private void Refresh2()
     {
         bool locked = LocalVncLock.IsLocked();
-        _state.Text = locked ? "Állapot:  LETILTVA (távolról nem elérhető)" : "Állapot:  Engedélyezve";
+        _state.Text = locked ? L.LocalLockView_003 : L.LocalLockView_004;
         _state.ForeColor = locked ? Color.IndianRed : Color.MediumSeaGreen;
-        _toggle.Text = locked ? "Feloldás (UAC)" : "Letiltás (UAC)";
+        _toggle.Text = locked ? L.LocalLockView_005 : L.LocalLockView_006;
     }
 
     private void Toggle()
     {
         bool locked = LocalVncLock.IsLocked();
         var q = locked
-            ? "Feloldod ezen a HELYI gépen a távoli elérést (VNC)?"
-            : "Letiltod ezen a HELYI gépen a távoli elérést (VNC)?\n\nUtána erre a gépre senki sem tud távolról belépni, amíg HELYBEN fel nem oldod.";
-        if (MessageBox.Show(q, "Helyi VNC-zár", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            ? L.LocalLockView_007
+            : L.LocalLockView_008;
+        if (MessageBox.Show(q, L.LocalLockView_009, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try
         {
             if (LocalVncLock.RunElevated(!locked))
             {
-                _status.Text = locked ? "Helyi gép feloldva." : "Helyi gép ZÁROLVA — távolról nem elérhető.";
+                _status.Text = locked ? L.LocalLockView_010 : L.LocalLockView_011;
                 Refresh2();
             }
-            else _status.Text = "A művelet nem fejeződött be (UAC megszakítva?).";
+            else _status.Text = L.LocalLockView_012;
         }
-        catch (Exception ex) { _status.Text = "Helyi zár hiba: " + ex.Message; }
+        catch (Exception ex) { _status.Text = L.LocalLockView_013 + ex.Message; }
     }
 }

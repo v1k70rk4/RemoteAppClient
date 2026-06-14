@@ -6,6 +6,7 @@ using RemoteAgent.Commands;
 using RemoteAgent.Configuration;
 using RemoteAgent.Security;
 using RemoteAgent.Telemetry;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
@@ -26,7 +27,7 @@ public sealed class TelemetryService(
     {
         if (string.IsNullOrWhiteSpace(_opt.IngestUrl))
         {
-            logger.LogWarning("Nincs telemetria URL konfigurálva, a szolgáltatás tétlen.");
+            logger.LogWarning(L.TelemetryService_001);
             return;
         }
 
@@ -45,10 +46,10 @@ public sealed class TelemetryService(
                 if (resp.IsSuccessStatusCode)
                 {
                     status.MarkServerContact(); // a status-pipe „utolsó szerver-kontakt"-ja
-                    logger.LogDebug("Telemetria elküldve.");
+                    logger.LogDebug(L.TelemetryService_002);
                 }
                 else
-                    logger.LogWarning("Telemetria elutasítva: HTTP {Code}", (int)resp.StatusCode);
+                    logger.LogWarning(L.TelemetryService_003, (int)resp.StatusCode);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -56,7 +57,7 @@ public sealed class TelemetryService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Telemetria küldése sikertelen.");
+                logger.LogWarning(ex, L.TelemetryService_004);
                 http?.Dispose();
                 http = null; // a következő ciklusban újraépül (pl. ha közben megtörtént a beléptetés)
             }
