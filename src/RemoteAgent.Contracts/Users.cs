@@ -47,6 +47,8 @@ public sealed class PasswordCodeRequest
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
     [JsonPropertyName("email")] public string Email { get; set; } = string.Empty;
     [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
+    /// <summary>The requesting client's language (hu/en); the server sends the recovery email in this language.</summary>
+    [JsonPropertyName("language")] public string? Language { get; set; }
 }
 
 /// <summary>Password recovery: set a new password with the received code.</summary>

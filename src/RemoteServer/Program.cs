@@ -127,7 +127,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     if (user is null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
     {
         await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed",
-            user is null ? L.Program_001 : L.Program_002, ct);
+            user is null ? "unknown_user" : "bad_password", ct);
         return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
     }
 
@@ -139,7 +139,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         {
             // Invalid TOTP counts as a failed attempt, but totp_required (no code submitted yet) does not.
             if (!string.IsNullOrWhiteSpace(req.Totp))
-                await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed", L.Program_003, ct);
+                await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed", "bad_totp", ct);
             return Results.Json(new AuthError { Error = string.IsNullOrWhiteSpace(req.Totp) ? "totp_required" : "totp_invalid" },
                 AgentJsonContext.Default.AuthError, statusCode: 401);
         }
@@ -316,14 +316,14 @@ app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext 
     {
         var code = SetResetCode(user);
         await db.SaveChangesAsync(ct);
-        await EmailResetCodeAsync(email, user, code, ct);
+        await EmailResetCodeAsync(email, user, code, req.Language, ct); // in the requesting client's language
         await AuditAsync(db, ctx, "password-code-requested", null, null, actorOverride: user.Username);
     }
     else
     {
         // Mismatch (wrong email or no such user): logged failed attempt plus counter.
         await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-code-failed",
-            user is null ? L.Program_001 : L.Program_027, ct);
+            user is null ? "unknown_user" : "email_mismatch", ct);
     }
     // Response is always OK for anti-enumeration.
     return Results.NoContent();
@@ -351,7 +351,7 @@ app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, Aut
         || !string.Equals(user.ResetCodeHash, Sha256Hex(req.Code.Trim().ToUpperInvariant()), StringComparison.Ordinal))
     {
         await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-reset-failed",
-            user is null ? L.Program_001 : L.Program_005, ct);
+            user is null ? "unknown_user" : "bad_token", ct);
         return Results.Json(new AuthError { Error = "invalid_code" }, AgentJsonContext.Default.AuthError, statusCode: 400);
     }
 
@@ -1175,7 +1175,7 @@ app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, IEmailSende
     await SetRoleAsync(db, user.Id, role, ct);
     await db.SaveChangesAsync(ct);
 
-    bool emailSent = req.EmailCode && await EmailResetCodeAsync(email, user, code, ct);
+    bool emailSent = req.EmailCode && await EmailResetCodeAsync(email, user, code, null, ct); // admin-triggered → server language
 
     await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}{(emailSent ? " · token emailed" : "")}");
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
@@ -1234,7 +1234,7 @@ app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, bool? email
     await auth.RevokeAllForUserAsync(id, ct);
     await db.SaveChangesAsync(ct);
 
-    bool emailSent = emailCode == true && await EmailResetCodeAsync(email, user, code, ct);
+    bool emailSent = emailCode == true && await EmailResetCodeAsync(email, user, code, null, ct); // admin-triggered → server language
 
     await AuditAsync(db, ctx, "user-reset-password", null, $"{user.Username}{(emailSent ? " · token emailed" : "")}{(clearTotp == true ? " · TOTP cleared" : "")}");
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
@@ -1465,7 +1465,7 @@ static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, Ht
 
     if (justLocked && device is not null)
     {
-        await AuditAsync(db, ctx, "device-locked", device.Id, L.Format(L.Program_015, LoginFailLockThreshold, username), actorOverride: "system");
+        await AuditAsync(db, ctx, "device-locked", device.Id, $"{username} · {LoginFailLockThreshold}", actorOverride: "system");
 
         var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
         var to = s?.SupportEmail;
@@ -1496,14 +1496,18 @@ static string SetResetCode(RemoteServer.Data.Entities.User user)
     return code;
 }
 
-/// <summary>Sends the recovery token by email. true = sent successfully.</summary>
-static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Data.Entities.User user, string code, CancellationToken ct)
+/// <summary>
+/// Sends the recovery token by email. Rendered in <paramref name="language"/> (the requesting client's
+/// language) when provided; otherwise the server's language. true = sent successfully.
+/// </summary>
+static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Data.Entities.User user, string code, string? language, CancellationToken ct)
 {
     if (string.IsNullOrWhiteSpace(user.Email)) return false;
-    var body = L.Format(L.Program_020, user.Username, code) +
-               L.Program_021 +
-               L.Program_022;
-    var (ok, _) = await email.SendAsync(user.Email!, L.Program_023, body, ct);
+    var lang = string.IsNullOrWhiteSpace(language) ? L.Language : language;
+    var body = L.Format(L.Get("Program_020", lang), user.Username, code) +
+               L.Get("Program_021", lang) +
+               L.Get("Program_022", lang);
+    var (ok, _) = await email.SendAsync(user.Email!, L.Get("Program_023", lang), body, ct);
     return ok;
 }
 

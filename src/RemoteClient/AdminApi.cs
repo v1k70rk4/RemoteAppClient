@@ -410,7 +410,8 @@ public sealed class AdminApi : IDisposable
     /// <summary>Requests a password recovery code before login. Response is always OK for anti-enumeration.</summary>
     public async Task RequestPasswordCodeAsync(string username, string email, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new PasswordCodeRequest { Username = username, Email = email, DeviceId = DeviceId }, AgentJsonContext.Default.PasswordCodeRequest);
+        var lang = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+        using var content = JsonContent.Create(new PasswordCodeRequest { Username = username, Email = email, DeviceId = DeviceId, Language = lang }, AgentJsonContext.Default.PasswordCodeRequest);
         using var resp = await _http.PostAsync("/auth/password/request-code", content, ct);
         // Intentionally do not throw: anti-enumeration hides whether a matching account exists.
     }

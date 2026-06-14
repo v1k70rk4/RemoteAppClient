@@ -5,8 +5,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient;
 
 /// <summary>
-/// Waits for the remote device response to a connection request (user approval), correlated by nonce.
-/// pollozva a szervert. Outcome: granted/auto/denied/timeout/no-user/locked/cancelled.
+/// Waits for the remote device response to a connection request (user approval), correlated by nonce,
+/// by polling the server. Outcome: granted/auto/denied/timeout/no-user/locked/cancelled.
 /// </summary>
 public sealed class ConsentWaitForm : MaterialForm
 {

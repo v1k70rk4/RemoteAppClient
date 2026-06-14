@@ -83,7 +83,7 @@ public sealed class CommandChannelService(
         logger.LogInformation(L.CommandChannelService_003, _opt.Url);
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
         logger.LogInformation(L.CommandChannelService_004);
-        status.SetC2Connected(true); // a status-pipe ezt jelzi a kliensnek
+        status.SetC2Connected(true); // the status pipe reports this to the client
         uplink.SetSocket(ws);        // from here we can send result messages back
 
         var buffer = new byte[8192];

@@ -42,6 +42,17 @@ internal static partial class Strings
         return key;
     }
 
+    /// <summary>Lookup in a SPECIFIC language (e.g. the requesting client's), independent of the process language.</summary>
+    public static string Get(string key, string language)
+    {
+        var lang = ResolveLanguage(language);
+        if (Translations.TryGetValue(lang, out var dict) && dict.TryGetValue(key, out var value))
+            return value;
+        if (Translations.TryGetValue(English, out var fallback) && fallback.TryGetValue(key, out var fb))
+            return fb;
+        return key;
+    }
+
     public static string Format(string format, params object?[] args) =>
         string.Format(CultureInfo.CurrentUICulture, format, args);
 

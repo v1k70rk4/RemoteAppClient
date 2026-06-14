@@ -72,7 +72,7 @@ public sealed class LogPanel : UserControl
                 item.SubItems.Add(e.Actor);
                 item.SubItems.Add(AuditText.Hu(e.Action));
                 item.SubItems.Add(e.Target ?? "—");
-                item.SubItems.Add(e.Detail ?? "—");
+                item.SubItems.Add(AuditText.Detail(e.Detail));
                 if (AuditText.IsNegative(e.Action)) item.ForeColor = Color.IndianRed;
                 else if (AuditText.IsNoConsent(e.Action)) item.ForeColor = Color.DarkOrange;
                 _list.Items.Add(item);

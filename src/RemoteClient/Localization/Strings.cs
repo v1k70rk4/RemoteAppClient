@@ -113,6 +113,11 @@ internal static partial class Strings
     public static string AuditText_027 => Get(nameof(AuditText_027));
     public static string AuditText_028 => Get(nameof(AuditText_028));
     public static string AuditText_029 => Get(nameof(AuditText_029));
+    public static string AuditReason_UnknownUser => Get(nameof(AuditReason_UnknownUser));
+    public static string AuditReason_BadPassword => Get(nameof(AuditReason_BadPassword));
+    public static string AuditReason_BadTotp => Get(nameof(AuditReason_BadTotp));
+    public static string AuditReason_EmailMismatch => Get(nameof(AuditReason_EmailMismatch));
+    public static string AuditReason_BadToken => Get(nameof(AuditReason_BadToken));
     public static string BootstrapView_001 => Get(nameof(BootstrapView_001));
     public static string BootstrapView_002 => Get(nameof(BootstrapView_002));
     public static string BootstrapView_003 => Get(nameof(BootstrapView_003));

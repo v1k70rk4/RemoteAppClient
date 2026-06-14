@@ -42,6 +42,28 @@ internal static class AuditText
         _ => action,
     };
 
+    /// <summary>
+    /// Localizes the audit detail: the server stores language-neutral reason keys (e.g. "bad_password")
+    /// separated by " · " from dynamic data; this maps known reason keys to the current UI language.
+    /// </summary>
+    public static string Detail(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return "—";
+        var parts = detail.Split([" · "], StringSplitOptions.None);
+        for (int i = 0; i < parts.Length; i++) parts[i] = Reason(parts[i]);
+        return string.Join(" · ", parts);
+    }
+
+    private static string Reason(string segment) => segment switch
+    {
+        "unknown_user" => L.AuditReason_UnknownUser,
+        "bad_password" => L.AuditReason_BadPassword,
+        "bad_totp" => L.AuditReason_BadTotp,
+        "email_mismatch" => L.AuditReason_EmailMismatch,
+        "bad_token" => L.AuditReason_BadToken,
+        _ => segment,
+    };
+
     /// <summary>Denial/blocking event shown in red.</summary>
     public static bool IsNegative(string action) =>
         action is "access-denied" or "access-timeout" or "access-no-user" or "access-locked"
