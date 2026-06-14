@@ -80,6 +80,15 @@ public sealed class CommandData
     /// <summary>Whether unattended access is allowed when nobody is signed in. null = yes.</summary>
     [JsonPropertyName("unattendedAllowed")]
     public bool? UnattendedAllowed { get; set; }
+
+    // For "message" commands (Messages tab). Only signed/canonicalized for the message command type,
+    // so existing command signatures stay unchanged.
+    /// <summary>"availability" (Yes/No "may I connect now") or "text" (plain message + OK).</summary>
+    [JsonPropertyName("messageKind")] public string? MessageKind { get; set; }
+    /// <summary>The operator's display name shown to the user.</summary>
+    [JsonPropertyName("messageFrom")] public string? MessageFrom { get; set; }
+    /// <summary>The message body for the "text" kind.</summary>
+    [JsonPropertyName("messageText")] public string? MessageText { get; set; }
 }
 
 /// <summary>Known command types. Arbitrary strings are ignored.</summary>
@@ -89,6 +98,8 @@ public static class CommandTypes
     public const string CloseTunnel = "close-tunnel";
     public const string Update = "update";
     public const string Ping = "ping";
+    /// <summary>Show a WTS prompt to the signed-in user: availability question or a plain message.</summary>
+    public const string Message = "message";
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

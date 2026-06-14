@@ -17,6 +17,11 @@ internal static class AuditText
         "access-locked" => L.AuditText_DisabledDeviceLocalLock,
         "device.enrolled" => L.AuditText_DeviceEnrolled,
         "device-update" => L.AuditText_DeviceUpdated,
+        "access-available" => L.AuditText_Available,
+        "access-no-answer" => L.AuditText_NoResponseTimeout,
+        "access-busy" => L.AuditText_Busy,
+        "access-delivered" => L.AuditText_MessageDelivered,
+        "device-message" => L.AuditText_MessageSent,
         "device-unlock" => L.AuditText_SignInLockCleared,
         "device-locked" => L.AuditText_DeviceSignInLocked,
         "login-failed" => L.AuditText_FailedSignIn,
@@ -66,7 +71,7 @@ internal static class AuditText
 
     /// <summary>Denial/blocking event shown in red.</summary>
     public static bool IsNegative(string action) =>
-        action is "access-denied" or "access-timeout" or "access-no-user" or "access-locked"
+        action is "access-denied" or "access-timeout" or "access-no-answer" or "access-no-user" or "access-locked"
             or "password-code-failed" or "password-reset-failed" or "login-failed" or "device-locked";
 
     /// <summary>Successful access without consent, highlighted in orange.</summary>

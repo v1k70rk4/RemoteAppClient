@@ -201,6 +201,22 @@ public sealed class AdminApi : IDisposable
         return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct);
     }
 
+    /// <summary>Messages tab: asks the device user "is it free now?". Returns the nonce to poll the outcome.</summary>
+    public async Task<string?> AskAvailabilityAsync(string deviceId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/ask-availability", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
+    }
+
+    /// <summary>Messages tab: sends a plain message to the device user. Returns the nonce to poll delivery.</summary>
+    public async Task<string?> SendMessageAsync(string deviceId, string text, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/send-message?text={Uri.EscapeDataString(text)}", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
+    }
+
     /// <summary>Fetches audit log with filters. Empty filter = all. action/actor/deviceId are optional.</summary>
     public async Task<List<AuditEntryInfo>> GetAuditAsync(string? action = null, string? actor = null, string? deviceId = null, int limit = 200, CancellationToken ct = default)
     {

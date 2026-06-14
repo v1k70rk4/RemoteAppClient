@@ -28,6 +28,7 @@ public sealed class DevicesView : UserControl, IContentView
     // Editor
     private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_General);
     private readonly MaterialButton _tabPermissions = TabBtn(L.UsersView_Permissions);
+    private readonly MaterialButton _tabMessages = TabBtn(L.DevicesView_Messages);
     private readonly MaterialButton _tabLog = TabBtn("LOG");
     private readonly MaterialButton _tabTelemetry = TabBtn(L.DevicesView_Telemetry);
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
@@ -37,6 +38,7 @@ public sealed class DevicesView : UserControl, IContentView
     private bool _sortAsc = true;
     private DeviceGeneralPanel? _generalPanel;
     private DevicePermissionsPanel? _permPanel;
+    private DeviceMessagesPanel? _msgPanel;
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
 
@@ -108,11 +110,12 @@ public sealed class DevicesView : UserControl, IContentView
         back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
         _tabGeneral.Click += (_, _) => SelectTab("general");
         _tabPermissions.Click += (_, _) => SelectTab("permissions");
+        _tabMessages.Click += (_, _) => SelectTab("messages");
         _tabLog.Click += async (_, _) => await SelectTabAsync("log");
         _tabTelemetry.Click += (_, _) => SelectTab("telemetry");
 
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabLog, _tabTelemetry]);
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabMessages, _tabLog, _tabTelemetry]);
 
         _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _tabContent));
     }
@@ -210,9 +213,10 @@ public sealed class DevicesView : UserControl, IContentView
             _editing = d;
             _editorTitle.Text = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
 
-            _generalPanel?.Dispose(); _permPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
+            _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
             _generalPanel = new DeviceGeneralPanel(_api, d, groups);
             _permPanel = new DevicePermissionsPanel(_api, d);
+            _msgPanel = new DeviceMessagesPanel(_api, d, () => ConnectDeviceAsync(d));
             _logPanel = new LogPanel(_api, deviceId: d.DeviceId);
             _telemetryPanel = new DeviceTelemetryPanel(d);
 
@@ -226,7 +230,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     private async Task SelectTabAsync(string tab)
     {
-        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
+        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabMessages, "messages"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
             b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
 
         _tabContent.Controls.Clear();
@@ -234,6 +238,7 @@ public sealed class DevicesView : UserControl, IContentView
         {
             case "general" when _generalPanel is not null: _tabContent.Controls.Add(_generalPanel); break;
             case "permissions" when _permPanel is not null: _tabContent.Controls.Add(_permPanel); break;
+            case "messages" when _msgPanel is not null: _tabContent.Controls.Add(_msgPanel); break;
             case "telemetry" when _telemetryPanel is not null: _tabContent.Controls.Add(_telemetryPanel); break;
             case "log" when _logPanel is not null: _tabContent.Controls.Add(_logPanel); await _logPanel.ShownAsync(); break;
         }
@@ -260,6 +265,12 @@ public sealed class DevicesView : UserControl, IContentView
     private async Task ConnectSelectedAsync()
     {
         if (SelectedDevice() is not { } sel) { SetStatus(L.DevicesView_SelectADevice); return; }
+        await ConnectDeviceAsync(sel);
+    }
+
+    /// <summary>Opens the tunnel and launches the VNC viewer for a specific device (re-fetches latest state).</summary>
+    private async Task ConnectDeviceAsync(DeviceInfo sel)
+    {
         try
         {
             _connectBtn.Enabled = false;

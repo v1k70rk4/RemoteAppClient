@@ -60,6 +60,27 @@ public static class ConsentPrompt
         return response switch { IDYES => Outcome.Granted, IDTIMEOUT => Outcome.Timeout, _ => Outcome.Denied };
     }
 
+    /// <summary>
+    /// Shows a plain message + OK in the active session and returns immediately (does not wait for the
+    /// user to click). Returns false when nobody is signed in. Used for the "thank you" / operator message.
+    /// </summary>
+    public static bool Notify(string title, string message)
+    {
+        uint session = WTSGetActiveConsoleSessionId();
+        if (session == 0xFFFFFFFF || string.IsNullOrEmpty(UserNameOf(session)))
+            return false;
+
+        const uint MB_OK = 0x0, MB_ICONINFORMATION = 0x40, MB_TOPMOST = 0x40000, MB_SETFOREGROUND = 0x10000;
+
+        WTSSendMessage(
+            IntPtr.Zero, session,
+            title, title.Length * 2,
+            message, message.Length * 2,
+            MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
+            0, out _, bWait: false); // fire-and-forget; we do not block on the user's OK
+        return true;
+    }
+
     private static string? UserNameOf(uint session)
     {
         if (!WTSQuerySessionInformation(IntPtr.Zero, session, WTS_INFO_CLASS.WTSUserName, out IntPtr buf, out _))

@@ -847,6 +847,41 @@ app.MapGet("/admin/devices/access-result/{nonce}", (string nonce, HttpContext ct
     return Results.Json(new AccessResultInfo { Outcome = entry?.Outcome ?? "" }, AgentJsonContext.Default.AccessResultInfo);
 });
 
+// Messages tab: "is your machine free now?" — Yes/No WTS prompt on the device (30s). The outcome
+// (available / busy / no-user) comes back via the access-result uplink; the console polls the nonce.
+app.MapPost("/admin/devices/{deviceId}/ask-availability", async (
+    string deviceId, HttpContext ctx, AppDbContext db, CommandService commands, AccessResultStore accessResults, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    var me = (User)ctx.Items["user"]!;
+    var from = string.IsNullOrWhiteSpace(me.Name) ? me.Username : me.Name!;
+
+    var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Message,
+        new CommandData { MessageKind = "availability", MessageFrom = from }, createdBy: null, ct);
+    if (cmd is null) return Results.NotFound();
+    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+    return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
+});
+
+// Messages tab: send a plain message ("{operator} sent a message") shown with OK on the device.
+app.MapPost("/admin/devices/{deviceId}/send-message", async (
+    string deviceId, string? text, HttpContext ctx, AppDbContext db, CommandService commands, AccessResultStore accessResults, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(text)) return Results.BadRequest(new { error = "no_text" });
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    var me = (User)ctx.Items["user"]!;
+    var from = string.IsNullOrWhiteSpace(me.Name) ? me.Username : me.Name!;
+
+    var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Message,
+        new CommandData { MessageKind = "text", MessageFrom = from, MessageText = text.Trim() }, createdBy: null, ct);
+    if (cmd is null) return Results.NotFound();
+    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+    await AuditAsync(db, ctx, "device-message", device.Id, $"{from}: {text.Trim()}");
+    return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
+});
+
 // Audit log query with filters: action key, actor username, deviceId, limit.
 app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceId, int? limit, AppDbContext db, CancellationToken ct) =>
 {

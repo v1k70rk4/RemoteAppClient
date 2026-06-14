@@ -17,10 +17,18 @@ public static class CommandSignature
     /// Deterministic, field-order-independent text that is signed and verified.
     /// The signature does not include itself.
     /// </summary>
-    public static string Canonicalize(AgentCommand cmd) =>
-        $"{cmd.Type}|{cmd.Nonce}|{cmd.IssuedAt}|{cmd.Data?.RemotePort ?? 0}" +
-        $"|{cmd.Data?.UpdateVersion}|{cmd.Data?.UpdateUrl}|{cmd.Data?.UpdateSha256}|{cmd.Data?.UpdateTarget}" +
-        $"|{cmd.Data?.ConsentRequired ?? false}|{cmd.Data?.UnattendedAllowed ?? true}";
+    public static string Canonicalize(AgentCommand cmd)
+    {
+        var s = $"{cmd.Type}|{cmd.Nonce}|{cmd.IssuedAt}|{cmd.Data?.RemotePort ?? 0}" +
+                $"|{cmd.Data?.UpdateVersion}|{cmd.Data?.UpdateUrl}|{cmd.Data?.UpdateSha256}|{cmd.Data?.UpdateTarget}" +
+                $"|{cmd.Data?.ConsentRequired ?? false}|{cmd.Data?.UnattendedAllowed ?? true}";
+
+        // Message fields are appended ONLY for message commands, so existing commands' canonical
+        // form (and signatures) stay unchanged — older agents keep verifying them.
+        if (cmd.Type == CommandTypes.Message)
+            s += $"|{cmd.Data?.MessageKind}|{cmd.Data?.MessageFrom}|{cmd.Data?.MessageText}";
+        return s;
+    }
 
     /// <summary>Signs the command with the server private key and sets the Signature field.</summary>
     public static void Sign(AgentCommand cmd, ECDsa privateKey)

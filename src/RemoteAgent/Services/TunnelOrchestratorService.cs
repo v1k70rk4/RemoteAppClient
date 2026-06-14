@@ -60,6 +60,9 @@ public sealed class TunnelOrchestratorService(
                 await updateInstaller.ApplyAsync(
                     cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
                 break;
+            case CommandTypes.Message:
+                await MessageCommandAsync(cmd, ct);
+                break;
             default:
                 logger.LogWarning(L.TunnelOrchestratorService_UnknownCommandType, cmd.Type);
                 break;
@@ -147,6 +150,48 @@ public sealed class TunnelOrchestratorService(
                 logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedConsentOutcome, outcome);
                 return "denied";
         }
+    }
+
+    /// <summary>
+    /// "message" command: shows a WTS prompt to the signed-in user and reports the outcome via uplink.
+    /// - availability: Yes/No "may I connect now" (30s). Yes -> "available" (console connects immediately);
+    ///   No -> "busy"; timeout -> "no-answer"; nobody -> "no-user".
+    /// - text: shows "{from} sent a message" + the body with OK -> "delivered"; nobody -> "no-user".
+    /// </summary>
+    private async Task MessageCommandAsync(AgentCommand cmd, CancellationToken ct)
+    {
+        var d = cmd.Data;
+        var from = string.IsNullOrWhiteSpace(d?.MessageFrom) ? "?" : d!.MessageFrom!;
+
+        if (d?.MessageKind == "text")
+        {
+            bool shown = RemoteAgent.Consent.ConsentPrompt.Notify(
+                L.Format(L.TunnelOrchestratorService_MessageFromTitle, from), d.MessageText ?? "");
+            await uplink.ReportAccessResultAsync(cmd.Nonce, shown ? "delivered" : "no-user", ct);
+            return;
+        }
+
+        // availability
+        if (!RemoteAgent.Consent.ConsentPrompt.HasActiveUser())
+        {
+            await uplink.ReportAccessResultAsync(cmd.Nonce, "no-user", ct);
+            return;
+        }
+
+        var outcome = await Task.Run(() => RemoteAgent.Consent.ConsentPrompt.Ask(
+            L.TunnelOrchestratorService_RemoteAccess,
+            L.Format(L.TunnelOrchestratorService_AvailabilityQuestion, from),
+            timeoutSeconds: 30), ct);
+
+        // "Yes" → the console connects right away (no follow-up box). Timeout ("no-answer") is reported
+        // separately from an explicit "No" ("busy") so the console can decide what to do when nobody answers.
+        var result = outcome switch
+        {
+            RemoteAgent.Consent.ConsentPrompt.Outcome.Granted => "available",
+            RemoteAgent.Consent.ConsentPrompt.Outcome.Timeout => "no-answer",
+            _ => "busy", // Denied / Error
+        };
+        await uplink.ReportAccessResultAsync(cmd.Nonce, result, ct);
     }
 
     private async Task CloseTunnelAsync()
