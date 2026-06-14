@@ -6,7 +6,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Névjegy: program ikon + név + kliens verzió; komponensek verziói/állapota, szerver, csatorna, kapcsolat.</summary>
+/// <summary>About view: program icon/name/client version, component versions/state, server, channel, and connection.</summary>
 public sealed class AboutView : UserControl, IContentView
 {
     private readonly ClientConfig _cfg;
@@ -22,14 +22,14 @@ public sealed class AboutView : UserControl, IContentView
         _tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         _tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        // Fejléc: ikon + név + kliens verzió.
+        // Header: icon, name, and client version.
         var header = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Padding = new Padding(24, 18, 24, 6) };
         try
         {
             var ico = Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
             if (ico is not null) header.Controls.Add(new PictureBox { Image = ico.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(48, 48), Margin = new Padding(0, 0, 12, 0) });
         }
-        catch { /* ikon nélkül is jó */ }
+        catch { /* icon is optional */ }
         var titleCol = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
         titleCol.Controls.Add(new MaterialLabel { Text = "RemoteAppClient", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true });
         titleCol.Controls.Add(new MaterialLabel { Text = L.AboutView_001 + ClientUpdater.RunningVersionString(), AutoSize = true });
@@ -71,13 +71,13 @@ public sealed class AboutView : UserControl, IContentView
         _row++;
     }
 
-    /// <summary>Kattintható e-mail sor (mailto:).</summary>
+    /// <summary>Clickable email row using mailto:.</summary>
     private void RowMail(string caption, string email)
     {
         var cap = new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 3, 24, 0) };
         var val = new MaterialLabel { Text = email, AutoSize = true, Margin = new Padding(0, 3, 0, 0), ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
         val.Font = new Font(val.Font, FontStyle.Underline);
-        val.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("mailto:" + email) { UseShellExecute = true }); } catch { /* nincs levelező */ } };
+        val.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("mailto:" + email) { UseShellExecute = true }); } catch { /* no mail client */ } };
         _tbl.Controls.Add(cap, 0, _row);
         _tbl.Controls.Add(val, 1, _row);
         _row++;
@@ -117,9 +117,9 @@ public sealed class AboutView : UserControl, IContentView
         }
 
         Section(L.AboutView_011);
-        Row("Agent", s is null ? "—" : $"{s.Version} · {(s.C2Connected ? "fut, online" : "fut")}", s is null ? Color.Gray : Color.MediumSeaGreen);
+        Row("Agent", s is null ? "—" : $"{s.Version} · {(s.C2Connected ? L.AboutView_022 : L.AboutView_021)}", s is null ? Color.Gray : Color.MediumSeaGreen);
         Row("Helper (updater)", s?.HelperVersion ?? "—");
-        Row(L.AboutView_016, ClientUpdater.RunningVersionString() + " · fut");
+        Row(L.AboutView_016, ClientUpdater.RunningVersionString() + " · " + L.AboutView_021);
         Row("TightVNC", s?.VncVersion ?? "—");
 
         _tbl.ResumeLayout();

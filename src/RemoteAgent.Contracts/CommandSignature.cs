@@ -4,25 +4,25 @@ using System.Text;
 namespace RemoteAgent.Commands;
 
 /// <summary>
-/// A parancs-aláírás EGYETLEN igazsága. A szerver <see cref="Sign"/>-ol, a kliens
-/// <see cref="Verify"/>-ol — mindkettő ugyanezt a <see cref="Canonicalize"/> formát
-/// használja, így a két oldal definíció szerint nem csúszhat szét.
+/// Single source of truth for command signatures. The server calls <see cref="Sign"/>
+/// and the client calls <see cref="Verify"/>; both use the same <see cref="Canonicalize"/>
+/// form, so the two sides cannot drift.
 ///
-/// Algoritmus: ECDSA P-256 / SHA-256. (A .NET BCL nem ad natív Ed25519-et, és ez
-/// AOT-barát is.) Az aláírás IEEE-P1363 (r||s) formátumú, Base64-ben a sig mezőben.
+/// Algorithm: ECDSA P-256 / SHA-256. The .NET BCL does not provide native Ed25519 here,
+/// and this is AOT-friendly. The signature is IEEE-P1363 (r||s), Base64-encoded in sig.
 /// </summary>
 public static class CommandSignature
 {
     /// <summary>
-    /// Determinisztikus, mezősorrend-független szöveg, amit aláírunk/ellenőrzünk.
-    /// Az aláírás NEM tartalmazza önmagát.
+    /// Deterministic, field-order-independent text that is signed and verified.
+    /// The signature does not include itself.
     /// </summary>
     public static string Canonicalize(AgentCommand cmd) =>
         $"{cmd.Type}|{cmd.Nonce}|{cmd.IssuedAt}|{cmd.Data?.RemotePort ?? 0}" +
         $"|{cmd.Data?.UpdateVersion}|{cmd.Data?.UpdateUrl}|{cmd.Data?.UpdateSha256}|{cmd.Data?.UpdateTarget}" +
         $"|{cmd.Data?.ConsentRequired ?? false}|{cmd.Data?.UnattendedAllowed ?? true}";
 
-    /// <summary>Aláírja a parancsot a szerver privát kulcsával, és beállítja a Signature mezőt.</summary>
+    /// <summary>Signs the command with the server private key and sets the Signature field.</summary>
     public static void Sign(AgentCommand cmd, ECDsa privateKey)
     {
         byte[] payload = Encoding.UTF8.GetBytes(Canonicalize(cmd));
@@ -31,8 +31,8 @@ public static class CommandSignature
     }
 
     /// <summary>
-    /// Ellenőrzi a parancs aláírását a szerver publikus kulcsával.
-    /// CSAK az aláírást nézi — a nonce/timestamp replay-ellenőrzés a hívó dolga.
+    /// Verifies the command signature with the server public key.
+    /// This checks only the signature; nonce/timestamp replay checks belong to the caller.
     /// </summary>
     public static bool Verify(AgentCommand cmd, ECDsa publicKey)
     {

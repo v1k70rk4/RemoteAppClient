@@ -3,53 +3,53 @@ using System.Text.Json.Serialization;
 namespace RemoteAgent.Enrollment;
 
 /// <summary>
-/// Beléptetési kérés: a gép a saját kulcsával készített CSR-t küld + a tokent.
-/// A privát kulcs SOHA nem hagyja el a gépet — a szerver csak aláírja a CSR-t.
+/// Enrollment request: the device sends a CSR created with its own key plus the token.
+/// The private key never leaves the device; the server only signs the CSR.
 /// </summary>
 public sealed class EnrollRequest
 {
-    /// <summary>Egyszer-használatos beléptető token (nyers; a szerver hash-eli és úgy keresi).</summary>
+    /// <summary>One-time enrollment token in raw form; the server hashes it before lookup.</summary>
     [JsonPropertyName("token")]
     public string Token { get; set; } = string.Empty;
 
-    /// <summary>A gép tanúsítvány-kérelme (PEM, PKCS#10).</summary>
+    /// <summary>Device certificate signing request (PEM, PKCS#10).</summary>
     [JsonPropertyName("csr")]
     public string Csr { get; set; } = string.Empty;
 
-    /// <summary>A gép neve (telemetriához/listázáshoz). A device-azonosítót a SZERVER osztja.</summary>
+    /// <summary>Device name for telemetry and listing. The server assigns the device ID.</summary>
     [JsonPropertyName("hostname")]
     public string Hostname { get; set; } = string.Empty;
 
-    /// <summary>A gép SSH publikus kulcsa (OpenSSH formátum) — a bástya-tunnelhez. A szerver aláírja CA-certté.</summary>
+    /// <summary>Device SSH public key in OpenSSH format for the bastion tunnel. The server signs it as a CA certificate.</summary>
     [JsonPropertyName("sshPublicKey")]
     public string SshPublicKey { get; set; } = string.Empty;
 }
 
-/// <summary>Sikeres beléptetés válasza: a szerver által osztott azonosító + az aláírt cert + a CA.</summary>
+/// <summary>Successful enrollment response: server-assigned ID, signed certificate, and CA.</summary>
 public sealed class EnrollResponse
 {
-    /// <summary>A szerver által kiosztott stabil device-azonosító (a cert CN-je is ez).</summary>
+    /// <summary>Stable server-assigned device ID, also used as the certificate CN.</summary>
     [JsonPropertyName("deviceId")]
     public string DeviceId { get; set; } = string.Empty;
 
-    /// <summary>Az aláírt kliens-tanúsítvány (PEM).</summary>
+    /// <summary>Signed client certificate (PEM).</summary>
     [JsonPropertyName("certificate")]
     public string Certificate { get; set; } = string.Empty;
 
-    /// <summary>A CA tanúsítványa (PEM) — az agent ezt pinneli a szerver-kapcsolathoz.</summary>
+    /// <summary>CA certificate (PEM); the agent pins this for the server connection.</summary>
     [JsonPropertyName("caCertificate")]
     public string CaCertificate { get; set; } = string.Empty;
 
-    /// <summary>A szerver parancs-aláíró PUBLIKUS kulcsa (ECDSA P-256, Base64 SPKI).
-    /// Az agent ezzel ellenőrzi a parancsok aláírását.</summary>
+    /// <summary>The server command-signing public key (ECDSA P-256, Base64 SPKI).
+    /// The agent uses it to verify command signatures.</summary>
     [JsonPropertyName("commandSigningPublicKey")]
     public string CommandSigningPublicKey { get; set; } = string.Empty;
 
-    /// <summary>Az agent SSH-kulcsát a CA-val aláíró SSH-cert (OpenSSH cert). A tunnelhez.</summary>
+    /// <summary>OpenSSH certificate signed by the CA for the agent SSH key, used by the tunnel.</summary>
     [JsonPropertyName("sshCertificate")]
     public string SshCertificate { get; set; } = string.Empty;
 
-    // Bástya-elérés a reverse tunnelhez (a szerver konfigjából).
+    // Bastion access for the reverse tunnel, from server configuration.
     [JsonPropertyName("bastionHost")]
     public string BastionHost { get; set; } = string.Empty;
 
@@ -59,19 +59,19 @@ public sealed class EnrollResponse
     [JsonPropertyName("bastionUser")]
     public string BastionUser { get; set; } = string.Empty;
 
-    /// <summary>A bástya host-kulcsa pinneléshez ("típus base64", comment nélkül).</summary>
+    /// <summary>Bastion host key for pinning ("type base64", without comment).</summary>
     [JsonPropertyName("bastionHostKey")]
     public string BastionHostKey { get; set; } = string.Empty;
 }
 
-/// <summary>Hiba esetén gép-olvasható kód (a kliens lokalizál belőle).</summary>
+/// <summary>Machine-readable error code; the client localizes it.</summary>
 public sealed class EnrollError
 {
     [JsonPropertyName("code")]
     public string Code { get; set; } = string.Empty;
 }
 
-/// <summary>A gép jelenti a (gépenként egyedi) VNC-jelszavát a szervernek, hogy az admin tudjon csatlakozni.</summary>
+/// <summary>The device reports its unique VNC password to the server so the admin can connect.</summary>
 public sealed class VncSecretReport
 {
     [JsonPropertyName("secret")]

@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient;
 
 /// <summary>
-/// Megvárja a távoli gép válaszát a csatlakozás-kérésre (a felhasználó jóváhagyását), nonce alapján
+/// Waits for the remote device response to a connection request (user approval), correlated by nonce.
 /// pollozva a szervert. Outcome: granted/auto/denied/timeout/no-user/locked/cancelled.
 /// </summary>
 public sealed class ConsentWaitForm : MaterialForm
@@ -45,7 +45,7 @@ public sealed class ConsentWaitForm : MaterialForm
 
     private async Task PollAsync()
     {
-        // ~36 mp (az agent 30 mp-es WTS-timeoutjánál bővebb), 600 ms-onként.
+        // About 36s, slightly above the agent's 30s WTS timeout, polling every 600 ms.
         for (int i = 0; i < 60 && !_cancelled; i++)
         {
             try
@@ -53,7 +53,7 @@ public sealed class ConsentWaitForm : MaterialForm
                 var o = await _api.GetAccessResultAsync(_nonce);
                 if (!string.IsNullOrEmpty(o)) { Outcome = o; if (!IsDisposed) DialogResult = DialogResult.OK; return; }
             }
-            catch { /* tranziens — próbáljuk újra */ }
+            catch { /* transient; retry */ }
             await Task.Delay(600);
         }
         if (!_cancelled && !IsDisposed) { Outcome = "timeout"; DialogResult = DialogResult.OK; }

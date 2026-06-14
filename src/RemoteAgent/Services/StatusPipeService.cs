@@ -14,10 +14,10 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// LOKÁLIS, csak-olvasható status-pipe ("RemoteAgent.status"). Csatlakozáskor egyetlen JSON
-/// <see cref="StatusReport"/>-ot ír, majd zár. A kliens (és bármely helyi komponens) így
-/// valós időben látja: él-e a C2, kész-e a tunnel, mikor volt utolsó szerver-kontakt.
-/// SEMMI parancs, SEMMI titok — a kontroll-csatorna marad az aláírt C2.
+/// Local, read-only status pipe ("RemoteAgent.status"). On connection it writes a single
+/// JSON <see cref="StatusReport"/> and closes. The client and other local components can
+/// see in real time whether C2 and tunnel are alive and when the last server contact was.
+/// No commands, no secrets: the control channel remains signed C2.
 /// </summary>
 public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel, RemoteAgent.Telemetry.SystemInfoCollector sysInfo, Microsoft.Extensions.Options.IOptions<RemoteAgent.Configuration.AgentOptions> options, ILogger<StatusPipeService> logger) : BackgroundService
 {
@@ -50,7 +50,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
             catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
             catch (Exception) { await pipe.DisposeAsync(); continue; }
 
-            _ = WriteStatusAsync(pipe, stoppingToken); // külön task; a ciklus új figyelőt nyit
+            _ = WriteStatusAsync(pipe, stoppingToken); // separate task; loop opens a fresh listener
         }
     }
 

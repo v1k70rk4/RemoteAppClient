@@ -4,14 +4,14 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient;
 
 /// <summary>
-/// A HELYI agent brókerével beszél (named pipe): a gép enrollment-kulcsával nyit
-/// <c>ssh -L</c> forwardokat a bástyához (admin API / cél-gép VNC). Egy kapcsolat = egy
-/// session; a forwardok addig élnek, amíg a kapcsolat nyitva van (záráskor az agent
-/// lebontja őket). A kliensnek NINCS saját SSH-kulcsa — a gép identitása a belépő, és csak
-/// BELÉPTETETT gépen (ahol fut az agent) működik a konzol.
+/// Talks to the local agent broker over a named pipe. The agent opens <c>ssh -L</c>
+/// forwards to the bastion using the device enrollment key (admin API / target-device VNC).
+/// One connection equals one session; forwards live while the connection is open and are
+/// torn down by the agent on close. The client has no SSH key of its own; device identity
+/// is the credential, and the console only works on enrolled devices with a running agent.
 ///
-/// BINÁRIS protokoll: a kliens int32 távoli portot ír, az agent int32 helyi portot válaszol
-/// (0 = hiba). Nincs szöveg/sorvég/BOM gond.
+/// Binary protocol: client writes int32 remote port, agent answers int32 local port
+/// (0 = error). No text, line ending, or BOM ambiguity.
 /// </summary>
 public sealed class BrokerClient : IDisposable
 {
@@ -22,20 +22,20 @@ public sealed class BrokerClient : IDisposable
 
     private BrokerClient(NamedPipeClientStream pipe) => _pipe = pipe;
 
-    /// <summary>Csatlakozás a helyi brókerhez HÁTTÉRSZÁLON (nem fagyasztja a UI-t); null, ha nincs/nem fut az agent.</summary>
+    /// <summary>Connects to the local broker on a background thread so the UI does not freeze; null if missing/not running.</summary>
     public static Task<BrokerClient?> TryConnectAsync(int timeoutMs = 3000) =>
         Task.Run<BrokerClient?>(() =>
         {
             try
             {
                 var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-                pipe.Connect(timeoutMs); // szinkron, de háttérszálon; az ERROR_PIPE_BUSY-t + timeoutot kezeli
+                pipe.Connect(timeoutMs); // synchronous but on background thread; handles ERROR_PIPE_BUSY and timeout
                 return new BrokerClient(pipe);
             }
             catch { return null; }
         });
 
-    /// <summary>Forward kérése a bástya egy portjára (admin API 5000 / cél VNC bástya-port). Helyi portot ad.</summary>
+    /// <summary>Requests a forward to a bastion port (admin API 5000 / target VNC bastion port). Returns local port.</summary>
     public async Task<int> ForwardAsync(int remotePort, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);

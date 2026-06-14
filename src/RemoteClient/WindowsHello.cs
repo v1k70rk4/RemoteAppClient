@@ -6,20 +6,20 @@ using Windows.Security.Cryptography.Core;
 namespace RemoteClient;
 
 /// <summary>
-/// Windows Hello (passkey-stílus) burkoló a KeyCredentialManager fölött. A privát kulcs a gép
-/// TPM-jében, Hello-val (ujjlenyomat/arc/PIN) védve; csak a PUBLIKUS kulcs megy a szerverre.
-/// Belépéskor a szerver challenge-ét írjuk alá (ehhez kell a Hello-prompt).
+/// Windows Hello passkey-style wrapper around KeyCredentialManager. The private key stays
+/// in the device TPM and is protected by Hello (fingerprint/face/PIN); only the public key
+/// goes to the server. On sign-in, the server challenge is signed after the Hello prompt.
 /// </summary>
 public static class WindowsHello
 {
-    /// <summary>Elérhető-e a Windows Hello ezen a gépen (van-e beállítva PIN/biometria)?</summary>
+    /// <summary>Whether Windows Hello is available on this device with PIN or biometrics configured.</summary>
     public static async Task<bool> IsAvailableAsync()
     {
         try { return await KeyCredentialManager.IsSupportedAsync(); }
         catch { return false; }
     }
 
-    /// <summary>Új Hello-kulcs létrehozása a névhez; visszaadja a PUBLIKUS kulcsot (X.509 SPKI, base64).</summary>
+    /// <summary>Creates a new Hello key for the name and returns the public key as X.509 SPKI base64.</summary>
     public static async Task<string?> CreateAsync(string name)
     {
         var res = await KeyCredentialManager.RequestCreateAsync(name, KeyCredentialCreationOption.ReplaceExisting);
@@ -28,7 +28,7 @@ public static class WindowsHello
         return Convert.ToBase64String(pub.ToArray());
     }
 
-    /// <summary>A meglévő kulccsal aláírja a challenge-et (kiváltja a Hello-promptot). Aláírás base64, vagy null.</summary>
+    /// <summary>Signs the challenge with the existing key, triggering the Hello prompt. Returns base64 signature or null.</summary>
     public static async Task<string?> SignAsync(string name, byte[] challenge)
     {
         var open = await KeyCredentialManager.OpenAsync(name);
@@ -38,14 +38,14 @@ public static class WindowsHello
         return Convert.ToBase64String(sign.Result.ToArray());
     }
 
-    /// <summary>Van-e már Hello-kulcs ezzel a névvel ezen a gépen.</summary>
+    /// <summary>Whether this device already has a Hello key with the given name.</summary>
     public static async Task<bool> ExistsAsync(string name)
     {
         try { return (await KeyCredentialManager.OpenAsync(name)).Status == KeyCredentialStatus.Success; }
         catch { return false; }
     }
 
-    /// <summary>A helyi Hello-kulcs törlése (kijelentkezés / leiratkozás).</summary>
+    /// <summary>Deletes the local Hello key for sign-out or unenrollment.</summary>
     public static async Task DeleteAsync(string name)
     {
         try { await KeyCredentialManager.DeleteAsync(name); } catch { /* best effort */ }

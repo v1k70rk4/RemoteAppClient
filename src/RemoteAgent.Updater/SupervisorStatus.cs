@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 namespace RemoteAgent.Updater;
 
 /// <summary>
-/// A Helper lokális állapota, amit az Agent felolvas és telemetriával felvisz
-/// (a Helpernek nincs hálózati jogosultsága). Csak diagnosztika, nem bizalmi adat.
+/// Local Helper state read by the Agent and uploaded as telemetry.
+/// The Helper has no network authority. Diagnostics only, not trust data.
 /// </summary>
 public sealed class SupervisorStatus
 {

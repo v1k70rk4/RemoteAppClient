@@ -4,19 +4,19 @@ using System.Resources;
 namespace RemoteAgent.Resources;
 
 /// <summary>
-/// Lokalizált szövegek típusos elérése. A háttérben ResourceManager + .resx
-/// (Strings.resx = en alap, Strings.hu.resx = magyar szatellit). A típusos
-/// elérő kézzel írt, hogy CLI-buildből is megbízhatóan forduljon (nincs designer-függés).
+/// Typed access to localized strings. ResourceManager and .resx are used underneath:
+/// Strings.resx is the English neutral base, Strings.hu.resx is the Hungarian satellite.
+/// The typed wrapper is handwritten so CLI builds do not depend on a designer file.
 ///
-/// A hívó beállíthatja a <see cref="Culture"/>-t (pl. CultureInfo.CurrentUICulture),
-/// vagy bízhatja a ResourceManager alapértelmezett kultúra-feloldására.
+/// Callers may set <see cref="Culture"/>, for example CultureInfo.CurrentUICulture,
+/// or rely on ResourceManager's default culture resolution.
 /// </summary>
 public static class Strings
 {
     private static readonly ResourceManager Rm =
         new("RemoteAgent.Resources.Localization.Strings", typeof(Strings).Assembly);
 
-    /// <summary>Felülbírálja a használt kultúrát. Null = CultureInfo.CurrentUICulture.</summary>
+    /// <summary>Overrides the culture used for lookup. Null = CultureInfo.CurrentUICulture.</summary>
     public static CultureInfo? Culture { get; set; }
 
     private static string Get(string key) => Rm.GetString(key, Culture) ?? key;
@@ -28,7 +28,7 @@ public static class Strings
     public static string EnrollSuccess => Get(nameof(EnrollSuccess));
     public static string EnrollServerUnreachable => Get(nameof(EnrollServerUnreachable));
 
-    /// <summary>Formázott: a beléptetés sikertelen, paraméter a részlet.</summary>
+    /// <summary>Formatted enrollment failure message; parameter is the detail.</summary>
     public static string EnrollFailed(string detail) =>
         string.Format(Culture ?? CultureInfo.CurrentUICulture, Get("EnrollFailedFmt"), detail);
 }

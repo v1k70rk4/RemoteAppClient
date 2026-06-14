@@ -7,9 +7,9 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Security;
 
 /// <summary>
-/// DB-beli titkok nyugalmi titkosítása (AES-256-GCM). A 32 bájtos kulcs egy külön,
-/// service-user által olvasható fájlban van (/etc/remoteserver/secret.key), így egy
-/// puszta DB-dump nem fedi fel a titkokat. Formátum: base64(nonce[12] | tag[16] | ct).
+/// Encrypts DB secrets at rest with AES-256-GCM. The 32-byte key lives in a separate
+/// service-user-readable file (/etc/remoteserver/secret.key), so a DB dump alone does
+/// not reveal secrets. Format: base64(nonce[12] | tag[16] | ct).
 /// </summary>
 public sealed class SecretProtector
 {
@@ -48,7 +48,7 @@ public sealed class SecretProtector
         return Convert.ToBase64String(blob);
     }
 
-    /// <summary>Visszafejt; null ha üres vagy nem értelmezhető (pl. régi/sérült érték).</summary>
+    /// <summary>Decrypts; returns null when empty or unreadable, for example legacy/corrupt values.</summary>
     public string? TryUnprotect(string? blobBase64)
     {
         if (string.IsNullOrEmpty(blobBase64)) return null;

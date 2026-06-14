@@ -6,9 +6,9 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Release-csatornák két táblában (RTM | BETA), komponensenkénti aktuális verziókkal + „Kiadva" pipával
-/// (a csatorna frissíthető+jóváhagyott gépei mind a csomag verzióján vannak-e). Rollout/Promote a táblák alatt.
-/// Az EXE feltöltés és az MSI gyártás ablakon belüli (← Vissza | Általános) szerkesztőként nyílik.
+/// Release channels in two tables (RTM | BETA), with current version per component and a "Released"
+/// flag indicating whether all updatable approved devices on the channel have the package version.
+/// Rollout/Promote sit below the tables. EXE upload and MSI build open as in-window editors.
 /// </summary>
 public sealed class ChannelsView : UserControl, IContentView
 {
@@ -131,7 +131,7 @@ public sealed class ChannelsView : UserControl, IContentView
         list.EndUpdate();
     }
 
-    /// <summary>A csatorna frissíthető+jóváhagyott gépei MIND a csomag verzióján vannak-e (= ki van adva).</summary>
+    /// <summary>Whether all updatable approved devices on the channel are on the package version (= released).</summary>
     private static bool RolledOut(string channel, string comp, string version, List<DeviceInfo> devices)
     {
         var relevant = devices.Where(d =>

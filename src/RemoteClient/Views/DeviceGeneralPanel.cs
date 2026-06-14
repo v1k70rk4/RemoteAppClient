@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Egy eszköz admin-mezői (csoport, flagek, megjegyzés) beágyazva, Mentés gombbal — a szerkesztő „Általános" füle.</summary>
+/// <summary>Embedded device admin fields (group, flags, note) with Save button for the editor General tab.</summary>
 public sealed class DeviceGeneralPanel : UserControl
 {
     private readonly AdminApi _api;
@@ -55,7 +55,7 @@ public sealed class DeviceGeneralPanel : UserControl
 
     private static void SetupTri(MaterialComboBox combo, bool? value)
     {
-        combo.Items.AddRange([L.DeviceGeneralPanel_007, "igen", L.DeviceGeneralPanel_010]);
+        combo.Items.AddRange([L.DeviceGeneralPanel_007, L.Common_Yes, L.DeviceGeneralPanel_010]);
         combo.SelectedIndex = value switch { null => 0, true => 1, false => 2 };
     }
 
@@ -67,7 +67,7 @@ public sealed class DeviceGeneralPanel : UserControl
         {
             var upd = new DeviceUpdate
             {
-                GroupId = ((GroupItem)_group.SelectedItem!).Id ?? Guid.Empty, // Empty → a szerver null-ra állítja
+                GroupId = ((GroupItem)_group.SelectedItem!).Id ?? Guid.Empty, // Empty makes the server set null
                 UpdateAllowed = _update.Checked,
                 Channel = _beta.Checked ? "beta" : "rtm",
                 UnattendedAllowed = FromTri(_unattended),

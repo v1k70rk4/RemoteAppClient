@@ -3,9 +3,9 @@ using System.Text.Json.Serialization;
 namespace RemoteAgent.Admin;
 
 /// <summary>
-/// Egy komponens (agent/helper/client) LOKÁLIS, csak-olvasható állapot-riportja, amit a saját
-/// named pipe-ján ad ki (pl. "RemoteAgent.status"). Csak állapot — SEMMI titok és SEMMI parancs.
-/// A séma verziózott, mert vegyes verziójú flottán fognak egymással beszélni.
+/// Local, read-only status report exposed by a component (agent/helper/client) on its own
+/// named pipe, for example "RemoteAgent.status". State only: no secrets and no commands.
+/// The schema is versioned because mixed-version fleets will communicate with it.
 /// </summary>
 public sealed class StatusReport
 {
@@ -13,26 +13,26 @@ public sealed class StatusReport
 
     /// <summary>"agent" | "helper" | "client"</summary>
     [JsonPropertyName("component")] public string Component { get; set; } = string.Empty;
-    /// <summary>Az agent (a riportot adó komponens) verziója.</summary>
+    /// <summary>Version of the component that produced the report.</summary>
     [JsonPropertyName("version")] public string Version { get; set; } = string.Empty;
 
-    /// <summary>A gépen lévő többi komponens verziója (a Névjegyhez). Null = nincs/ismeretlen.</summary>
+    /// <summary>Versions of the other components on the device for the About view. Null = absent or unknown.</summary>
     [JsonPropertyName("helperVersion")] public string? HelperVersion { get; set; }
     [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
     [JsonPropertyName("vncVersion")] public string? VncVersion { get; set; }
 
-    /// <summary>Összesített „jó-e a környezet" jelzés (a komponens dönti el, mi alapján).</summary>
+    /// <summary>Overall health signal, interpreted by the reporting component.</summary>
     [JsonPropertyName("healthy")] public bool Healthy { get; set; }
 
-    /// <summary>Él-e a szerver felé a C2 (WSS) parancscsatorna.</summary>
+    /// <summary>Whether the C2 command channel (WSS) to the server is connected.</summary>
     [JsonPropertyName("c2Connected")] public bool C2Connected { get; set; }
 
-    /// <summary>Él-e a reverse tunnel (a szerver felőli eléréshez).</summary>
+    /// <summary>Whether the reverse tunnel used for server-side access is active.</summary>
     [JsonPropertyName("tunnelActive")] public bool TunnelActive { get; set; }
 
-    /// <summary>Utolsó sikeres szerver-kontakt (C2 csatlakozás vagy telemetria) ideje.</summary>
+    /// <summary>Time of the last successful server contact, either C2 connection or telemetry.</summary>
     [JsonPropertyName("lastServerContactUtc")] public DateTimeOffset? LastServerContactUtc { get; set; }
 
-    /// <summary>A helyi agent gépazonosítója (a kliens ezt küldi a login/reset kérésben a gép-szintű fail-counterhez).</summary>
+    /// <summary>Local agent device ID sent by the client in login/reset requests for the device-level failure counter.</summary>
     [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
 }

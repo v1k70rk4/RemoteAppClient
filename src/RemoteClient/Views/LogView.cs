@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Napló (audit): távoli elérés + admin műveletek, szűrhetően. A kulcsokat a kliens fordítja.</summary>
+/// <summary>Audit log for remote access and admin actions, with filters. Keys are localized by the client.</summary>
 public sealed class LogView : UserControl, IContentView
 {
     private readonly AdminApi _api;

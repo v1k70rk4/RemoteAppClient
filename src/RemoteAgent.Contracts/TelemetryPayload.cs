@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace RemoteAgent.Telemetry;
 
-/// <summary>Amit az agent magáról jelent. KÖZÖS típus (kliens küldi, szerver fogadja).</summary>
+/// <summary>Telemetry the agent reports about itself. Shared type: client sends it, server receives it.</summary>
 public sealed class TelemetryPayload
 {
     [JsonPropertyName("agentId")]
@@ -17,7 +17,7 @@ public sealed class TelemetryPayload
     [JsonPropertyName("agentVersion")]
     public string AgentVersion { get; set; } = string.Empty;
 
-    // Komponensenkénti verziók (a gépen lévő binárisokból olvasva). Null = nincs telepítve.
+    // Per-component versions read from binaries on the device. Null = not installed.
     [JsonPropertyName("helperVersion")]
     public string? HelperVersion { get; set; }
 
@@ -30,20 +30,20 @@ public sealed class TelemetryPayload
     [JsonPropertyName("bootTimeUtc")]
     public DateTimeOffset BootTimeUtc { get; set; }
 
-    // Hálózat + bejelentkezett felhasználó (a részletes telemetriához).
-    /// <summary>Elsődleges (átjáróval rendelkező) IPv4 cím, ha van.</summary>
+    // Network and signed-in user details for the detailed telemetry view.
+    /// <summary>Primary IPv4 address with a gateway, when available.</summary>
     [JsonPropertyName("ipAddress")]
     public string? IpAddress { get; set; }
 
-    /// <summary>A csatlakozott Wi-Fi hálózat neve (SSID), ha vezeték nélkülin van; egyébként null.</summary>
+    /// <summary>Connected Wi-Fi network name (SSID) when on wireless; otherwise null.</summary>
     [JsonPropertyName("wifiSsid")]
     public string? WifiSsid { get; set; }
 
-    /// <summary>Aktív-e VPN-kapcsolat (heurisztika: tunnel/ppp vagy ismert VPN-adapter).</summary>
+    /// <summary>Whether a VPN appears active, using tunnel/ppp or known VPN adapter heuristics.</summary>
     [JsonPropertyName("vpnActive")]
     public bool VpnActive { get; set; }
 
-    /// <summary>A gépnél bejelentkezett interaktív felhasználó (DOMAIN\\user), ha van.</summary>
+    /// <summary>Interactive user signed in at the device (DOMAIN\\user), when available.</summary>
     [JsonPropertyName("loggedInUser")]
     public string? LoggedInUser { get; set; }
 
@@ -53,11 +53,11 @@ public sealed class TelemetryPayload
     [JsonPropertyName("tunnelActive")]
     public bool TunnelActive { get; set; }
 
-    /// <summary>Helyileg letiltották-e a távoli elérést (VNC-zár) ezen a gépen.</summary>
+    /// <summary>Whether remote access was disabled locally on this device (VNC lock).</summary>
     [JsonPropertyName("vncLocked")]
     public bool VncLocked { get; set; }
 
-    // A Helper supervisor lokális állapota (supervisor.status), a megfigyelhetőséghez.
+    // Local Helper supervisor state (supervisor.status), for observability.
     [JsonPropertyName("agentRestarts")]
     public int AgentRestarts { get; set; }
 

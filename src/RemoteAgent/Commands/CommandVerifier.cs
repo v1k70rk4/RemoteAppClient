@@ -8,11 +8,11 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Commands;
 
 /// <summary>
-/// Eldönti, hogy egy beérkezett parancs valóban a mi szerverünktől jött-e és
-/// nem visszajátszott. Két ellenőrzés:
-///   1. ECDSA P-256 aláírás a parancs kanonikus formája felett (a szerver pinnelt publikus kulcsával).
-///   2. Időablak + egyszer-használatos nonce (replay-védelem).
-/// Bármelyik bukik → a parancs eldobva.
+/// Decides whether an incoming command really came from our server and is not replayed.
+/// Two checks:
+///   1. ECDSA P-256 signature over the canonical command form using the pinned server public key.
+///   2. Time window plus one-time nonce for replay protection.
+/// If either fails, the command is discarded.
 /// </summary>
 public sealed class CommandVerifier : IDisposable
 {
@@ -20,7 +20,7 @@ public sealed class CommandVerifier : IDisposable
     private readonly int _maxAgeSeconds;
     private readonly ECDsa? _publicKey;
 
-    // Látott nonce-ok a replay-ablakon belül: nonce -> lejárat.
+    // Nonces seen within the replay window: nonce -> expiry.
     private readonly ConcurrentDictionary<string, long> _seenNonces = new();
 
     public CommandVerifier(IOptions<AgentOptions> options, ILogger<CommandVerifier> logger)
@@ -61,14 +61,14 @@ public sealed class CommandVerifier : IDisposable
             return false;
         }
 
-        // Aláírás-ellenőrzés a KÖZÖS logikával (Contracts) — nem csúszhat szét a szerverrel.
+        // Signature verification uses shared Contracts logic so it cannot drift from the server.
         if (!CommandSignature.Verify(cmd, _publicKey))
         {
             _logger.LogWarning(L.CommandVerifier_004);
             return false;
         }
 
-        // Replay: a nonce csak egyszer fogadható el az ablakon belül.
+        // Replay protection: a nonce can be accepted only once inside the window.
         long expiry = now + _maxAgeSeconds;
         if (!_seenNonces.TryAdd(cmd.Nonce, expiry))
         {

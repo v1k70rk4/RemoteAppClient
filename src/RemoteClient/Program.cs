@@ -7,7 +7,7 @@ internal static class Program
     {
         RemoteAgent.Globalization.RuntimeLanguage.ApplyFromSharedSettings();
         ApplicationConfiguration.Initialize();
-        ClientUpdater.CleanupOld(); // korábbi frissítés .old maradványa
+        ClientUpdater.CleanupOld(); // leftover .old from previous update
         Application.Run(new MainForm());
     }
 }

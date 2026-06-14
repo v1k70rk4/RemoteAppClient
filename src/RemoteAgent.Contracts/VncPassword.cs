@@ -4,10 +4,10 @@ using System.Text;
 namespace RemoteAgent.Vnc;
 
 /// <summary>
-/// A VNC-jelszó kódolása a klasszikus VNC fix-kulcsos DES formátumban. Ezt használja
-/// a TightVNC registry "Password" mezője ÉS a viewer .vnc fájljának "password" mezője.
-/// Megosztott a kliens (provisioning) és az admin-client (auto-connect) közt.
-/// INTEROP, nem biztonsági cél — a védelmet az SSH-tunnel + loopback-only adja.
+/// Encodes the VNC password in the classic fixed-key DES format used by VNC.
+/// TightVNC stores it in the registry "Password" value, and the viewer .vnc file uses it too.
+/// Shared between provisioning and the admin client auto-connect flow.
+/// This is interoperability, not security; protection comes from the SSH tunnel and loopback-only binding.
 /// </summary>
 public static class VncPassword
 {
@@ -22,7 +22,7 @@ public static class VncPassword
         var pw = Encoding.ASCII.GetBytes(password);
         Array.Copy(pw, data, Math.Min(8, pw.Length));
 
-#pragma warning disable CA5351 // A DES itt a VNC-formátum kötelező része (interop), nem védelmi mechanizmus.
+#pragma warning disable CA5351 // DES is required by the VNC format for interop here, not used as a protection mechanism.
         using var des = DES.Create();
         des.Mode = CipherMode.ECB;
         des.Padding = PaddingMode.None;

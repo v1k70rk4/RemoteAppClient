@@ -6,11 +6,10 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Tunnel;
 
 /// <summary>
-/// Egyetlen reverse SSH tunnel életciklusa az <c>ssh.exe</c> köré.
-/// A bástya host-kulcsa pinnelt (saját known_hosts), így az agent KIZÁRÓLAG
-/// a mi szerverünkhöz tud csatlakozni — közbeékelődő szervernek nem.
-/// A forward célja FIX (localhost:LocalForwardPort), a szerver csak a
-/// távoli portszámot befolyásolhatja.
+/// Lifecycle of a single reverse SSH tunnel around <c>ssh.exe</c>.
+/// The bastion host key is pinned through a private known_hosts file, so the agent can
+/// connect only to our server, not to an intermediary. The forward target is fixed
+/// (localhost:LocalForwardPort); the server can influence only the remote port number.
 /// </summary>
 public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IAsyncDisposable
 {
@@ -37,27 +36,27 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
             RedirectStandardError = true,
         };
 
-        // -N: ne futtasson távoli parancsot, csak a forward.
+        // -N: do not run a remote command, only the forward.
         // -R remote:localhost:local — a reverse forward.
         psi.ArgumentList.Add("-N");
         psi.ArgumentList.Add("-R");
-        // 127.0.0.1 (nem 'localhost') — a Windows ssh a localhostot ::1-re oldhatja,
-        // de a VNC tipikusan csak IPv4 loopbacken figyel.
+        // 127.0.0.1 instead of 'localhost': Windows ssh may resolve localhost to ::1,
+        // while VNC typically listens only on IPv4 loopback.
         psi.ArgumentList.Add($"{remotePort}:127.0.0.1:{options.LocalForwardPort}");
 
-        // Csak a megadott kulccsal, jelszós/interaktív próba nélkül.
+        // Use only the configured key, without password or interactive fallback.
         psi.ArgumentList.Add("-i");
         psi.ArgumentList.Add(options.PrivateKeyPath);
 
-        // A CA által aláírt SSH-cert (a bástya TrustedUserCAKeys-szel bízik benne).
+        // SSH certificate signed by the CA trusted by bastion TrustedUserCAKeys.
         if (!string.IsNullOrWhiteSpace(options.CertificatePath))
             AddOption(psi, $"CertificateFile=\"{options.CertificatePath}\"");
 
         AddOption(psi, "IdentitiesOnly=yes");
-        AddOption(psi, "BatchMode=yes");                       // semmilyen prompt
-        AddOption(psi, "StrictHostKeyChecking=yes");           // ismeretlen kulcsnál bukik
+        AddOption(psi, "BatchMode=yes");                       // no prompts
+        AddOption(psi, "StrictHostKeyChecking=yes");           // fail on unknown keys
         AddOption(psi, $"UserKnownHostsFile=\"{_knownHostsPath}\"");
-        AddOption(psi, "ExitOnForwardFailure=yes");            // ha a forward nem jön létre, lépjen ki
+        AddOption(psi, "ExitOnForwardFailure=yes");            // exit if forward creation fails
         AddOption(psi, "ServerAliveInterval=15");              // keepalive
         AddOption(psi, "ServerAliveCountMax=3");
 
@@ -66,8 +65,8 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         psi.ArgumentList.Add($"{options.BastionUser}@{options.BastionHost}");
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        // Az ssh csak hibát/figyelmeztetést ír a stderr-re (nincs -v) — Warning szinten
-        // logoljuk, hogy a SYSTEM service EventLogjában is látszódjon a tunnel-hiba oka.
+        // ssh writes only errors/warnings to stderr without -v; log them as warnings so tunnel
+        // failures are visible in the SYSTEM service EventLog.
         proc.ErrorDataReceived += (_, e) =>
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
@@ -107,17 +106,17 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
             proc.Dispose();
             _process = null;
             CleanupKnownHosts();
-            logger.LogInformation("Reverse tunnel lebontva.");
+            logger.LogInformation("Reverse tunnel stopped.");
         }
     }
 
     private string WritePinnedKnownHosts()
     {
-        // A pinnelt host-kulcsot egy ideiglenes, csak ehhez a sessionhöz tartozó
-        // known_hosts fájlba írjuk. Tartalma: "<host> <kulcs>".
+        // Write the pinned host key to a temporary known_hosts file for this session only.
+        // Content format: "<host> <key>".
         var path = Path.Combine(Path.GetTempPath(), $"ra_known_hosts_{Guid.NewGuid():N}");
-        // A 22-es (alapértelmezett) portnál az ssh a sima hostnevet keresi a known_hosts-ban;
-        // a [host]:port forma csak nem-alapértelmezett portnál érvényes.
+        // On port 22, ssh looks up the plain host name in known_hosts; [host]:port is only
+        // valid for non-default ports.
         var hostEntry = options.BastionPort == 22
             ? options.BastionHost
             : $"[{options.BastionHost}]:{options.BastionPort}";

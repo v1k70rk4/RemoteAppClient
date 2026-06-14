@@ -3,9 +3,9 @@ using System.Security.Cryptography;
 namespace RemoteAgent.Security;
 
 /// <summary>
-/// Windows DPAPI (LocalMachine hatókör) — a titkokat géphez köti: a titkosított
-/// blob csak ezen a gépen fejthető vissza, lemásolva máshol használhatatlan.
-/// (A SYSTEM service és a beléptető admin ugyanazt a gépet használja, ezért működik.)
+/// Windows DPAPI with LocalMachine scope. Secrets are bound to the device: encrypted
+/// blobs can only be decrypted on this machine and are unusable when copied elsewhere.
+/// This works because the SYSTEM service and enrolling admin use the same machine scope.
 /// </summary>
 public static class Dpapi
 {

@@ -10,7 +10,7 @@
     <Version>1.2.0.0</Version>
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
 
-    <!-- Kicsi, önálló exe — a fő agent cseréjét végzi, ezért NEM lehet ugyanaz az exe. -->
+    <!-- Small standalone executable that replaces the main agent, so it cannot be the same exe. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>

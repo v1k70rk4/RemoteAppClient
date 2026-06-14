@@ -7,9 +7,8 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Signing;
 
 /// <summary>
-/// A kliens-certeket aláíró mini-CA. Betölti a CA-t (vagy első indításkor generál
-/// egy önaláírt ECDSA P-256 CA-t). A CSR-ből CSAK a publikus kulcsot használja; a
-/// device-azonosítót (a cert CN-jét) a SZERVER osztja — így a gép nem hamisíthat azonosítót.
+/// Mini CA that signs client certificates. Loads the CA and uses only the public key
+/// from CSR. The server assigns the device ID (certificate CN), so devices cannot spoof identity.
 /// </summary>
 public sealed class CertificateAuthority : IDisposable
 {
@@ -33,12 +32,12 @@ public sealed class CertificateAuthority : IDisposable
         logger.LogInformation(L.CertificateAuthority_003, _caCert.Subject);
     }
 
-    /// <summary>A CA tanúsítványa PEM-ben (az agent ezt pinneli).</summary>
+    /// <summary>CA certificate in PEM; agents pin this.</summary>
     public string CaCertificatePem => _caCert.ExportCertificatePem();
 
     /// <summary>
-    /// Aláír egy kliens-CSR-t a megadott (szerver által osztott) device-azonosítóra.
-    /// Visszaadja a leaf cert PEM-jét.
+    /// Signs a client CSR for the given server-assigned device ID.
+    /// Returns the leaf certificate PEM.
     /// </summary>
     public string SignClientCsr(string csrPem, string deviceId)
     {
@@ -53,7 +52,7 @@ public sealed class CertificateAuthority : IDisposable
             new X509EnhancedKeyUsageExtension([new Oid(ClientAuthOid)], false));
         leaf.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(csr.PublicKey, false));
 
-        // -5 perc óraeltérés-tűrés, de nem lehet korábbi, mint a CA notBefore-ja.
+        // Allow -5 minutes clock skew, but not before the CA notBefore.
         var caNotBefore = new DateTimeOffset(_caCert.NotBefore.ToUniversalTime());
         var notBefore = DateTimeOffset.UtcNow.AddMinutes(-5);
         if (notBefore < caNotBefore) notBefore = caNotBefore;

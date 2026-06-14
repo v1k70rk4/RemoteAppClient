@@ -10,9 +10,9 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient;
 
 /// <summary>
-/// A konzol fő ablaka (MaterialSkin). Három állapot: (1) nincs helyi agent, (2) van agent →
-/// szerver-státusz + bejelentkezés, (3) belépve → eszközök + admin-funkciók. A transportot a
-/// helyi agent brókere adja (a gép SSH-kulcsával); a konzol csak beléptetett gépen működik.
+/// Main console window (MaterialSkin). Three states: (1) no local agent, (2) agent present
+/// with server status + sign-in, (3) signed in with devices + admin features. Transport is
+/// provided by the local agent broker using the device SSH key; the console only works on enrolled devices.
 /// </summary>
 public sealed class MainForm : MaterialForm
 {
@@ -24,17 +24,17 @@ public sealed class MainForm : MaterialForm
     private bool _started;
     private LoginResponse? _login;
 
-    // Nézetek
+    // Views
     private readonly Panel _noAgentView = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly Panel _authView = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly Panel _mainView = new() { Dock = DockStyle.Fill, Visible = false };
 
-    // Auth-nézet vezérlők
+    // Auth view controls
     private readonly MaterialLabel _serverNameLbl = new();
     private readonly MaterialLabel _onlineLbl = new();
     private readonly MaterialLabel _remoteLbl = new();
-    private readonly MaterialLabel _supportLbl = new();        // tulajdonos + support a login fejlécen
-    private readonly MaterialLabel _noAgentSupportLbl = new(); // support a "nincs agent" képernyőn
+    private readonly MaterialLabel _supportLbl = new();        // owner + support in login header
+    private readonly MaterialLabel _noAgentSupportLbl = new(); // support on the "no agent" screen
     private RemoteAgent.Admin.BrandingInfo? _branding;
     private readonly MaterialCard _loginCard = new();
     private readonly MaterialCard _setupCard = new();
@@ -54,18 +54,18 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialButton _finishBtn = new() { Text = L.MainForm_007 };
     private readonly MaterialLabel _setupStatus = new();
 
-    // Fő nézet — egyablakos: bal oldali menü + jobb oldali tartalom-host
-    private readonly MaterialLabel _envLbl = new();   // élő környezet-jelző (a helyi agent status-pipe-jából)
+    // Main view: left menu plus right content host in one window.
+    private readonly MaterialLabel _envLbl = new();   // live environment indicator from local agent status pipe
     private readonly System.Windows.Forms.Timer _envTimer = new() { Interval = 3000 };
-    private readonly MaterialLabel _verLbl = new();   // ver: x.y.z a bal alsó sarokban
+    private readonly MaterialLabel _verLbl = new();   // ver: x.y.z in the lower-left corner
     private readonly Panel _warnPanel = new() { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Visible = false };
-    private readonly MaterialLabel _secretWarnLbl = new(); // secret-lejárat figyelmeztető (piros, az online felett)
+    private readonly MaterialLabel _secretWarnLbl = new(); // secret expiry warning above online status
     private readonly Panel _content = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8, 8, 8, 8) };
     private readonly List<(MaterialButton Btn, IContentView View)> _navItems = new();
     private IContentView? _currentView;
 
-    // Nézetpéldányok (belépés után jönnek létre, amikor már van _api/_broker)
+    // View instances are created after sign-in, once _api/_broker exist.
     private DevicesView? _devicesView;
     private UsersView? _usersView;
     private GroupsView? _groupsView;
@@ -83,7 +83,7 @@ public sealed class MainForm : MaterialForm
         ThemeManager.Init(ThemeManager.ResolveDark(_cfg.ThemeMode));
 
         Text = "RemoteAppClient";
-        try { if (Environment.ProcessPath is { } exe) Icon = Icon.ExtractAssociatedIcon(exe); } catch { /* ikon nélkül is megy */ }
+        try { if (Environment.ProcessPath is { } exe) Icon = Icon.ExtractAssociatedIcon(exe); } catch { /* icon is optional */ }
         Width = 1040; Height = 640;
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(900, 560);
@@ -99,12 +99,12 @@ public sealed class MainForm : MaterialForm
 
     private bool _cleaned;
 
-    // Kilépéskor előbb (háttérben) lejelentkezünk a szerverről és lezárjuk a tunnelt,
-    // hogy az UI ne fagyjon le. Közben egy kis „Kilépés folyamatban…" ablak látszik.
+    // On exit, sign out and close the tunnel in the background first so the UI does not freeze.
+    // A small "exit in progress" window is shown during cleanup.
     private async void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
-        if (_cleaned) return;            // a háttér-takarítás kész → engedjük lezárni
-        e.Cancel = true;                 // előbb takarítunk, csak utána zárunk
+        if (_cleaned) return;            // background cleanup is done; allow close
+        e.Cancel = true;                 // clean up first, then close
 
         try { _envTimer.Stop(); } catch { /* best effort */ }
 
@@ -119,7 +119,7 @@ public sealed class MainForm : MaterialForm
         Close();
     }
 
-    // ---------------- Állapotváltás ----------------
+    // ---------------- State Transitions ----------------
 
     private void Show(Panel view)
     {
@@ -128,9 +128,9 @@ public sealed class MainForm : MaterialForm
     }
 
     /// <summary>
-    /// Friss admin-API forwardot nyit a HELYI brókeren. Ha a named pipe meghalt (pl. a gép alvása
-    /// után), eldobja és újracsatlakozik, majd újrapróbál. Ezt hívja az AdminApi ConnectCallback-je,
-    /// így a halott tunnel hibaüzenet helyett magától újraépül.
+    /// Opens a fresh admin API forward through the local broker. If the named pipe died,
+    /// for example after sleep, it is discarded, reconnected, and retried. AdminApi calls
+    /// this from ConnectCallback, so dead tunnels rebuild themselves instead of surfacing errors.
     /// </summary>
     private async Task<int> RefreshAdminForwardAsync(CancellationToken ct)
     {
@@ -144,7 +144,7 @@ public sealed class MainForm : MaterialForm
             }
             catch when (attempt == 0)
             {
-                // A named pipe meghalhatott alvás közben — dobjuk el és csatlakozzunk újra.
+                // Named pipe may have died during sleep; discard and reconnect.
                 try { _broker?.Dispose(); } catch { /* best effort */ }
                 _broker = null;
             }
@@ -154,7 +154,7 @@ public sealed class MainForm : MaterialForm
 
     private bool _envBusy;
 
-    /// <summary>A helyi agent status-pipe-ját lekérdezi, és frissíti az élő környezet-jelzőt.</summary>
+    /// <summary>Queries the local agent status pipe and updates the live environment indicator.</summary>
     private async Task RefreshEnvAsync()
     {
         if (_envBusy) return;
@@ -169,13 +169,13 @@ public sealed class MainForm : MaterialForm
             else { text = s.TunnelActive ? L.MainForm_011 : "● Online"; color = Color.MediumSeaGreen; }
             if (!_envLbl.IsDisposed) { _envLbl.Text = text; _envLbl.ForeColor = color; }
         }
-        catch { /* a jelző nem kritikus */ }
+        catch { /* indicator is non-critical */ }
         finally { _envBusy = false; }
     }
 
     private void ApplyBranding()
     {
-        // A branding a kék címsorban (Form.Text), pl. „Coimbra ITS RemoteAppClient".
+        // Branding appears in the blue title bar (Form.Text), e.g. "Coimbra ITS RemoteAppClient".
         Text = string.IsNullOrWhiteSpace(_branding?.OwnerName)
             ? "RemoteAppClient"
             : $"{_branding!.OwnerName} RemoteAppClient";
@@ -193,7 +193,7 @@ public sealed class MainForm : MaterialForm
         return parts.Count == 0 ? "" : L.MainForm_012 + string.Join("    ", parts);
     }
 
-    /// <summary>Admin: a Graph secret 30 napon belül lejár-e → piros jelzés az online felett.</summary>
+    /// <summary>Admin: whether Graph secret expires within 30 days; shown as red warning above online status.</summary>
     private async Task CheckSecretExpiryAsync()
     {
         try
@@ -213,10 +213,10 @@ public sealed class MainForm : MaterialForm
             }
             _warnPanel.Visible = false;
         }
-        catch { /* nem kritikus */ }
+        catch { /* non-critical */ }
     }
 
-    /// <summary>Friss branding a szerverről (a tunnelen át), cache-be is. Csendben hibatűrő.</summary>
+    /// <summary>Refreshes branding from the server through the tunnel and caches it. Quietly fault-tolerant.</summary>
     private async Task RefreshBrandingAsync()
     {
         if (_api is null) return;
@@ -229,7 +229,7 @@ public sealed class MainForm : MaterialForm
 
     private async Task InitAsync()
     {
-        // Cache-elt branding azonnal (bejelentkezés / agent előtt is látszik).
+        // Cached branding immediately, visible even before sign-in/agent.
         _branding = BrandingCache.Load();
         ApplyBranding();
 
@@ -237,12 +237,12 @@ public sealed class MainForm : MaterialForm
         _broker = await BrokerClient.TryConnectAsync();
         if (_broker is null) { Show(_noAgentView); return; }
 
-        // Státusz: szerver neve + online + helyi VNC-zár.
+        // Status: server name, online state, and local VNC lock.
         _serverNameLbl.Text = L.MainForm_061 + AgentInfo.ServerName();
         _remoteLbl.Text = L.MainForm_016 + (LocalVncLock.IsLocked() ? L.MainForm_066 : L.MainForm_017);
         Show(_authView);
 
-        // Élő környezet-jelző: a helyi agent status-pipe-ját pollozzuk (C2 / tunnel valós időben).
+        // Live environment indicator: poll local agent status pipe for realtime C2/tunnel.
         _envTimer.Tick += async (_, _) => await RefreshEnvAsync();
         _envTimer.Start();
         _ = RefreshEnvAsync();
@@ -251,8 +251,8 @@ public sealed class MainForm : MaterialForm
         {
             _api = new AdminApi(RefreshAdminForwardAsync);
 
-            // A bróker ssh -L tunnele pár másodperccel a port lefoglalása UTÁN épül fel
-            // (hideg SSH-handshake). Ne ijesszünk azonnal „nem válaszol"-lal: ~15 mp-ig pingelünk.
+            // Broker ssh -L may become usable a few seconds after reserving the port due to
+            // cold SSH handshake. Avoid false "not responding" warnings by pinging for about 15s.
             _onlineLbl.Text = L.MainForm_018; _onlineLbl.ForeColor = Color.Goldenrod;
             SetLoginStatus(L.MainForm_019);
             bool online = false;
@@ -265,7 +265,7 @@ public sealed class MainForm : MaterialForm
             _onlineLbl.ForeColor = online ? Color.MediumSeaGreen : Color.IndianRed;
             SetLoginStatus(online ? "" : L.MainForm_020);
 
-            if (online) await RefreshBrandingAsync(); // friss branding a tunnelen át (login előtt is)
+            if (online) await RefreshBrandingAsync(); // fresh branding through tunnel, even before login
         }
         catch (Exception ex)
         {
@@ -274,7 +274,7 @@ public sealed class MainForm : MaterialForm
             SetLoginStatus(L.MainForm_062 + ex.Message);
         }
 
-        // Windows Hello gomb: csak ha ezen a gépen be van állítva (van credentialId) ÉS elérhető a Hello.
+        // Windows Hello button only when this device has credentialId and Hello is available.
         try
         {
             _helloBtn.Visible = _cfg.HelloCredentialId is not null
@@ -294,7 +294,7 @@ public sealed class MainForm : MaterialForm
 
     private static string HelloKeyName(string username) => "RemoteAppClient-" + username;
 
-    // ---------------- Nézetek építése ----------------
+    // ---------------- Build Views ----------------
 
     private void BuildNoAgentView()
     {
@@ -318,7 +318,7 @@ public sealed class MainForm : MaterialForm
 
     private void BuildAuthView()
     {
-        // Státusz-fejléc
+        // Status header.
         var header = new MaterialCard { Dock = DockStyle.Top, Height = 116, Padding = new Padding(20) };
         _serverNameLbl.Font = new Font("Segoe UI", 14F, FontStyle.Bold); _serverNameLbl.AutoSize = true; _serverNameLbl.Location = new Point(20, 14);
         _onlineLbl.Text = "● …"; _onlineLbl.AutoSize = true; _onlineLbl.Location = new Point(22, 50);
@@ -327,7 +327,7 @@ public sealed class MainForm : MaterialForm
         _supportLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
         header.Controls.AddRange([_serverNameLbl, _onlineLbl, _remoteLbl, _supportLbl]);
 
-        // Login + setup kártya egy középre igazító TableLayoutPanelben (egy cella, 100% kitöltés).
+        // Login + setup cards in one centered TableLayoutPanel cell.
         var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1 };
         center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -348,7 +348,7 @@ public sealed class MainForm : MaterialForm
         _loginCard.Controls.AddRange([lt, _user, _pass, _totp, _loginBtn, _helloBtn, _forgotLink, _loginStatus]);
         AcceptButton = _loginBtn;
 
-        // Setup kártya (első belépés) — kezdetben rejtett
+        // Setup card for first sign-in, hidden initially.
         _setupCard.Size = new Size(420, 470); _setupCard.Visible = false;
         var st = new MaterialLabel { Text = L.MainForm_024, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _newPass.SetBounds(20, 56, 380, 48);
@@ -362,16 +362,16 @@ public sealed class MainForm : MaterialForm
         _setupCard.Controls.AddRange([st, _newPass, _newPass2, ql, _qr, _enrollCode, _finishBtn, _setupStatus]);
 
         center.Controls.Add(_loginCard, 0, 0);
-        center.Controls.Add(_setupCard, 0, 0); // ugyanabba a cellába, átfedve (egyszerre egy látszik)
-        _authView.Controls.AddRange([center, header]); // a center kitölt, a header felülre dokkol
+        center.Controls.Add(_setupCard, 0, 0); // same cell, overlapped; only one visible at a time
+        _authView.Controls.AddRange([center, header]); // center fills, header docks top
     }
 
     private void BuildMainView()
     {
-        // --- Bal oldali menü-sáv: a menü + lent az online/verzió. A branding a kék címsorban van. ---
+        // --- Left sidebar: menu plus online/version footer. Branding stays in the blue title bar. ---
         var sidebar = new MaterialCard { Dock = DockStyle.Left, Width = 220, Margin = new Padding(0), Padding = new Padding(0) };
 
-        // Bal alsó sarok: Online-jelző + kliens verzió (a téma-kapcsoló átkerült a Beállításokba).
+        // Lower-left: online indicator + client version. Theme selector moved to Settings.
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 56 };
         _envLbl.AutoSize = true; _envLbl.MaximumSize = new Size(200, 0);
         _envLbl.Location = new Point(12, 8); _envLbl.Text = L.MainForm_025; _envLbl.ForeColor = Color.Gray;
@@ -380,7 +380,7 @@ public sealed class MainForm : MaterialForm
         _verLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
         footer.Controls.AddRange([_envLbl, _verLbl]);
 
-        // Az online FELETT: secret-lejárat figyelmeztető (piros, csak ha aktuális).
+        // Above online: secret-expiry warning, red and visible only when relevant.
         _secretWarnLbl.AutoSize = true; _secretWarnLbl.MaximumSize = new Size(200, 0);
         _secretWarnLbl.ForeColor = Color.IndianRed; _secretWarnLbl.Margin = new Padding(12, 6, 8, 6);
         _secretWarnLbl.FontType = MaterialSkin.MaterialSkinManager.fontType.Caption;
@@ -388,14 +388,14 @@ public sealed class MainForm : MaterialForm
         _warnPanel.Controls.Add(_secretWarnLbl);
 
         sidebar.Controls.Add(_nav);        // Fill
-        sidebar.Controls.Add(_warnPanel);  // Bottom (előbb adva → a footer FÖLÉ kerül)
-        sidebar.Controls.Add(footer);      // Bottom (utoljára → legalulra)
+        sidebar.Controls.Add(_warnPanel);  // Bottom; added first so it sits above footer
+        sidebar.Controls.Add(footer);      // Bottom; added last so it sits at the very bottom
 
         _mainView.Controls.Add(_content); // Fill (jobb oldal)
         _mainView.Controls.Add(sidebar);  // Left
     }
 
-    /// <summary>Egy menüpont gomb létrehozása a bal sávban + a hozzá tartozó nézet.</summary>
+    /// <summary>Creates a sidebar menu button and the associated view.</summary>
     private void AddNav(string text, IContentView view)
     {
         var b = new MaterialButton
@@ -414,7 +414,7 @@ public sealed class MainForm : MaterialForm
         if (ReferenceEquals(_currentView, view)) return;
         _currentView = view;
 
-        // Aktív menüpont kiemelése.
+        // Highlight active menu item.
         foreach (var (btn, v) in _navItems)
         {
             bool active = ReferenceEquals(v, view);
@@ -430,7 +430,7 @@ public sealed class MainForm : MaterialForm
         await view.OnShownAsync();
     }
 
-    /// <summary>Téma-mód alkalmazása ("light"/"dark"/"auto") — menti, feloldja, és mindenhol érvényesíti.</summary>
+    /// <summary>Applies theme mode ("light"/"dark"/"auto"), saves it, resolves it, and applies everywhere.</summary>
     private void ApplyThemeMode(string mode)
     {
         _cfg.ThemeMode = mode; try { _cfg.Save(); } catch { }
@@ -443,8 +443,8 @@ public sealed class MainForm : MaterialForm
     // ---------------- Login + setup ----------------
 
     /// <summary>
-    /// Ha a szerver kötelező frissítést írt elő (a kliens régebbi a megengedettnél): letölti+cseréli+újraindít.
-    /// true = kezelve, a hívó NE lépjen tovább (vagy frissül és kilép, vagy hibát mutat és marad a loginon).
+    /// If the server mandates an update because the client is too old, downloads, replaces,
+    /// and restarts. true = handled; caller must not continue.
     /// </summary>
     private async Task<bool> HandleMandatoryUpdateAsync(LoginResponse login)
     {
@@ -540,12 +540,12 @@ public sealed class MainForm : MaterialForm
         finally { _helloBtn.Enabled = true; }
     }
 
-    /// <summary>Jelszavas belépés után felajánlja a Windows Hello beállítását ezen a gépen (egyszer).</summary>
+    /// <summary>Offers Windows Hello setup on this device after password sign-in, once.</summary>
     private async Task OfferHelloSetupAsync()
     {
         if (_api is null || _loggedInViaHello) return;
-        if (_cfg.HelloCredentialId is not null) return;           // már be van állítva
-        if (!await WindowsHello.IsAvailableAsync()) return;        // nincs Hello a gépen
+        if (_cfg.HelloCredentialId is not null) return;           // already configured
+        if (!await WindowsHello.IsAvailableAsync()) return;        // no Hello on this device
         if (MessageBox.Show(
                 L.MainForm_042 +
                 L.MainForm_043,
@@ -554,7 +554,7 @@ public sealed class MainForm : MaterialForm
         try
         {
             var pub = await WindowsHello.CreateAsync(HelloKeyName(_username));
-            if (pub is null) return; // a felhasználó megszakította a Hello-promptot
+            if (pub is null) return; // user canceled the Hello prompt
             var credId = await _api.RegisterHelloAsync(pub, Environment.MachineName);
             _cfg.HelloCredentialId = credId; _cfg.HelloUsername = _username; try { _cfg.Save(); } catch { }
             MessageBox.Show(L.MainForm_045,
@@ -589,7 +589,7 @@ public sealed class MainForm : MaterialForm
             _qr.Image?.Dispose();
             _qr.Image = new Bitmap(ms);
         }
-        catch { /* a titok kézzel is beírható */ }
+        catch { /* secret can be typed manually */ }
     }
 
     private async Task DoFinishAsync()
@@ -616,9 +616,9 @@ public sealed class MainForm : MaterialForm
     }
 
     /// <summary>
-    /// A self-update csatornája = a SAJÁT gép eszköz-csatornája (hostname-egyezés a flottában),
-    /// hogy az agent/helper/client/vnc EGYAZON beállítást kövesse. Ha a gép nincs a flottában
-    /// (vagy hiba), a lokális configban tárolt csatorna a fallback. A feloldott értéket elmentjük.
+    /// Self-update channel = this device's fleet channel resolved by hostname, so
+    /// agent/helper/client/vnc follow the same setting. If the device is not in the fleet
+    /// or resolution fails, local config channel is the fallback. The resolved value is saved.
     /// </summary>
     private async Task<string> ResolveUpdateChannelAsync()
     {
@@ -643,9 +643,8 @@ public sealed class MainForm : MaterialForm
 
     private async Task EnterMainAsync()
     {
-        // Csendes önfrissítés: ha van újabb 'client' a csatornán, lecseréli magát és újraindul.
-        // A csatorna a GÉP eszköz-csatornája (ugyanaz, amit az agent/helper/vnc követ), hostname
-        // alapján a szerverről; fallback a lokális configra (offline / nem-flotta gép).
+        // Silent self-update: if a newer 'client' exists on the channel, replace and restart.
+        // Channel is resolved from this device's fleet channel by hostname; fallback is local config.
         if (_api is not null)
         {
             SetLoginStatus(L.MainForm_050);
@@ -653,9 +652,9 @@ public sealed class MainForm : MaterialForm
             if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); _cleaned = true; Application.Exit(); return; }
         }
 
-        ApplyBranding(); // kék címsor branding
+        ApplyBranding(); // blue title bar branding
 
-        // Nézetek + menü létrehozása a jogosultság szerint (operator csak az Eszközöket látja).
+        // Create views + menu according to role; operators only see Devices.
         _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin");
         AddNav(L.MainForm_051, _devicesView);
         if (_role == "admin")
@@ -675,7 +674,7 @@ public sealed class MainForm : MaterialForm
             _ = CheckSecretExpiryAsync();
         }
 
-        // Beállítások + Névjegy MINDENKINEK (lokális beállítások; nem admin-függő).
+        // Settings + About are visible to everyone; local settings are not admin-dependent.
         _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin");
         _aboutView = new AboutView(_cfg);
         AddNav(L.MainForm_056, _settingsView);
@@ -685,7 +684,7 @@ public sealed class MainForm : MaterialForm
         Show(_mainView);
         await SwitchToAsync(_devicesView);
 
-        // Jelszavas belépés után (ha még nincs) felajánljuk a Windows Hello beállítását ezen a gépen.
+        // After password sign-in, offer Windows Hello setup on this device when missing.
         await OfferHelloSetupAsync();
     }
 
@@ -700,7 +699,7 @@ public sealed class MainForm : MaterialForm
     }
 }
 
-/// <summary>Kis, keret nélküli „Kilépés folyamatban…" jelző a leállítás idejére.</summary>
+/// <summary>Small borderless "exit in progress" indicator shown during shutdown cleanup.</summary>
 internal sealed class ShutdownOverlay : Form
 {
     public ShutdownOverlay(bool dark)

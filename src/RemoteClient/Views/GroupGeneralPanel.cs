@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Egy eszközcsoport „Általános" füle: név + consent/unattended alapértelmezés + Mentés. Létrehozás (id=null) vagy módosítás.</summary>
+/// <summary>Device group General tab: name plus consent/unattended defaults and Save. Creates (id=null) or edits.</summary>
 public sealed class GroupGeneralPanel : UserControl
 {
     private readonly AdminApi _api;
@@ -15,7 +15,7 @@ public sealed class GroupGeneralPanel : UserControl
     private readonly MaterialSwitch _unattended = new() { Text = L.GroupGeneralPanel_002, AutoSize = true };
     private readonly MaterialLabel _status = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
 
-    /// <summary>Sikeres mentés után jelez (a nézet frissít / visszatér).</summary>
+    /// <summary>Raised after successful save so the view can refresh or return.</summary>
     public event Action? Saved;
 
     public bool IsNew => _id is null;

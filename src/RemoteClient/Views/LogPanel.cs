@@ -5,8 +5,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Beágyazható napló-lista (audit). Opcionálisan egy gépre (deviceId) vagy felhasználóra (actor)
-/// rögzítve. Az esemény-típus szűrő mindig elérhető. A kulcsokat az <see cref="AuditText"/> fordítja.
+/// Embedded audit log list, optionally fixed to one deviceId or actor. Event type filter is always
+/// available. Keys are localized by <see cref="AuditText"/>.
 /// </summary>
 public sealed class LogPanel : UserControl
 {

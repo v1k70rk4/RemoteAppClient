@@ -3,8 +3,8 @@ using System.Threading.Channels;
 namespace RemoteAgent.Commands;
 
 /// <summary>
-/// Egyirányú, korlátos csatorna a parancscsatorna (producer) és a
-/// tunnel-orchestrátor (consumer) közt. Csak MÁR ELLENŐRZÖTT parancs kerül ide.
+/// One-way bounded channel between the command channel (producer) and tunnel orchestrator
+/// (consumer). Only already verified commands are placed here.
 /// </summary>
 public sealed class CommandBus
 {

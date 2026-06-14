@@ -1,9 +1,9 @@
 namespace RemoteServer.Data.Entities;
 
 /// <summary>
-/// Szerver-szintű, egysoros (singleton) beállítások: branding (tulajdonos + support) és
-/// e-mail küldés (SMTP vagy MS Graph app-only). A titkok (SMTP jelszó, Graph secret)
-/// SecretProtectorral titkosítva tárolódnak.
+/// Server-level singleton settings: branding (owner + support) and email sending
+/// through SMTP or MS Graph app-only. Secrets (SMTP password, Graph secret) are stored
+/// encrypted with SecretProtector.
 /// </summary>
 public sealed class ServerSettings
 {
@@ -23,20 +23,20 @@ public sealed class ServerSettings
     public bool SmtpUseTls { get; set; } = true;
     public string? SmtpUser { get; set; }
     public string? SmtpFrom { get; set; }
-    /// <summary>SMTP jelszó, TITKOSÍTVA (SecretProtector).</summary>
+    /// <summary>SMTP password encrypted with SecretProtector.</summary>
     public string? SmtpPasswordEnc { get; set; }
 
     // MS Graph (O365) app-only
     public string? GraphTenantId { get; set; }
     public string? GraphClientId { get; set; }
-    /// <summary>A postafiók (UPN/e-mail), aminek a nevében küld.</summary>
+    /// <summary>Mailbox UPN/email used as sender.</summary>
     public string? GraphSender { get; set; }
-    /// <summary>Graph client secret, TITKOSÍTVA (SecretProtector).</summary>
+    /// <summary>Graph client secret encrypted with SecretProtector.</summary>
     public string? GraphClientSecretEnc { get; set; }
 
-    /// <summary>A Graph client secret lejárati ideje (max 2 év). Null = nem ismert.</summary>
+    /// <summary>Graph client secret expiry, max 2 years. Null = unknown.</summary>
     public DateTimeOffset? GraphSecretExpiresAt { get; set; }
 
-    /// <summary>Mikor küldtünk utoljára „hamarosan lejár" figyelmeztetőt (egyszeri/lejáratonként).</summary>
+    /// <summary>When the last "expires soon" warning was sent, once per expiry.</summary>
     public DateTimeOffset? SecretExpiryNotifiedAt { get; set; }
 }

@@ -6,7 +6,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Egy eszköz telemetriája/részletei (csak olvasható) — a szerkesztő „Telemetria" füle.</summary>
+/// <summary>Read-only device telemetry/details for the editor Telemetry tab.</summary>
 public sealed class DeviceTelemetryPanel : UserControl
 {
     public DeviceTelemetryPanel(DeviceInfo d)

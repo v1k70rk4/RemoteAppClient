@@ -4,7 +4,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Helyi VNC-zár: ezen a gépen UAC-cal letiltható a távoli elérés (csak HELYBEN oldható fel).</summary>
+/// <summary>Local VNC lock: remote access can be disabled on this device through UAC and unlocked only locally.</summary>
 public sealed class LocalLockView : UserControl, IContentView
 {
     public Task OnShownAsync() { Refresh2(); return Task.CompletedTask; }
@@ -31,7 +31,7 @@ public sealed class LocalLockView : UserControl, IContentView
         _toggle.Click += (_, _) => Toggle();
         buttons.Controls.Add(_toggle);
 
-        // Állapot-üzenet sima címkeként (üresen láthatatlan — nincs szürke kártya).
+        // Status message as a plain label; empty is invisible, no gray card.
         _status.AutoSize = true; _status.Dock = DockStyle.Top; _status.Margin = new Padding(0, 10, 0, 0);
 
         Controls.Add(_status);

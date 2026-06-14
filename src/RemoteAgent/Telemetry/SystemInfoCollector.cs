@@ -9,10 +9,9 @@ using Microsoft.Win32;
 namespace RemoteAgent.Telemetry;
 
 /// <summary>
-/// Összeállítja a telemetria payloadot. Szándékosan csak BCL-API-kat használ
-/// (nincs WMI/System.Management), hogy NativeAOT alatt is gond nélkül fusson.
-/// A komponens-verziókat a gépen lévő binárisok fájlverziójából olvassa, a
-/// supervisor állapotát a Helper által írt supervisor.status fájlból.
+/// Builds the telemetry payload. Intentionally uses only BCL APIs (no WMI/System.Management)
+/// so it remains NativeAOT-friendly. Component versions are read from file versions of
+/// binaries on the device; supervisor state comes from the Helper-written supervisor.status.
 /// </summary>
 public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelState tunnelState)
 {
@@ -42,11 +41,11 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
         return p;
     }
 
-    /// <summary>A mellé telepített komponensek verziói (helper/kliens/vnc) — a lokális status-pipe-hoz. Olcsó.</summary>
+    /// <summary>Versions of co-installed components (helper/client/vnc) for the local status pipe. Cheap.</summary>
     public (string? Helper, string? Client, string? Vnc) ComponentVersions() =>
         (FileVersion(CoLocated("RemoteAgent.Updater.exe")), FileVersion(CoLocated("RemoteClient.exe")), VncVersion());
 
-    /// <summary>Egy az agent exe mellé telepített fájl teljes útja, ha létezik.</summary>
+    /// <summary>Full path of a file installed next to the agent executable, when it exists.</summary>
     private static string? CoLocated(string name)
     {
         var dir = Path.GetDirectoryName(Environment.ProcessPath);
@@ -60,15 +59,15 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
         if (path is null) return null;
         try
         {
-            // A számtagokból építjük: a natív exék (pl. TightVNC) nyers FileVersion-je
-            // vesszős lehet ("2, 8, 87, 0") — így mindig pontozott formát kapunk.
+            // Build from numeric parts: native executables such as TightVNC can expose
+            // raw FileVersion with commas ("2, 8, 87, 0"), so this always returns dotted form.
             var fvi = FileVersionInfo.GetVersionInfo(path);
             return $"{fvi.FileMajorPart}.{fvi.FileMinorPart}.{fvi.FileBuildPart}.{fvi.FilePrivatePart}";
         }
         catch { return null; }
     }
 
-    /// <summary>A TightVNC verziója: a tvnserver service ImagePath-jából a tvnserver.exe fájlverziója.</summary>
+    /// <summary>TightVNC version from the tvnserver.exe file version resolved from the service ImagePath.</summary>
     private static string? VncVersion()
     {
         try
@@ -76,7 +75,7 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
             using var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\tvnserver");
             if (k?.GetValue("ImagePath") is not string img || string.IsNullOrWhiteSpace(img)) return null;
 
-            // Az ImagePath idézőjeles és/vagy argumentumos lehet: "...\tvnserver.exe" -service
+            // ImagePath can be quoted and/or include arguments: "...\tvnserver.exe" -service.
             string path = img.Trim();
             if (path.StartsWith('"'))
             {
@@ -88,14 +87,14 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
                 int exe = path.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
                 if (exe > 0) path = path[..(exe + 4)];
             }
-            // A FileVersion helperrel pontozott formát adunk (a TightVNC nyers FileVersion-je
-            // vesszős: "2, 8, 87, 0" — így "2.8.87.0" lesz, és a rollout skip-ellenőrzés is egyezik).
+            // FileVersion returns dotted form. TightVNC raw FileVersion can be comma-separated
+            // ("2, 8, 87, 0"), but rollout skip checks compare against "2.8.87.0".
             return File.Exists(path) ? FileVersion(path) : null;
         }
         catch { return null; }
     }
 
-    /// <summary>A Helper supervisor.status JSON-jából az agent-újraindítások + utolsó incidens.</summary>
+    /// <summary>Reads agent restart count and last incident from the Helper supervisor.status JSON.</summary>
     private void ReadSupervisorStatus(TelemetryPayload p)
     {
         try
@@ -114,7 +113,7 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
     }
 }
 
-/// <summary>Stabil gépazonosító feloldása.</summary>
+/// <summary>Resolves the stable device identifier.</summary>
 public static class MachineIdentity
 {
     public static string Resolve(string configured) =>

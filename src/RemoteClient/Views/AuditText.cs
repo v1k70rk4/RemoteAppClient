@@ -2,8 +2,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Audit esemény-KULCSOK fordítása megjelenítéshez. A szerver nyelvfüggetlen kulcsokat tárol
-/// (pl. "connect"), itt fordítjuk HU-ra. (EN később: egy második switch / nyelv-kapcsoló.)
+/// Localizes audit event keys for display. The server stores language-neutral keys such as
+/// "connect"; this layer maps them to the current UI language.
 /// </summary>
 internal static class AuditText
 {
@@ -42,11 +42,11 @@ internal static class AuditText
         _ => action,
     };
 
-    /// <summary>Elutasítás/blokk jellegű esemény (pirossal jelezzük).</summary>
+    /// <summary>Denial/blocking event shown in red.</summary>
     public static bool IsNegative(string action) =>
         action is "access-denied" or "access-timeout" or "access-no-user" or "access-locked"
             or "password-code-failed" or "password-reset-failed" or "login-failed" or "device-locked";
 
-    /// <summary>Hozzájárulás NÉLKÜL történt sikeres belépés — figyelemfelhívó (narancs).</summary>
+    /// <summary>Successful access without consent, highlighted in orange.</summary>
     public static bool IsNoConsent(string action) => action == "connect-auto";
 }

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
-    <!-- net10.0-windows kell a Windows service + WMI/CIM telemetria miatt -->
+    <!-- net10.0-windows is required for Windows service and WMI/CIM telemetry. -->
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,21 +10,21 @@
     <Version>1.2.0.0</Version>
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
 
-    <!-- A szolgáltatás SYSTEM alatt fut, nincs felhasználói interakció -->
+    <!-- The service runs under SYSTEM with no user interaction. -->
     <OutputType>Exe</OutputType>
 
-    <!-- Publish: self-contained single-file, kis méret, runtime nélkül.
+    <!-- Publish: self-contained single-file, small size, no external runtime.
          Intune MSI ezt az egyetlen exe-t csomagolja.
-         AOT-ra később lehet váltani (<PublishAot>), a kód szándékosan
-         reflection-mentes, hogy az átállás fájdalommentes legyen. -->
+         AOT can be enabled later (<PublishAot>); the code intentionally avoids
+         reflection so that transition stays painless. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
-    <!-- InvariantGlobalization KIKAPCSOLVA: a lokalizációhoz kell a kultúra-felismerés
-         (invariant módban minden CultureInfo invariánssá válik, a hu resource nem töltődne). -->
+    <!-- InvariantGlobalization is disabled because localization needs culture detection;
+         invariant mode would make every CultureInfo invariant and hu resources would not load. -->
     <InvariantGlobalization>false</InvariantGlobalization>
 
-    <!-- Forrásgenerált JSON, hogy ne legyen futásidejű reflection -->
+    <!-- Source-generated JSON avoids runtime reflection. -->
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 

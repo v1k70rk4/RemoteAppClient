@@ -5,12 +5,12 @@ using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Security;
 
-/// <summary>Tanúsítvány-betöltés és szerver-cert pinnelés segédek.</summary>
+/// <summary>Helpers for certificate loading and server certificate pinning.</summary>
 public static class CertHelper
 {
     /// <summary>
-    /// Kliens-tanúsítvány (mTLS) betöltése a LocalMachine\My store-ból ujjlenyomat alapján.
-    /// A privát kulcsnak elérhetőnek kell lennie a SYSTEM fióknak.
+    /// Loads a client certificate for mTLS from LocalMachine\My by thumbprint.
+    /// The private key must be available to the SYSTEM account.
     /// </summary>
     public static X509Certificate2 LoadClientCertificate(string thumbprint)
     {
@@ -32,9 +32,9 @@ public static class CertHelper
     }
 
     /// <summary>
-    /// Kliens-tanúsítvány betöltése PFX-fájlból (az enroll-mód ezt írja: agent.pfx).
-    /// PersistKeySet kell, mert a Windows SChannel az efemer kulcsot nem tudja kliens-
-    /// authhoz használni. A privát kulcs egy kulcs-konténerbe kerül a futtató fiók alatt.
+    /// Loads a client certificate from a PFX file; enroll mode writes agent.pfx.
+    /// PersistKeySet is required because Windows SChannel cannot use the ephemeral key for
+    /// client authentication. The private key is placed into a key container under the running account.
     /// </summary>
     public static X509Certificate2 LoadClientCertificateFromPfx(string path, string? password = null)
     {
@@ -44,7 +44,7 @@ public static class CertHelper
         return X509CertificateLoader.LoadPkcs12FromFile(path, password, X509KeyStorageFlags.PersistKeySet);
     }
 
-    /// <summary>DPAPI-védett PFX (.dat) betöltése: visszafejt, majd betölti.</summary>
+    /// <summary>Loads a DPAPI-protected PFX (.dat) by decrypting and importing it.</summary>
     public static X509Certificate2 LoadClientCertificateFromProtectedPfx(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
@@ -54,7 +54,7 @@ public static class CertHelper
         return X509CertificateLoader.LoadPkcs12(pfxBytes, password: null, X509KeyStorageFlags.PersistKeySet);
     }
 
-    /// <summary>PFX-ből tölt (a .dat DPAPI-védett); ha nincs útvonal, a store-ból ujjlenyomat alapján.</summary>
+    /// <summary>Loads from PFX (DPAPI-protected .dat); if no path is set, falls back to store thumbprint.</summary>
     public static X509Certificate2 ResolveClientCertificate(string? pfxPath, string? thumbprint)
     {
         if (!string.IsNullOrWhiteSpace(pfxPath))
@@ -66,9 +66,9 @@ public static class CertHelper
     }
 
     /// <summary>
-    /// Visszaad egy callbacket, ami CSAK akkor fogadja el a szervert, ha annak
-    /// tanúsítvány-ujjlenyomata (SHA-256) megegyezik a pinnelt értékkel.
-    /// A lánc/CA érvényessége így másodlagos — a pin a horgony.
+    /// Returns a callback that accepts the server only when its
+    /// certificate fingerprint (SHA-256) matches the pinned value.
+    /// Chain/CA validity is secondary here; the pin is the trust anchor.
     /// </summary>
     public static RemoteCertificateValidationCallback PinnedServerValidator(string pinSha256)
     {

@@ -3,10 +3,10 @@ using MaterialSkin.Controls;
 
 namespace RemoteClient.Views;
 
-/// <summary>Közös, DPI-biztos elrendezés-segédek a tartalom-nézetekhez (AutoSize sorok + AutoSize gombok).</summary>
+/// <summary>Shared DPI-safe layout helpers for content views (AutoSize rows and buttons).</summary>
 internal static class ViewUi
 {
-    /// <summary>Eszköztár-gomb: AutoSize (a szöveg/magasság a DPI-vel skálázódik).</summary>
+    /// <summary>Toolbar button with AutoSize so text/height scale with DPI.</summary>
     public static MaterialButton ToolbarButton(string text, bool primary = true)
     {
         var b = new MaterialButton { Text = text, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
@@ -14,11 +14,11 @@ internal static class ViewUi
         return b;
     }
 
-    /// <summary>AutoSize eszköztár-sor; ha nem fér ki (kis ablak / nagy DPI), tördel.</summary>
+    /// <summary>AutoSize toolbar row; wraps when it cannot fit in small windows or high DPI.</summary>
     public static FlowLayoutPanel Toolbar() =>
         new() { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(6, 8, 6, 4) };
 
-    /// <summary>AutoSize státusz-sor egy MaterialLabel köré (a magasság a DPI-vel skálázódik).</summary>
+    /// <summary>AutoSize status row around a MaterialLabel, with height scaling by DPI.</summary>
     public static Panel StatusHost(MaterialLabel status)
     {
         status.AutoSize = true; status.Dock = DockStyle.Top; status.Padding = new Padding(12, 6, 12, 6);
@@ -30,8 +30,8 @@ internal static class ViewUi
     }
 
     /// <summary>
-    /// Függőleges TableLayoutPanel: minden sor AutoSize, kivéve a megadott „fill" indexű sort (100%).
-    /// A vezérlőket a megadott sorrendben rakja be (0..n), DPI-biztosan.
+    /// Vertical TableLayoutPanel: every row is AutoSize except the configured fill row (100%).
+    /// Controls are added in the given order (0..n), DPI-safely.
     /// </summary>
     public static TableLayoutPanel Rows(int fillRow, params Control[] controls)
     {

@@ -80,6 +80,9 @@ internal static partial class Strings
     public static string AboutView_018 => Get(nameof(AboutView_018));
     public static string AboutView_019 => Get(nameof(AboutView_019));
     public static string AboutView_020 => Get(nameof(AboutView_020));
+    public static string AboutView_021 => Get(nameof(AboutView_021));
+    public static string AboutView_022 => Get(nameof(AboutView_022));
+    public static string Common_Yes => Get(nameof(Common_Yes));
     public static string AgentInfo_001 => Get(nameof(AgentInfo_001));
     public static string AuditText_001 => Get(nameof(AuditText_001));
     public static string AuditText_002 => Get(nameof(AuditText_002));

@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace RemoteAgent.Admin;
 
-/// <summary>Egy eszköz az admin-listában (a client.exe ezt mutatja).</summary>
+/// <summary>A device shown in the admin list by client.exe.</summary>
 public sealed class DeviceInfo
 {
     [JsonPropertyName("deviceId")]
@@ -20,7 +20,7 @@ public sealed class DeviceInfo
     [JsonPropertyName("lastSeenAt")]
     public DateTimeOffset? LastSeenAt { get; set; }
 
-    /// <summary>A gép VNC-jelszava (a client a viewer .vnc fájljához használja).</summary>
+    /// <summary>Device VNC password used by the client to generate the viewer .vnc file.</summary>
     [JsonPropertyName("vncSecret")]
     public string? VncSecret { get; set; }
 
@@ -33,7 +33,7 @@ public sealed class DeviceInfo
     [JsonPropertyName("updateAllowed")]
     public bool UpdateAllowed { get; set; }
 
-    /// <summary>Release-csatorna: "rtm" vagy "beta".</summary>
+    /// <summary>Release channel: "rtm" or "beta".</summary>
     [JsonPropertyName("channel")]
     public string? Channel { get; set; }
 
@@ -43,7 +43,7 @@ public sealed class DeviceInfo
     [JsonPropertyName("consentRequired")]
     public bool? ConsentRequired { get; set; }
 
-    // Komponens-verziók a legutóbbi telemetriából (a kliens megjeleníti).
+    // Component versions from the latest telemetry, displayed by the client.
     [JsonPropertyName("agentVersion")]
     public string? AgentVersion { get; set; }
 
@@ -59,36 +59,36 @@ public sealed class DeviceInfo
     [JsonPropertyName("osVersion")]
     public string? OsVersion { get; set; }
 
-    /// <summary>A Helper supervisor jelzései (megfigyelhetőség).</summary>
+    /// <summary>Helper supervisor signals for observability.</summary>
     [JsonPropertyName("agentRestarts")]
     public int AgentRestarts { get; set; }
 
     [JsonPropertyName("lastIncident")]
     public string? LastIncident { get; set; }
 
-    /// <summary>A gépen HELYILEG letiltották-e a távoli elérést (VNC-zár).</summary>
+    /// <summary>Whether remote access was disabled locally on the device (VNC lock).</summary>
     [JsonPropertyName("vncLocked")]
     public bool VncLocked { get; set; }
 
-    /// <summary>Admin-megjegyzés (visszafejtve).</summary>
+    /// <summary>Admin note, decrypted.</summary>
     [JsonPropertyName("note")]
     public string? Note { get; set; }
 
-    // Részletes telemetria (a Telemetria fülhöz).
+    // Detailed telemetry for the Telemetry tab.
     [JsonPropertyName("bootTimeUtc")] public DateTimeOffset? BootTimeUtc { get; set; }
     [JsonPropertyName("ipAddress")] public string? IpAddress { get; set; }
-    /// <summary>A publikus IP, ahonnan az agent a szerverhez csatlakozik (szerver-oldalon megfigyelve).</summary>
+    /// <summary>Public IP address observed by the server when the agent connects.</summary>
     [JsonPropertyName("publicIpAddress")] public string? PublicIpAddress { get; set; }
     [JsonPropertyName("wifiSsid")] public string? WifiSsid { get; set; }
     [JsonPropertyName("vpnActive")] public bool VpnActive { get; set; }
     [JsonPropertyName("loggedInUser")] public string? LoggedInUser { get; set; }
 
-    /// <summary>Belépés-zárolás (5 sikertelen próba a gépről). Csak admin oldja fel.</summary>
+    /// <summary>Login lockout after 5 failed attempts from the device. Only an admin can unlock it.</summary>
     [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }
     [JsonPropertyName("loginLocked")] public bool LoginLocked { get; set; }
 }
 
-/// <summary>Egy eszköz admin-mezőinek módosítása (PUT). A null mezők változatlanok maradnak.</summary>
+/// <summary>Updates admin-editable device fields (PUT). Null fields are left unchanged.</summary>
 public sealed class DeviceUpdate
 {
     [JsonPropertyName("groupId")]
@@ -106,16 +106,16 @@ public sealed class DeviceUpdate
     [JsonPropertyName("consentRequired")]
     public bool? ConsentRequired { get; set; }
 
-    /// <summary>Release-csatorna: "rtm" vagy "beta" (null = változatlan).</summary>
+    /// <summary>Release channel: "rtm" or "beta" (null = unchanged).</summary>
     [JsonPropertyName("channel")]
     public string? Channel { get; set; }
 
-    /// <summary>Megjegyzés (a szerver TITKOSÍTVA tárolja).</summary>
+    /// <summary>Note stored encrypted by the server.</summary>
     [JsonPropertyName("note")]
     public string? Note { get; set; }
 }
 
-/// <summary>Egy csatorna aktuális csomagja (komponensenként) — a kliens csatorna-nézetéhez.</summary>
+/// <summary>Current package for a channel and component, used by the client channel view.</summary>
 public sealed class ChannelPackageInfo
 {
     [JsonPropertyName("channel")]
@@ -140,7 +140,7 @@ public sealed class ChannelPackageInfo
     public DateTimeOffset UploadedAt { get; set; }
 }
 
-/// <summary>Eszközcsoport az admin-listához.</summary>
+/// <summary>Device group for the admin list.</summary>
 public sealed class GroupInfo
 {
     [JsonPropertyName("id")]
@@ -156,7 +156,7 @@ public sealed class GroupInfo
     public bool UnattendedAllowed { get; set; }
 }
 
-/// <summary>Egy beléptető-/bootstrap-token (blob) az admin-listához: felhasználtság, lejárat, állapot.</summary>
+/// <summary>Enrollment/bootstrap token (blob) for the admin list: usage, expiry, and state.</summary>
 public sealed class BootstrapTokenInfo
 {
     [JsonPropertyName("id")]
@@ -192,25 +192,25 @@ public sealed class BootstrapTokenInfo
     [JsonPropertyName("note")]
     public string? Note { get; set; }
 
-    /// <summary>Ha generált MSI-hez tartozik: a kész MSI fájlneve (/admin/msi/{fileName}). Kézi esetben null.</summary>
+    /// <summary>Generated MSI file name (/admin/msi/{fileName}) when applicable; null for manual tokens.</summary>
     [JsonPropertyName("msiFileName")]
     public string? MsiFileName { get; set; }
 }
 
-/// <summary>Egy blob/token utólagos módosítása. A null mezők változatlanok.</summary>
+/// <summary>Edits an existing blob/token. Null fields are left unchanged.</summary>
 public sealed class EditTokenRequest
 {
-    /// <summary>Új max telepítésszám. Null = változatlan. A szerver elutasítja, ha kevesebb a már elhasználtnál.</summary>
+    /// <summary>New maximum install count. Null = unchanged. Rejected when below the already used count.</summary>
     [JsonPropertyName("maxUses")] public int? MaxUses { get; set; }
 
-    /// <summary>Új lejárat: MOSTantól ennyi óra. Null = változatlan (kivéve ha clearExpiry).</summary>
+    /// <summary>New expiry measured in hours from now. Null = unchanged unless clearExpiry is set.</summary>
     [JsonPropertyName("expiresInHours")] public int? ExpiresInHours { get; set; }
 
-    /// <summary>True = nincs lejárat (felülírja az expiresInHours-t).</summary>
+    /// <summary>True = no expiry; overrides expiresInHours.</summary>
     [JsonPropertyName("clearExpiry")] public bool ClearExpiry { get; set; }
 }
 
-/// <summary>Update-parancs indítása: a csomag verziója, URL-je, SHA-256 hash-e.</summary>
+/// <summary>Starts an update command with package version, URL, and SHA-256 hash.</summary>
 public sealed class UpdateRequest
 {
     [JsonPropertyName("version")]
@@ -222,12 +222,12 @@ public sealed class UpdateRequest
     [JsonPropertyName("sha256")]
     public string Sha256 { get; set; } = string.Empty;
 
-    /// <summary>Melyik komponens: "agent" (alap) vagy "updater"/"helper".</summary>
+    /// <summary>Target component: "agent" (default) or "updater"/"helper".</summary>
     [JsonPropertyName("target")]
     public string? Target { get; set; }
 }
 
-/// <summary>Az open-tunnel eredménye: a szerver által kiosztott bástya-port.</summary>
+/// <summary>Result of open-tunnel: the bastion port allocated by the server.</summary>
 public sealed class OpenTunnelResult
 {
     [JsonPropertyName("deviceId")]
@@ -239,34 +239,34 @@ public sealed class OpenTunnelResult
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
-    /// <summary>A kiadott parancs nonce-a — ezzel kérdezi le a konzol a hozzájárulás eredményét.</summary>
+    /// <summary>Nonce of the issued command; the console uses it to poll for the access result.</summary>
     [JsonPropertyName("nonce")]
     public string Nonce { get; set; } = string.Empty;
 }
 
-/// <summary>Egy napló-bejegyzés (audit). Az Action egy KULCS (pl. "connect"), a kliens fordítja le.</summary>
+/// <summary>An audit log entry. Action is a key such as "connect"; the client localizes it.</summary>
 public sealed class AuditEntryInfo
 {
     [JsonPropertyName("createdAt")] public DateTimeOffset CreatedAt { get; set; }
-    /// <summary>Ki tette (felhasználónév vagy "system").</summary>
+    /// <summary>Actor username or "system".</summary>
     [JsonPropertyName("actor")] public string Actor { get; set; } = string.Empty;
-    /// <summary>Esemény-kulcs: connect | access-denied | access-timeout | access-no-user | access-locked | user-create | user-update | …</summary>
+    /// <summary>Event key: connect | access-denied | access-timeout | access-no-user | access-locked | user-create | user-update | ...</summary>
     [JsonPropertyName("action")] public string Action { get; set; } = string.Empty;
-    /// <summary>Érintett gép (hostname/azonosító) megjelenítéshez, ha van.</summary>
+    /// <summary>Affected device hostname or ID for display, when available.</summary>
     [JsonPropertyName("target")] public string? Target { get; set; }
-    /// <summary>Rövid, ember-olvasható kiegészítés (pl. új szerep, verzió) — opcionális.</summary>
+    /// <summary>Optional short human-readable detail, such as a new role or version.</summary>
     [JsonPropertyName("detail")] public string? Detail { get; set; }
 }
 
-/// <summary>A hozzáférés-kérés állapota (a konzol pollozza a tunnel-nyitás után).</summary>
+/// <summary>Access request state polled by the console after opening a tunnel.</summary>
 public sealed class AccessResultInfo
 {
-    /// <summary>"" / "pending" = még várunk; egyébként: auto | granted | denied | timeout | no-user | locked.</summary>
+    /// <summary>"" / "pending" = still waiting; otherwise: auto | granted | denied | timeout | no-user | locked.</summary>
     [JsonPropertyName("outcome")]
     public string Outcome { get; set; } = string.Empty;
 }
 
-/// <summary>Szerver-szintű beállítások (admin GET/PUT). A titkok SOSEM utaznak vissza — helyettük Has* flag.</summary>
+/// <summary>Server-level settings (admin GET/PUT). Secrets are never returned; Has* flags indicate presence.</summary>
 public sealed class ServerSettingsInfo
 {
     [JsonPropertyName("ownerName")] public string? OwnerName { get; set; }
@@ -281,27 +281,27 @@ public sealed class ServerSettingsInfo
     [JsonPropertyName("smtpUseTls")] public bool SmtpUseTls { get; set; } = true;
     [JsonPropertyName("smtpUser")] public string? SmtpUser { get; set; }
     [JsonPropertyName("smtpFrom")] public string? SmtpFrom { get; set; }
-    /// <summary>PUT: üres = változatlan; GET: mindig null. A meglét jelzése Has* flagben.</summary>
+    /// <summary>PUT: empty = unchanged; GET: always null. Presence is indicated by the Has* flag.</summary>
     [JsonPropertyName("smtpPassword")] public string? SmtpPassword { get; set; }
     [JsonPropertyName("hasSmtpPassword")] public bool HasSmtpPassword { get; set; }
 
     [JsonPropertyName("graphTenantId")] public string? GraphTenantId { get; set; }
     [JsonPropertyName("graphClientId")] public string? GraphClientId { get; set; }
     [JsonPropertyName("graphSender")] public string? GraphSender { get; set; }
-    /// <summary>PUT: üres = változatlan; GET: mindig null.</summary>
+    /// <summary>PUT: empty = unchanged; GET: always null.</summary>
     [JsonPropertyName("graphClientSecret")] public string? GraphClientSecret { get; set; }
     [JsonPropertyName("hasGraphSecret")] public bool HasGraphSecret { get; set; }
-    /// <summary>A Graph client secret lejárati ideje (max 2 év a mentés pillanatától).</summary>
+    /// <summary>Graph client secret expiry time, maximum 2 years from save time.</summary>
     [JsonPropertyName("graphSecretExpiresAt")] public DateTimeOffset? GraphSecretExpiresAt { get; set; }
 }
 
-/// <summary>Teszt-e-mail kérés (admin): az aktív providerrel küld a megadott címre.</summary>
+/// <summary>Test email request (admin): sends to the given address with the active provider.</summary>
 public sealed class TestEmailRequest
 {
     [JsonPropertyName("to")] public string To { get; set; } = string.Empty;
 }
 
-/// <summary>Publikus branding (bejelentkezés előtt is): tulajdonos + support. Küldő-konfig nélkül.</summary>
+/// <summary>Public branding, available before sign-in: owner and support contacts. Sender config is excluded.</summary>
 public sealed class BrandingInfo
 {
     [JsonPropertyName("ownerName")] public string? OwnerName { get; set; }

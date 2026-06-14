@@ -5,8 +5,8 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Services;
 
 /// <summary>
-/// Naponta ellenőrzi a Graph client secret lejáratát: ha 30 napon belül lejár (és még nem
-/// figyelmeztettünk erre a lejáratra), e-mailt küld a support- (vagy feladó-) címre.
+/// Checks Graph client secret expiry daily. If it expires within 30 days and this expiry
+/// was not warned about yet, emails the support or sender address.
 /// </summary>
 public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogger<SecretExpiryWatcher> logger) : BackgroundService
 {
@@ -14,7 +14,7 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Indulás után kicsit várunk, majd 12 óránként ellenőrzünk.
+        // Wait a little after startup, then check every 12 hours.
         try { await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken); } catch { return; }
 
         while (!stoppingToken.IsCancellationRequested)
@@ -34,10 +34,10 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
 
         var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
         if (s is null || s.EmailProvider != "graph" || s.GraphSecretExpiresAt is not { } expiry) return;
-        if (s.SecretExpiryNotifiedAt is not null) return; // erre a lejáratra már szóltunk
+        if (s.SecretExpiryNotifiedAt is not null) return; // already warned for this expiry
 
         var days = (expiry - DateTimeOffset.UtcNow).TotalDays;
-        if (days > WarnDays) return; // még ráérünk
+        if (days > WarnDays) return; // not urgent yet
 
         var to = !string.IsNullOrWhiteSpace(s.SupportEmail) ? s.SupportEmail : s.GraphSender;
         if (string.IsNullOrWhiteSpace(to)) return;

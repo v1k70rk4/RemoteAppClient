@@ -1,11 +1,11 @@
 namespace RemoteClient.Views;
 
-/// <summary>A bal menüből megnyitható tartalom-nézetek közös felülete (a fő ablak tartalomterületén).</summary>
+/// <summary>Common interface for content views opened from the left menu in the main content area.</summary>
 public interface IContentView
 {
-    /// <summary>A nézetre váltáskor hívódik (pl. friss lekérés).</summary>
+    /// <summary>Called when switching to the view, for example to refresh data.</summary>
     Task OnShownAsync();
 
-    /// <summary>Téma-váltáskor a belső, kézzel színezett vezérlők (ListView) frissítése.</summary>
+    /// <summary>Refreshes manually colored inner controls such as ListView after theme changes.</summary>
     void ApplyTheme() { }
 }

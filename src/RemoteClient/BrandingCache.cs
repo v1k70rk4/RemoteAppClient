@@ -5,8 +5,8 @@ using RemoteAgent.Commands;
 namespace RemoteClient;
 
 /// <summary>
-/// A szerver branding-jének (tulajdonos + support) lokális gyorsítótára, hogy bejelentkezés
-/// előtt és offline is megjeleníthető legyen. %ProgramData%\RemoteAppClient\branding.json.
+/// Local cache for server branding (owner + support), so it is visible before sign-in
+/// and offline. Stored at %ProgramData%\RemoteAppClient\branding.json.
 /// </summary>
 public static class BrandingCache
 {
@@ -33,6 +33,6 @@ public static class BrandingCache
             Directory.CreateDirectory(dir);
             File.WriteAllText(PathFile, JsonSerializer.Serialize(b, AgentJsonContext.Default.BrandingInfo));
         }
-        catch { /* a cache nem kritikus */ }
+        catch { /* cache is non-critical */ }
     }
 }

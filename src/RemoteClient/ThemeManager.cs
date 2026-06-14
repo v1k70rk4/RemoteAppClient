@@ -5,14 +5,14 @@ using MaterialSkin;
 namespace RemoteClient;
 
 /// <summary>
-/// A MaterialSkin téma központi kezelése: sötét/világos váltás + akcentszín. A formok
-/// regisztrálják magukat (AddFormToManage), így a váltás mindenhol egyszerre érvényesül.
+/// Central MaterialSkin theme handling: dark/light switching plus accent color. Forms register
+/// themselves with AddFormToManage so changes apply everywhere at once.
 /// </summary>
 public static class ThemeManager
 {
     public static MaterialSkinManager Skin => MaterialSkinManager.Instance;
 
-    // Az alkalmazás-ikon kékjéhez (~#276BCE) illesztett Material Blue séma.
+    // Material Blue scheme matched to the application icon blue (~#276BCE).
     private static readonly ColorScheme Scheme = new(
         Primary.Blue700, Primary.Blue900, Primary.Blue400, Accent.LightBlue200, TextShade.WHITE);
 
@@ -27,7 +27,7 @@ public static class ThemeManager
     public static void SetDark(bool dark) =>
         Skin.Theme = dark ? MaterialSkinManager.Themes.DARK : MaterialSkinManager.Themes.LIGHT;
 
-    /// <summary>A Windows „Alkalmazás-mód" sötét-e (Personalize\AppsUseLightTheme = 0). Hiba/ismeretlen → sötét.</summary>
+    /// <summary>Whether Windows app mode is dark (Personalize\AppsUseLightTheme = 0). Error/unknown -> dark.</summary>
     public static bool IsOsDark()
     {
         try
@@ -39,7 +39,7 @@ public static class ThemeManager
         catch { return true; }
     }
 
-    /// <summary>Téma-mód feloldása sötét/világosra: "light"→világos, "auto"→OS, egyébként sötét.</summary>
+    /// <summary>Resolves theme mode to dark/light: "light" -> light, "auto" -> OS, otherwise dark.</summary>
     public static bool ResolveDark(string? mode) => mode?.Trim().ToLowerInvariant() switch
     {
         "light" => false,
@@ -47,10 +47,10 @@ public static class ThemeManager
         _ => true,
     };
 
-    /// <summary>Az aktuális téma háttérszíne (a MaterialForm rajzolt háttere).</summary>
+    /// <summary>Current theme background color used by MaterialForm.</summary>
     public static Color Background => Skin.BackgroundColor;
 
-    /// <summary>Egy sima ListView háttér/szöveg színének igazítása az aktuális témához.</summary>
+    /// <summary>Applies current theme background/text colors to a plain ListView.</summary>
     public static void StyleList(ListView list)
     {
         list.BorderStyle = BorderStyle.None;
@@ -58,7 +58,7 @@ public static class ThemeManager
         list.ForeColor = IsDark ? Color.Gainsboro : Color.Black;
     }
 
-    /// <summary>Egy tartalom-nézet (UserControl) hátterének a témához igazítása + opcionálisan a benne lévő ListView.</summary>
+    /// <summary>Applies theme background to a content UserControl and optionally to its ListViews.</summary>
     public static void StyleView(Control view, ListView? list = null)
     {
         view.BackColor = Skin.BackgroundColor;

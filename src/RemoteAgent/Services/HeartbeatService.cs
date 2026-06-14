@@ -7,11 +7,10 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Periodikus életjel-fájl (&lt;EnrollmentDir&gt;\agent.heartbeat) frissítése. A Helper
-/// (RemoteAgent.Updater) ezt figyeli: ha az életjel elöregszik, miközben a service
-/// "fut" állapotban van, akkor az agent BERAGADT — az SCM ezt nem látja, csak a
-/// processz-kilépést. Ilyenkor a Helper stop→(kell esetén)kill→restart ciklussal
-/// helyreállít. Szándékosan a legolcsóbb jelzés: egy fájl időbélyege, semmi IPC.
+/// Periodically updates the heartbeat file (&lt;EnrollmentDir&gt;\agent.heartbeat). The Helper
+/// (RemoteAgent.Updater) watches it: if the heartbeat is stale while the service is "running",
+/// the agent is hung. SCM cannot see that, only process exit. The Helper recovers through
+/// stop, optional kill, and restart. Deliberately cheap signal: one file timestamp, no IPC.
 /// </summary>
 public sealed class HeartbeatService(IOptions<AgentOptions> options, ILogger<HeartbeatService> logger) : BackgroundService
 {

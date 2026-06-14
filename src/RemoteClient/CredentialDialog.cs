@@ -4,8 +4,8 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
-/// <summary>Egy frissen létrehozott/visszaállított hozzáférés megjelenítése: felhasználónév +
-/// ideiglenes jelszó, KIMÁSOLHATÓ (kijelölhető mezők + „Másolás" gomb), hogy továbbküldhető legyen.</summary>
+/// <summary>Shows newly created/reset access credentials: username plus temporary password,
+/// with selectable fields and a copy button so it can be sent onward.</summary>
 public sealed class CredentialDialog : MaterialForm
 {
     public CredentialDialog(string title, string username, string secret,

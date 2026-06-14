@@ -6,8 +6,9 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Egy/több exe(+msi) feltöltése egy release-csatornára — beágyazható panel (a Csatornák „Exe feltöltés" füle).
-/// A komponenst és a verziót a fájlból olvassa (felülírható); tömeges (bulk) feltöltés is mehet.
+/// Uploads one or more exe/msi packages to a release channel as an embedded panel in the
+/// Channels upload tab. Component and version are read from the file but can be overridden;
+/// bulk upload is supported.
 /// </summary>
 public sealed class UploadPanel : UserControl
 {
@@ -18,7 +19,7 @@ public sealed class UploadPanel : UserControl
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
 
-    /// <summary>Sikeres feltöltés után jelez (a Csatornák nézet frissít + visszatér).</summary>
+    /// <summary>Raised after successful upload so the Channels view can refresh and return.</summary>
     public event Action? Uploaded;
 
     private sealed record Pkg(string Path, string Component, string Version);
@@ -38,7 +39,7 @@ public sealed class UploadPanel : UserControl
         var addBtn = new MaterialButton { Text = L.UploadPanel_001, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
         addBtn.Click += (_, _) => AddFiles();
 
-        // FENT: csatorna | komponens | fájlok hozzáadása.
+        // Top: channel, component, add files.
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(10, 8, 10, 6) };
         toolbar.Controls.AddRange([_channel, _override, addBtn]);
 
@@ -47,28 +48,28 @@ public sealed class UploadPanel : UserControl
         _list.Columns.Add(L.ChannelsView_014, 120);
         _list.Columns.Add(L.ChannelsView_004, 180);
 
-        // TÁBLA ALATT JOBBRA (1. sor): [verzió] [Verzió megadása] [Eltávolítás].
+        // Right below table, first row: version, set version, remove.
         var rmBtn = new MaterialButton { Text = L.UploadPanel_003, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         rmBtn.Click += (_, _) => { foreach (ListViewItem it in _list.SelectedItems) it.Remove(); };
         var setVerBtn = new MaterialButton { Text = L.UploadPanel_004, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         setVerBtn.Click += (_, _) => ApplyVersion();
         var row1 = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
-        row1.Controls.AddRange([rmBtn, setVerBtn, _verInput]); // RightToLeft → balról: verzió | Verzió megadása | Eltávolítás
+        row1.Controls.AddRange([rmBtn, setVerBtn, _verInput]); // RightToLeft -> left-to-right: version | set version | remove
 
-        // 2. sor: [Mindegyik törlése] [Feltöltés].
+        // Second row: clear all, upload.
         var clrBtn = new MaterialButton { Text = L.UploadPanel_005, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         clrBtn.Click += (_, _) => _list.Items.Clear();
         var uploadBtn = new MaterialButton { Text = L.UploadPanel_006, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
         uploadBtn.Click += async (_, _) => await UploadAsync();
         var row2 = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 0, 8, 4) };
-        row2.Controls.AddRange([uploadBtn, clrBtn]); // RightToLeft → balról: Mindegyik törlése | Feltöltés
+        row2.Controls.AddRange([uploadBtn, clrBtn]); // RightToLeft -> left-to-right: clear all | upload
 
         var statusPanel = new Panel { Dock = DockStyle.Bottom, Height = 28 };
         _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true;
         _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
         statusPanel.Controls.Add(_status);
 
-        // Dokk-sorrend: Fill, majd a Bottom-sorok fentről lefelé (row1 a lista alá, status legalulra), végül a Top.
+        // Dock order: Fill, then Bottom rows from top to bottom, then Top.
         Controls.Add(_list);
         Controls.Add(row1);
         Controls.Add(row2);

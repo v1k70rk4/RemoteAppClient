@@ -5,9 +5,9 @@ using RemoteAgent.Commands;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Visszafelé küldés a perzisztens C2 WSS-en (agent → szerver), pl. a tunnel-nyitás/hozzájárulás
-/// eredménye. A CommandChannelService állítja be az aktuális socketet csatlakozáskor; a küldés
-/// szálbiztos (egy socketre egyszerre egy író). Ha épp nincs kapcsolat, az üzenet csendben elvész.
+/// Sends messages back over the persistent C2 WSS channel (agent to server), such as tunnel
+/// access results. CommandChannelService sets the current socket on connect; sending is
+/// thread-safe with a single writer per socket. If there is no connection, the message is dropped.
 /// </summary>
 public sealed class AgentUplink
 {
@@ -33,7 +33,7 @@ public sealed class AgentUplink
             if (_socket is { State: WebSocketState.Open } s)
                 await s.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, ct);
         }
-        catch { /* a kapcsolat elment — a következő reconnect rendezi */ }
+        catch { /* connection is gone; next reconnect will fix it */ }
         finally { _gate.Release(); }
     }
 }

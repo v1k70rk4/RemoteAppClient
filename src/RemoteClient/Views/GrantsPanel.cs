@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Egy felhasználó grantjai (csoport/gép hozzáférés) — beágyazható panel a user-szerkesztő „Jogosultságok" füléhez.</summary>
+/// <summary>User grants (group/device access), embedded in the user editor Permissions tab.</summary>
 public sealed class GrantsPanel : UserControl
 {
     private readonly AdminApi _api;
@@ -30,7 +30,7 @@ public sealed class GrantsPanel : UserControl
 
         var remove = new MaterialButton { Text = L.GrantsPanel_002, AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
         remove.Click += async (_, _) => await RemoveSelectedAsync();
-        // A táblázat ALÁ, JOBBRA igazítva.
+        // Below the table, aligned right.
         var removeRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(8, 8, 8, 0), WrapContents = false, FlowDirection = FlowDirection.RightToLeft };
         removeRow.Controls.Add(remove);
 
@@ -51,8 +51,8 @@ public sealed class GrantsPanel : UserControl
         _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
         bottom.Controls.Add(_status);
 
-        // _list (Fill) elsőként; a Bottom-sorok közül az ELSŐként hozzáadott (removeRow) kerül
-        // legfelülre (közvetlenül a lista alá), a státusz pedig a legaljára.
+        // _list fills first; among Bottom rows, the first added (removeRow) sits highest,
+        // directly below the list, and status is at the bottom.
         Controls.Add(_list);
         Controls.Add(removeRow);
         Controls.Add(groupRow);
@@ -60,7 +60,7 @@ public sealed class GrantsPanel : UserControl
         Controls.Add(bottom);
     }
 
-    /// <summary>A fül megnyitásakor hívjuk: első alkalommal betölt, utána frissít.</summary>
+    /// <summary>Called when the tab opens: loads first time, refreshes afterwards.</summary>
     public async Task ShownAsync()
     {
         ThemeManager.StyleList(_list);

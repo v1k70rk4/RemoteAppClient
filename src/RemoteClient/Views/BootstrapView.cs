@@ -6,8 +6,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Token nélküli telepítés: bootstrap blob generálása (opcionálisan csoportra, lejárattal, telepítés-limittel),
-/// és a kiadott blob-ok kezelése (felhasználtság, lejárat, állapot; visszavonás/törlés).
+/// Tokenless install: bootstrap blob generation, optionally scoped to group/expiry/install limit,
+/// plus issued blob management (usage, expiry, state, revoke/delete).
 /// </summary>
 public sealed class BootstrapView : UserControl, IContentView
 {
@@ -37,7 +37,7 @@ public sealed class BootstrapView : UserControl, IContentView
         _maxUses.Items.AddRange([new UsesItem(100000, L.EditTokenForm_011), new UsesItem(1, L.BootstrapView_003), new UsesItem(5, "5"), new UsesItem(10, "10"), new UsesItem(50, "50")]);
         _maxUses.SelectedIndex = 0;
 
-        // FENT: keresés + frissítés.
+        // Top: search and refresh.
         var topTools = ViewUi.Toolbar();
         _search.Margin = new Padding(4, 0, 16, 0);
         _search.TextChanged += (_, _) => RenderList();
@@ -57,7 +57,7 @@ public sealed class BootstrapView : UserControl, IContentView
         _list.Columns.Add(L.BootstrapView_008, 120);
         _list.Columns.Add(L.BootstrapView_009, 220);
 
-        // TÁBLA ALATT JOBBRA: Módosítás | Visszavonás | Törlés | MSI mentés.
+        // Right below table: edit, revoke, delete, save MSI.
         var actionRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
         void Act(string text, Func<Task> onClick) { var b = ViewUi.ToolbarButton(text, primary: false); b.Margin = new Padding(4, 0, 4, 0); b.Click += async (_, _) => await onClick(); actionRow.Controls.Add(b); }
         Act(L.BootstrapView_010, SaveMsiAsync);   // jobboldalt
@@ -65,7 +65,7 @@ public sealed class BootstrapView : UserControl, IContentView
         Act(L.BootstrapView_012, RevokeAsync);
         Act(L.BootstrapView_013, EditAsync);        // balra
 
-        // ALATTA BALRA: Csoport | Lejárat | Max telepítés | Blob generálása.
+        // Left below that: group, expiry, max installs, generate blob.
         _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
         _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
         _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
@@ -129,7 +129,7 @@ public sealed class BootstrapView : UserControl, IContentView
         : t.UseCount >= t.MaxUses ? "Elfogyott"
         : L.BootstrapView_020;
 
-    /// <summary>A blob eredete: MSI-hez generált, kézi blob, vagy kézi (egyszer-használatos) token.</summary>
+    /// <summary>Blob origin: generated for MSI, manual blob, or manual one-time token.</summary>
     private static string KindOf(BootstrapTokenInfo t) =>
         !string.IsNullOrWhiteSpace(t.MsiFileName) || t.Note is "msi-bootstrap" ? "MSI"
         : t.Note is "bootstrap" ? L.BootstrapView_021

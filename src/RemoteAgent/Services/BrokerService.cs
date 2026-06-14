@@ -12,16 +12,16 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Konzol-bróker: helyi named pipe, amin a kliens forward-tunneleket kér. Az agent a GÉP
-/// enrollment-kulcsával nyit <c>ssh -L</c>-t a bástyához (admin API vagy egy cél-gép VNC
-/// bástya-portja), és visszaadja a helyi loopback-portot. Így a kliensnek NINCS saját
-/// SSH-kulcsa — a gép identitása a belépő, és csak BELÉPTETETT gépen (ahol fut az agent)
-/// működik a konzol.
+/// Console broker: a local named pipe where the client requests forward tunnels. The agent
+/// opens <c>ssh -L</c> to the bastion with the device enrollment key (admin API or a target
+/// device VNC bastion port), then returns a local loopback port. The client has no SSH key
+/// of its own: the device identity is the credential, and the console only works on enrolled
+/// devices where the agent is running.
 ///
-/// EGY-kapcsolatos modell: mindig PONTOSAN egy figyelő instance van; egy kliens-session
-/// alatt foglalt, a kliens bontásakor (akár force-kill) felszabadul és új figyelő jön.
-/// Egy gépen jellemzően egy konzol fut. A forwardok a kapcsolat élettartamáig élnek.
-/// A pipe-hoz hitelesített helyi userek férnek; a jogosultságot a szerver-login + grantok döntik el.
+/// Multi-instance listener model: there is always a fresh listener, and each connected
+/// client session owns its own handler until it disconnects, even after force-kill.
+/// Forwards live for the lifetime of the pipe connection. Authenticated local users can
+/// reach the pipe; server login and grants decide authorization.
 /// </summary>
 public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory lf, ILogger<BrokerService> logger) : BackgroundService
 {
@@ -36,8 +36,8 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
     {
         logger.LogWarning(L.BrokerService_001, PipeName);
 
-        // TÖBB instance: mindig van új figyelő, így egy beragadt kezelő (pl. force-killed kliens)
-        // sem blokkolja az új csatlakozásokat. Minden kapcsolatot külön task kezel.
+        // Multiple instances: always keep a fresh listener so a stuck handler, such as a force-killed
+        // client, cannot block new connections. Each connection is handled by its own task.
         while (!stoppingToken.IsCancellationRequested)
         {
             NamedPipeServerStream pipe;
@@ -63,14 +63,14 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             }
 
             logger.LogWarning(L.BrokerService_004);
-            _ = HandleConnectionAsync(pipe, stoppingToken); // külön task; a ciklus új figyelőt nyit
+            _ = HandleConnectionAsync(pipe, stoppingToken); // separate task; loop opens a fresh listener
         }
     }
 
     private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
     {
-        // BINÁRIS protokoll: a kliens int32 távoli portot ír, mi int32 helyi portot válaszolunk
-        // (0 = hiba). Nincs szöveg/sorvég/BOM gond.
+        // Binary protocol: client writes int32 remote port, agent answers int32 local port
+        // (0 = error). No text, line ending, or BOM ambiguity.
         var forwards = new List<SshLocalForward>();
         try
         {
@@ -78,7 +78,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             while (pipe.IsConnected)
             {
                 try { await pipe.ReadExactlyAsync(req, ct); }
-                catch (EndOfStreamException) { break; } // a kliens bontotta
+                catch (EndOfStreamException) { break; } // client disconnected
                 catch (IOException) { break; }
 
                 int remotePort = BitConverter.ToInt32(req, 0);
@@ -108,7 +108,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
                 await pipe.FlushAsync(ct);
             }
         }
-        catch (OperationCanceledException) { /* leállás */ }
+        catch (OperationCanceledException) { /* shutdown */ }
         catch (Exception ex) { logger.LogWarning(ex, L.BrokerService_008); }
         finally
         {
@@ -118,7 +118,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
         }
     }
 
-    /// <summary>Csak az admin API és a tunnel-port-tartomány forwardolható — semmi más.</summary>
+    /// <summary>Only the admin API and tunnel port range may be forwarded.</summary>
     private static bool IsAllowed(int remotePort) =>
         remotePort == AdminApiPort || (remotePort >= TunnelPortMin && remotePort < TunnelPortMax);
 
@@ -132,7 +132,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl, AccessControlType.Allow));
 
-        // Több instance engedélyezett (egy beragadt kezelő ne blokkoljon új csatlakozást).
+        // Multiple instances are allowed so a stuck handler cannot block new connections.
         return NamedPipeServerStreamAcl.Create(
             PipeName, PipeDirection.InOut, maxNumberOfServerInstances: 8,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous, inBufferSize: 0, outBufferSize: 0, sec);

@@ -1,14 +1,14 @@
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Megosztott, szálbiztos agent-állapot a LOKÁLIS status-pipe-hoz: él-e a C2, mikor volt
-/// utolsó szerver-kontakt. A tunnel-állapotot a TunnelState adja, a verziót az assembly.
-/// Csak állapot — nincs benne titok.
+/// Shared, thread-safe agent state for the local status pipe: whether C2 is connected
+/// and when the last server contact occurred. Tunnel state comes from TunnelState,
+/// version comes from the assembly. State only, no secrets.
 /// </summary>
 public sealed class AgentStatusState
 {
     private volatile bool _c2Connected;
-    private long _lastContactTicks; // DateTimeOffset.UtcNow.UtcTicks, 0 = még soha
+    private long _lastContactTicks; // DateTimeOffset.UtcNow.UtcTicks, 0 = never
 
     public bool C2Connected => _c2Connected;
 
@@ -21,14 +21,14 @@ public sealed class AgentStatusState
         }
     }
 
-    /// <summary>C2 (WSS) csatlakozott/lecsatlakozott. Csatlakozáskor egyben szerver-kontakt is.</summary>
+    /// <summary>C2 (WSS) connected/disconnected. Connection also counts as server contact.</summary>
     public void SetC2Connected(bool connected)
     {
         _c2Connected = connected;
         if (connected) MarkServerContact();
     }
 
-    /// <summary>Sikeres szerver-kommunikáció történt (C2 vagy telemetria).</summary>
+    /// <summary>Successful server communication occurred through C2 or telemetry.</summary>
     public void MarkServerContact() =>
         Interlocked.Exchange(ref _lastContactTicks, DateTimeOffset.UtcNow.UtcTicks);
 }

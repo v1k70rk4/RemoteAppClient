@@ -5,12 +5,11 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Vnc;
 
 /// <summary>
-/// HELYI VNC-zár: egy gépen lévő admin letilthatja a távoli elérést. Ténylegesen LEÁLLÍTJA
-/// és LETILTJA a tvnserver service-t, és egy registry-flaget állít, amit az agent tisztel
-/// (zárolt állapotban nem provisionál újra). A szervernek nem kell tudnia róla; ha mégis
-/// nyitnak tunnelt, nincs mire csatlakozni, és a próbálkozást a Windows-naplóba írjuk.
-/// FELOLDANI CSAK HELYBEN lehet (a flag + a service-tiltás helyi admin/SYSTEM jogot kér),
-/// ezért TÁVOLRÓL nem kapcsolható ki.
+/// Local VNC lock: an admin at the device can disable remote access. It actually stops
+/// and disables the tvnserver service, then sets a registry flag respected by the agent
+/// so locked devices are not reprovisioned. The server does not need to know; if a tunnel
+/// is opened anyway, there is nothing to connect to and the attempt is logged to Windows.
+/// Unlocking is local-only because both the flag and service state require local admin/SYSTEM.
 /// </summary>
 public static class VncLock
 {
@@ -28,7 +27,7 @@ public static class VncLock
         catch { return false; }
     }
 
-    /// <summary>CLI: vnc-lock — flag + a tvnserver leállítása és letiltása. Admin/SYSTEM kell.</summary>
+    /// <summary>CLI: vnc-lock, sets the flag and stops/disables tvnserver. Requires admin/SYSTEM.</summary>
     public static int Lock()
     {
         try
@@ -44,7 +43,7 @@ public static class VncLock
         catch (Exception ex) { Console.Error.WriteLine(L.VncLock_006 + ex.Message); return 1; }
     }
 
-    /// <summary>CLI: vnc-unlock — flag törlése + a tvnserver visszaengedése és indítása.</summary>
+    /// <summary>CLI: vnc-unlock, clears the flag and re-enables/starts tvnserver.</summary>
     public static int Unlock()
     {
         try
@@ -60,7 +59,7 @@ public static class VncLock
         catch (Exception ex) { Console.Error.WriteLine(L.VncLock_006 + ex.Message); return 1; }
     }
 
-    /// <summary>Idempotens kényszerítés: ha zárolt, a tvnserver biztosan álljon + maradjon disabled.</summary>
+    /// <summary>Idempotent enforcement: when locked, tvnserver is stopped and remains disabled.</summary>
     public static void Enforce()
     {
         if (!IsLocked()) return;
@@ -72,11 +71,11 @@ public static class VncLock
         catch { /* best effort */ }
     }
 
-    /// <summary>Esemény a Windows-naplóba (pl. a zárolt gép elleni tunnel-próbálkozás).</summary>
+    /// <summary>Writes an event to the Windows log, for example a tunnel attempt against a locked device.</summary>
     public static void Log(string message)
     {
         try { EventLog.WriteEntry("RemoteAgent", message, EventLogEntryType.Warning); }
-        catch { /* a source hiányozhat nem-admin kontextusban */ }
+        catch { /* source may be missing outside admin context */ }
     }
 
     private static void SetFlag(bool on)

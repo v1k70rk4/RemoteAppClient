@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Platformfüggetlen, minden projekt (agent, server, client.exe) hivatkozhatja. -->
+    <!-- Platform-independent so agent, server, and client.exe can all reference it. -->
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>RemoteAgent.Resources</RootNamespace>
     <AssemblyName>RemoteAgent.Resources</AssemblyName>
-    <!-- Az alap (semleges) kultúra angol; ez a fallback. -->
+    <!-- English is the neutral base culture and fallback. -->
     <NeutralLanguage>en</NeutralLanguage>
   </PropertyGroup>
 

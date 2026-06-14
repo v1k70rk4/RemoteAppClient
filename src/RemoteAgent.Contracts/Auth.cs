@@ -2,25 +2,25 @@ using System.Text.Json.Serialization;
 
 namespace RemoteAgent.Admin;
 
-/// <summary>Bejelentkezés: felhasználónév + jelszó (+ TOTP, ha már be van állítva).</summary>
+/// <summary>Sign-in request: username and password, plus TOTP when already configured.</summary>
 public sealed class LoginRequest
 {
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
     [JsonPropertyName("password")] public string Password { get; set; } = string.Empty;
     [JsonPropertyName("totp")] public string? Totp { get; set; }
 
-    /// <summary>A kliens verziója (a szerver elavult klienst elutasít, ld. <see cref="LoginResponse.MustUpdate"/>).</summary>
+    /// <summary>Client version; the server rejects outdated clients, see <see cref="LoginResponse.MustUpdate"/>.</summary>
     [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
-    /// <summary>A kliens csatornája (rtm/beta) — innen kapja a kötelező frissítés csomagját.</summary>
+    /// <summary>Client release channel (rtm/beta); used to select the mandatory update package.</summary>
     [JsonPropertyName("channel")] public string? Channel { get; set; }
-    /// <summary>A helyi agent gépazonosítója (a status-pipe-ból) — a gép-szintű fail-counterhez.</summary>
+    /// <summary>Local agent device ID from the status pipe; used for the device-level failure counter.</summary>
     [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
 }
 
 /// <summary>
-/// Bejelentkezés eredménye. A <see cref="Token"/> a session-token (Bearer).
-/// Ha <see cref="MustChangePassword"/> vagy <see cref="TotpEnrollRequired"/> igaz,
-/// a kliensnek előbb azt kell elintéznie — addig a konzol-végpontok 403-at adnak.
+/// Sign-in result. <see cref="Token"/> is the bearer session token.
+/// When <see cref="MustChangePassword"/> or <see cref="TotpEnrollRequired"/> is true,
+/// the client must finish that setup first; console endpoints return 403 until then.
 /// </summary>
 public sealed class LoginResponse
 {
@@ -29,13 +29,13 @@ public sealed class LoginResponse
     [JsonPropertyName("mustChangePassword")] public bool MustChangePassword { get; set; }
     [JsonPropertyName("totpEnrollRequired")] public bool TotpEnrollRequired { get; set; }
 
-    /// <summary>Csak enrollnál: az otpauth:// URI a QR-hez + a base32 titok (kézi beíráshoz).</summary>
+    /// <summary>Enrollment only: otpauth:// URI for the QR code and the base32 secret for manual entry.</summary>
     [JsonPropertyName("totpUri")] public string? TotpUri { get; set; }
     [JsonPropertyName("totpSecret")] public string? TotpSecret { get; set; }
 
     /// <summary>
-    /// Igaz: a kliens túl régi, KÖTELEZŐ frissíteni. Ilyenkor <see cref="Token"/> üres (nincs belépés),
-    /// és az Update* mezők megadják a letöltendő csomagot. A kliens frissít, majd újraindul.
+    /// True when the client is too old and must update. In that case <see cref="Token"/> is empty,
+    /// and the Update* fields describe the package to download. The client updates and restarts.
     /// </summary>
     [JsonPropertyName("mustUpdate")] public bool MustUpdate { get; set; }
     [JsonPropertyName("updateVersion")] public string? UpdateVersion { get; set; }
@@ -43,7 +43,7 @@ public sealed class LoginResponse
     [JsonPropertyName("updateSha256")] public string? UpdateSha256 { get; set; }
 }
 
-/// <summary>Hibakód a login/elutasítás kommunikálására (HTTP 401/403 mellé).</summary>
+/// <summary>Error code returned with login or authorization rejection (HTTP 401/403).</summary>
 public sealed class AuthError
 {
     [JsonPropertyName("error")] public string Error { get; set; } = string.Empty;
@@ -59,9 +59,9 @@ public sealed class TotpConfirmRequest
     [JsonPropertyName("code")] public string Code { get; set; } = string.Empty;
 }
 
-// === Windows Hello (passkey-stílus) ===
+// === Windows Hello (passkey-style) ===
 
-/// <summary>Hello-hitelesítő regisztrálása (bejelentkezve): a kliens TPM-kulcsának PUBLIKUS része + eszköznév.</summary>
+/// <summary>Registers a Hello credential while signed in: the public part of the client TPM key plus device name.</summary>
 public sealed class HelloRegisterRequest
 {
     [JsonPropertyName("publicKey")] public string PublicKey { get; set; } = string.Empty; // base64 SPKI
@@ -73,7 +73,7 @@ public sealed class HelloRegisterResponse
     [JsonPropertyName("credentialId")] public Guid CredentialId { get; set; }
 }
 
-/// <summary>Egy regisztrált Hello-eszköz (listázás/visszavonás).</summary>
+/// <summary>A registered Hello device for listing or revocation.</summary>
 public sealed class HelloCredentialInfo
 {
     [JsonPropertyName("id")] public Guid Id { get; set; }
@@ -82,7 +82,7 @@ public sealed class HelloCredentialInfo
     [JsonPropertyName("lastUsedAt")] public DateTimeOffset? LastUsedAt { get; set; }
 }
 
-/// <summary>Belépés 1. lépés: challenge kérése (még nincs session).</summary>
+/// <summary>Sign-in step 1: request a challenge before a session exists.</summary>
 public sealed class HelloChallengeRequest
 {
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
@@ -93,19 +93,19 @@ public sealed class HelloChallengeResponse
     [JsonPropertyName("challenge")] public string Challenge { get; set; } = string.Empty; // base64 nonce
 }
 
-/// <summary>Belépés 2. lépés: az aláírt challenge.</summary>
+/// <summary>Sign-in step 2: submit the signed challenge.</summary>
 public sealed class HelloLoginRequest
 {
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
     [JsonPropertyName("credentialId")] public Guid CredentialId { get; set; }
     [JsonPropertyName("signature")] public string Signature { get; set; } = string.Empty; // base64
 
-    /// <summary>A kliens verziója + csatornája (a min-verzió kapuhoz, ld. <see cref="LoginResponse.MustUpdate"/>).</summary>
+    /// <summary>Client version and channel for the minimum-version gate; see <see cref="LoginResponse.MustUpdate"/>.</summary>
     [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
     [JsonPropertyName("channel")] public string? Channel { get; set; }
 }
 
-/// <summary>„Ki vagyok" — a kliens a session-state-hez.</summary>
+/// <summary>"Who am I" response used by the client session state.</summary>
 public sealed class MeResponse
 {
     [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;

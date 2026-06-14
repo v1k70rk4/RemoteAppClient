@@ -3,22 +3,23 @@ using System.Runtime.InteropServices;
 namespace RemoteAgent.Consent;
 
 /// <summary>
-/// A gépnél ülő felhasználó hozzájárulását kéri egy SYSTEM service-ből: a WTS API-val (WTSSendMessageW)
-/// natív Igen/Nem ablakot mutat az AKTÍV konzol-session asztalán, időtúllépéssel. Nem kell hozzá
-/// külön folyamat vagy futó kliens. (Ha senki nincs bejelentkezve, azt a hívó az unattended-policyval kezeli.)
+/// Requests consent from the user sitting at the device from a SYSTEM service. Uses WTS
+/// (WTSSendMessageW) to show a native Yes/No dialog on the active console session desktop,
+/// with timeout. No helper process or running client is required. If nobody is signed in,
+/// the caller handles that through unattended policy.
 /// </summary>
 public static class ConsentPrompt
 {
     public enum Outcome { NoUser, Granted, Denied, Timeout, Error }
 
-    /// <summary>Van-e épp bejelentkezett interaktív felhasználó az aktív konzol-sessionben.</summary>
+    /// <summary>Whether an interactive user is currently signed in to the active console session.</summary>
     public static bool HasActiveUser()
     {
         uint s = WTSGetActiveConsoleSessionId();
         return s != 0xFFFFFFFF && !string.IsNullOrEmpty(UserNameOf(s));
     }
 
-    /// <summary>Az aktív konzol-session bejelentkezett felhasználója (DOMAIN\\user), vagy null.</summary>
+    /// <summary>Signed-in user of the active console session (DOMAIN\\user), or null.</summary>
     public static string? ActiveUserName()
     {
         uint s = WTSGetActiveConsoleSessionId();
@@ -37,7 +38,7 @@ public static class ConsentPrompt
         finally { if (buf != IntPtr.Zero) WTSFreeMemory(buf); }
     }
 
-    /// <summary>Hozzájárulás-kérés Igen/Nem ablakkal az aktív sessionben; timeoutSeconds után Timeout.</summary>
+    /// <summary>Requests consent with a Yes/No dialog in the active session; returns Timeout after timeoutSeconds.</summary>
     public static Outcome Ask(string title, string message, int timeoutSeconds)
     {
         uint session = WTSGetActiveConsoleSessionId();

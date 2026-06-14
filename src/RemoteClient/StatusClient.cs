@@ -6,9 +6,9 @@ using RemoteAgent.Commands;
 namespace RemoteClient;
 
 /// <summary>
-/// A HELYI agent csak-olvasható status-pipe-ját olvassa ("RemoteAgent.status"): él-e a C2,
-/// kész-e a tunnel, mikor volt utolsó szerver-kontakt. Így a konzol valós időben látja a
-/// környezet állapotát, a szerver körbejárása nélkül. Null, ha az agent/pipe nem elérhető.
+/// Reads the local agent read-only status pipe ("RemoteAgent.status"): C2, tunnel state,
+/// and last server contact. This lets the console show local environment state in real
+/// time without going through the server. Returns null when agent/pipe is unavailable.
 /// </summary>
 public static class StatusClient
 {

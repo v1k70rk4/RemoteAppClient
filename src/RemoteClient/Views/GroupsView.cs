@@ -6,8 +6,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Eszközcsoportok: lista + ablakon BELÜLI szerkesztő (← Vissza | Általános). Keresés+frissítés fent,
-/// a tábla alatt jobbra Szerkesztés+Törlés, alatta balra Új csoport létrehozása.
+/// Device groups: list plus in-window editor (Back | General). Search+refresh at top,
+/// Edit+Delete below the table on the right, New group below on the left.
 /// </summary>
 public sealed class GroupsView : UserControl, IContentView
 {
@@ -21,7 +21,7 @@ public sealed class GroupsView : UserControl, IContentView
     private readonly List<GroupInfo> _groups = new();
     private Dictionary<string, int> _counts = new();
 
-    // Szerkesztő
+    // Editor
     private readonly MaterialButton _tabGeneral = new() { Text = L.ChannelsView_003, AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Contained };
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
@@ -56,16 +56,16 @@ public sealed class GroupsView : UserControl, IContentView
         _list.Columns.Add(L.GroupsView_002, 80);
         _list.DoubleClick += (_, _) => EditSelected();
 
-        // Tábla alatt jobbra: Szerkesztés + Törlés (a kijelölt csoportra).
+        // Below table, right: Edit + Delete for selected group.
         var actionRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
         var del = ViewUi.ToolbarButton(L.BootstrapView_011, primary: false); del.Margin = new Padding(4, 0, 4, 0);
         del.Click += async (_, _) => await DeleteSelectedAsync();
         var edit = ViewUi.ToolbarButton(L.GroupsView_003); edit.Margin = new Padding(4, 0, 4, 0);
         edit.Click += (_, _) => EditSelected();
-        actionRow.Controls.Add(del);   // jobboldalt
-        actionRow.Controls.Add(edit);  // tőle balra
+        actionRow.Controls.Add(del);   // right side
+        actionRow.Controls.Add(edit);  // to its left
 
-        // Alatta balra: Új csoport létrehozása (lista-szintű, nem függ a kijelöléstől).
+        // Below, left: create new group as a list-level action independent of selection.
         var newRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
         var newBtn = ViewUi.ToolbarButton(L.GroupsView_004); newBtn.Margin = new Padding(4, 0, 4, 0);
         newBtn.Click += (_, _) => NewGroup();
@@ -118,8 +118,8 @@ public sealed class GroupsView : UserControl, IContentView
         foreach (var g in items)
         {
             var item = new ListViewItem(g.Name) { Tag = g };
-            item.SubItems.Add(g.ConsentRequired ? "igen" : "—");
-            item.SubItems.Add(g.UnattendedAllowed ? "igen" : L.DeviceGeneralPanel_010);
+            item.SubItems.Add(g.ConsentRequired ? L.Common_Yes : "—");
+            item.SubItems.Add(g.UnattendedAllowed ? L.Common_Yes : L.DeviceGeneralPanel_010);
             item.SubItems.Add(_counts.TryGetValue(g.Name, out var c) ? c.ToString() : "0");
             _list.Items.Add(item);
         }
@@ -147,7 +147,7 @@ public sealed class GroupsView : UserControl, IContentView
 
     private void OnSaved()
     {
-        // Mentés után: ÚJ csoportnál vissza a listára; szerkesztésnél maradunk, de a háttér-listát frissítjük.
+        // After save: new group returns to list; edit stays open but refreshes the background list.
         if (_generalPanel?.IsNew == true) { ShowList(); _ = RefreshAsync(); }
         else _ = RefreshAsync();
     }

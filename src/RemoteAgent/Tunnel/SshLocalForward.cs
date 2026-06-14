@@ -8,10 +8,10 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Tunnel;
 
 /// <summary>
-/// Egyetlen LOCAL forward (ssh -L) a bástyához, a GÉP enrollment-kulcsával. A konzol-bróker
-/// használja: a kliens kérésére nyit egy helyi loopback-portot, ami a bástya 127.0.0.1:&lt;remotePort&gt;-jára
-/// mutat (admin API vagy egy cél-gép VNC bástya-portja). A bástya host-kulcsa pinnelt, így
-/// kizárólag a mi szerverünkhöz épül a kapcsolat.
+/// Single LOCAL forward (ssh -L) to the bastion using the device enrollment key. The console
+/// broker opens it on client request: a local loopback port points to bastion
+/// 127.0.0.1:&lt;remotePort&gt; for the admin API or a target device VNC bastion port.
+/// The bastion host key is pinned, so the connection can only be built to our server.
 /// </summary>
 public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAsyncDisposable
 {
@@ -34,7 +34,7 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
             RedirectStandardError = true,
         };
 
-        // -N: csak forward; -L helyi:127.0.0.1:távoli — a bástya loopbackjára mutatva.
+        // -N: forward only; -L local:127.0.0.1:remote points to bastion loopback.
         psi.ArgumentList.Add("-N");
         psi.ArgumentList.Add("-L");
         psi.ArgumentList.Add($"127.0.0.1:{LocalPort}:127.0.0.1:{remotePort}");
@@ -62,11 +62,9 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         proc.BeginErrorReadLine();
         _process = proc;
 
-        // Megvárjuk, míg az ssh felépül és bindeli a helyi portot (vagy kilép, ha a
-        // forward nem jött létre — ExitOnForwardFailure=yes). A helyi portot pollozzuk:
-        // amint elfogad kapcsolatot, kész; siker esetén gyorsan visszatér.
-        // Hideg SSH-handshake lassú hálózaton több másodperc is lehet — várjuk meg, míg a
-        // helyi port tényleg elfogad, ne adjunk vissza halott portot a brókernek.
+        // Wait until ssh is up and has bound the local port, or exits if the forward failed
+        // (ExitOnForwardFailure=yes). Poll the local port and return as soon as it accepts.
+        // Cold SSH handshakes can take seconds on slow networks; do not hand the broker a dead port.
         var deadline = DateTime.UtcNow.AddSeconds(20);
         while (DateTime.UtcNow < deadline)
         {
@@ -78,7 +76,7 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         }
         if (proc.HasExited)
             throw new InvalidOperationException(L.SshLocalForward_002);
-        // Időtúllépés, de az ssh él — feltételezzük, hogy kész (a kliens úgyis újrapróbál).
+        // Timeout but ssh is alive; assume ready. The client will retry if needed.
     }
 
     private static bool PortAccepts(int port)

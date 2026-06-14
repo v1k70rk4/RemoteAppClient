@@ -5,9 +5,9 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent;
 
 /// <summary>
-/// A Windows service-ek telepítése/eltávolítása sc.exe-vel. SYSTEM (LocalSystem) alatt
-/// futnak, automatikus indítással. Admin jog kell hozzá. A fő agent mellett — ha ott van —
-/// a RemoteAgent.Updater service-t is telepíti.
+/// Installs and removes Windows services through sc.exe. They run as SYSTEM (LocalSystem)
+/// with automatic startup and require admin rights to install. When present next to the
+/// main agent, RemoteAgent.Updater is installed as well.
 /// </summary>
 public static class ServiceControl
 {
@@ -26,7 +26,7 @@ public static class ServiceControl
         var rc = await InstallServiceAsync(ServiceName, exe, ComposeDisplay(owner, "Agent", group), L.ServiceControl_002);
         if (rc != 0) return rc;
 
-        // Updater service is, ha az exe ott van az agent mellett.
+        // Also install the Updater service when its exe is next to the agent.
         var updaterExe = Path.Combine(Path.GetDirectoryName(exe)!, "RemoteAgent.Updater.exe");
         if (File.Exists(updaterExe))
             await InstallServiceAsync(UpdaterServiceName, updaterExe, ComposeDisplay(owner, "Updater", group), "RemoteAppClient self-update service.");
@@ -36,7 +36,7 @@ public static class ServiceControl
         return 0;
     }
 
-    /// <summary>Megjelenített szolgáltatás-név: "{Owner} RemoteAppClient {component} ({group})" (owner/group opcionális).</summary>
+    /// <summary>Display service name: "{Owner} RemoteAppClient {component} ({group})"; owner/group are optional.</summary>
     private static string ComposeDisplay(string? owner, string component, string? group)
     {
         var sb = new StringBuilder();
@@ -56,7 +56,7 @@ public static class ServiceControl
     {
         if (await ServiceExistsAsync(name))
         {
-            // Létezik: csak binPath frissítés + újraindítás (nincs delete/create verseny).
+            // Existing service: update binPath and restart only, avoiding delete/create races.
             await RunScAsync("stop", name);
             await RunScAsync("config", name, "binPath=", exe, "start=", "auto", "obj=", "LocalSystem");
             await ConfigureRecoveryAsync(name);
@@ -90,16 +90,16 @@ public static class ServiceControl
     }
 
     /// <summary>
-    /// OS-szintű crash-recovery: ha a service váratlanul kilép (összeomlik), az SCM
-    /// automatikusan újraindítja, növekvő késleltetéssel. A *beragadást* ez nem látja
-    /// (azt a Helper watchdog kezeli) — ez csak a tényleges processz-kilépésre szól.
-    /// A 'reset= 86400' = egy nap hibamentes futás után a számláló nullázódik.
+    /// OS-level crash recovery: when the service exits unexpectedly, SCM restarts it
+    /// with increasing delay. This cannot see hangs; the Helper watchdog handles those.
+    /// It only reacts to actual process exit. 'reset= 86400' resets the counter after
+    /// one clean day.
     /// </summary>
     private static async Task ConfigureRecoveryAsync(string name) =>
         await RunScAsync("failure", name, "reset=", "86400", "actions=", "restart/5000/restart/10000/restart/60000");
 
     private static async Task<bool> ServiceExistsAsync(string name) =>
-        await RunScAsync("query", name) == 0; // 1060 = nincs ilyen service
+        await RunScAsync("query", name) == 0; // 1060 = no such service
 
     private static async Task<int> RunScAsync(params string[] args)
     {

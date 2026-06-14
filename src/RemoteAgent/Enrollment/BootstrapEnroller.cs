@@ -2,28 +2,28 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Enrollment;
 
 /// <summary>
-/// Token nélküli ön-telepítés. Ha a gép MÉG NINCS beléptetve (nincs enrollment.json),
-/// de van egy bootstrap.dat (a telepítő/MSI tette le, vagy a `bootstrap` CLI-mód), akkor
-/// az agent a blobból (szerver-URL + site-token) MAGÁTÓL beléptet az első induláskor.
-/// A blobbal beléptetett gép a szerveren Pending-be kerül (a site-token AutoApprove=false),
-/// és a kezelő a kliensben hagyja jóvá.
+/// Tokenless self-install. If the device is not enrolled yet (no enrollment.json) but a
+/// bootstrap.dat exists (written by the installer/MSI or the `bootstrap` CLI mode), the
+/// agent self-enrolls on first start using the blob's server URL and site token.
+/// Devices enrolled this way enter Pending on the server because the site token has
+/// AutoApprove=false, and an operator approves them in the client.
 /// </summary>
 public static class BootstrapEnroller
 {
     /// <summary>
-    /// Self-enroll, ha kell és lehet. A host FELÉPÜLÉSE ELŐTT fut, hogy az enrollment.json
-    /// a konfiguráció-betöltéskor (PostConfigure) már létezzen. Best-effort: hibát nyel.
+    /// Self-enrolls when needed and possible. Runs before the host is built so enrollment.json
+    /// already exists when configuration is loaded in PostConfigure. Best-effort: errors are swallowed.
     /// </summary>
     public static async Task TryEnrollAsync(string outDir)
     {
         try
         {
             if (File.Exists(Path.Combine(outDir, "enrollment.json")))
-                return; // már beléptetve
+                return; // already enrolled
 
             var bootstrapFile = ResolveBootstrapFile(outDir);
             if (bootstrapFile is null)
-                return; // nincs mit feldolgozni
+                return; // nothing to process
 
             BootstrapBlob? blob;
             try { blob = BootstrapCodec.Decode(File.ReadAllText(bootstrapFile)); }
@@ -40,7 +40,7 @@ public static class BootstrapEnroller
             if (res.Ok)
             {
                 Console.WriteLine($"Bootstrap self-enroll OK: {res.DeviceId}");
-                // A blobot elhasználtnak jelöljük (a token a szerveren AutoApprove=false → Pending).
+                // Mark the blob as used. The server-side token has AutoApprove=false, so the device is Pending.
                 TryMarkUsed(bootstrapFile);
             }
             else
@@ -54,8 +54,8 @@ public static class BootstrapEnroller
         }
     }
 
-    /// <summary>`bootstrap &lt;blob&gt;` CLI-mód: lerakja a bootstrap.dat-ot, hogy a service
-    /// az első induláskor beléptessen. (A telepítő ezt vagy közvetlen fájlt is használhat.)</summary>
+    /// <summary>`bootstrap &lt;blob&gt;` CLI mode: writes bootstrap.dat so the service enrolls on first start.
+    /// Installers can also place that file directly.</summary>
     public static int WriteBootstrapFile(string blob, string outDir)
     {
         if (string.IsNullOrWhiteSpace(blob))
@@ -64,7 +64,7 @@ public static class BootstrapEnroller
             return 2;
         }
 
-        // Validálás dekódolással, mielőtt lemezre írjuk.
+        // Validate by decoding before writing to disk.
         BootstrapBlob? parsed;
         try { parsed = BootstrapCodec.Decode(blob); }
         catch { Console.Error.WriteLine(L.BootstrapEnroller_004); return 2; }
@@ -80,7 +80,7 @@ public static class BootstrapEnroller
         return 0;
     }
 
-    /// <summary>A bootstrap.dat helye: előbb az EnrollmentDir, majd az exe melletti (telepítő tette le).</summary>
+    /// <summary>bootstrap.dat location: first EnrollmentDir, then next to the executable as placed by the installer.</summary>
     private static string? ResolveBootstrapFile(string outDir)
     {
         var inData = Path.Combine(outDir, "bootstrap.dat");

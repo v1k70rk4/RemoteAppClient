@@ -3,9 +3,9 @@ using System.Collections.Concurrent;
 namespace RemoteServer.Services;
 
 /// <summary>
-/// A tunnel-nyitás/hozzájárulás kimenetelének rövid életű tárolója, a parancs nonce-ához kötve.
-/// A nyitáskor rögzítjük a kontextust (ki, melyik gép), az agent a WSS-en visszajelzi a kimenetelt
-/// (PumpIncoming), a konzol pedig nonce alapján pollozza. Memóriában, 2 perc TTL.
+/// Short-lived store for tunnel-open/consent outcomes, keyed by command nonce.
+/// Opening records context (who, which device), agent reports outcome over WSS (PumpIncoming),
+/// and console polls by nonce. In-memory, 2 minute TTL.
 /// </summary>
 public sealed class AccessResultStore
 {
@@ -19,7 +19,7 @@ public sealed class AccessResultStore
 
     private readonly ConcurrentDictionary<string, Entry> _map = new();
 
-    /// <summary>Nyitáskor: ki (actor) melyik gépre (deviceId/hostname) kért hozzáférést — még nincs kimenetel.</summary>
+    /// <summary>At open time: which actor requested access to which deviceId/hostname, before outcome exists.</summary>
     public void SetPending(string nonce, string actor, Guid? deviceId, string hostname)
     {
         if (string.IsNullOrEmpty(nonce)) return;
@@ -27,7 +27,7 @@ public sealed class AccessResultStore
         Prune();
     }
 
-    /// <summary>Az agenttől érkezett kimenetel rögzítése; visszaadja a kontextust (audithoz), ha ismert.</summary>
+    /// <summary>Records outcome received from the agent and returns context for audit when known.</summary>
     public Entry? RecordOutcome(string nonce, string outcome)
     {
         if (string.IsNullOrEmpty(nonce)) return null;
@@ -37,7 +37,7 @@ public sealed class AccessResultStore
         return fresh;
     }
 
-    /// <summary>A kimenetel lekérése; null, ha még nincs (a konzol tovább vár).</summary>
+    /// <summary>Gets outcome; null means not available yet and console should keep waiting.</summary>
     public string? Get(string nonce)
     {
         if (!_map.TryGetValue(nonce, out var e)) return null;

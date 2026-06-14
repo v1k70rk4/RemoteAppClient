@@ -11,13 +11,13 @@ namespace RemoteServer.Services;
 
 public interface IEmailSender
 {
-    /// <summary>Levelet küld az aktív providerrel (SMTP vagy Graph). (ok, error) — error null, ha sikeres.</summary>
+    /// <summary>Sends email with the active provider (SMTP or Graph). (ok, error); error null means success.</summary>
     Task<(bool Ok, string? Error)> SendAsync(string to, string subject, string body, CancellationToken ct);
 }
 
 /// <summary>
-/// E-mail küldés a szerver-beállítások szerint: SMTP (System.Net.Mail) vagy
-/// MS Graph app-only (client credentials → /sendMail). A titkokat SecretProtector fejti vissza.
+/// Sends email according to server settings: SMTP (System.Net.Mail) or
+/// MS Graph app-only (client credentials -> /sendMail). Secrets are decrypted by SecretProtector.
 /// </summary>
 public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILogger<EmailSender> logger) : IEmailSender
 {

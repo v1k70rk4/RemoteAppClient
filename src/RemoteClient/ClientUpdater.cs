@@ -4,13 +4,14 @@ using System.Security.Cryptography;
 namespace RemoteClient;
 
 /// <summary>
-/// A konzol-kliens önfrissítése: belépés után megnézi a saját csatornáján a 'client' aktuális
-/// verzióját, és ha újabb, letölti (SHA-256 ellenőrzéssel), kicseréli a futó exét és újraindul.
-/// Csak a PUBLISH-elt, egyfájlos exével működik tisztán (egy DLL-t nem lehet futás közben cserélni).
+/// Console client self-update: after sign-in, checks the current 'client' version on its
+/// channel and, when newer, downloads it with SHA-256 verification, replaces the running
+/// executable, and restarts. Works cleanly only with the published single-file exe because
+/// DLLs cannot be replaced while loaded.
 /// </summary>
 public static class ClientUpdater
 {
-    /// <summary>Indításkor: a korábbi frissítés után maradt .old exe törlése (best effort).</summary>
+    /// <summary>Startup cleanup: deletes .old executables left by previous updates, best effort.</summary>
     public static void CleanupOld()
     {
         try
@@ -24,8 +25,8 @@ public static class ClientUpdater
     }
 
     /// <summary>
-    /// Ha van újabb 'client' csomag a megadott csatornán: letölti, ellenőrzi, kicseréli a futó exét,
-    /// elindítja az újat és true-val tér vissza (a hívónak ki kell lépnie). Egyébként false.
+    /// If a newer 'client' package exists on the channel, downloads, verifies, replaces the running exe,
+    /// starts the new one, and returns true so the caller can exit. Otherwise returns false.
     /// </summary>
     public static async Task<bool> CheckAndUpdateAsync(AdminApi api, string channel)
     {
@@ -52,7 +53,7 @@ public static class ClientUpdater
                 return false;
             }
 
-            // Csere: a futó exét átnevezzük (Windows engedi), az újat a helyére tesszük, majd indítjuk.
+            // Replacement: rename the running exe (Windows allows this), put the new one in place, then start it.
             var old = exe + ".old";
             try { if (File.Exists(old)) File.Delete(old); } catch { }
             File.Move(exe, old);
@@ -63,16 +64,16 @@ public static class ClientUpdater
         }
         catch
         {
-            return false; // bármi hiba → maradunk a jelenlegi verzión
+            return false; // on any error, stay on the current version
         }
     }
 
-    /// <summary>A futó exe verziója szövegként (a login-kérésbe, a min-verzió kapuhoz).</summary>
+    /// <summary>Running executable version as text for login requests and the minimum-version gate.</summary>
     public static string RunningVersionString() => RunningVersion().ToString();
 
     /// <summary>
-    /// A szerver által KÖTELEZŐEN előírt frissítés alkalmazása (ismert fájlnév + hash, csatorna-keresés nélkül):
-    /// letölti, ellenőrzi, kicseréli a futó exét, elindítja az újat. true = kész (a hívónak ki kell lépnie).
+    /// Applies a server-mandated update with known file name and hash, without channel lookup:
+    /// downloads, verifies, replaces the running exe, and starts the new one. true means caller must exit.
     /// </summary>
     public static async Task<bool> ApplyKnownAsync(AdminApi api, string fileName, string? sha256)
     {

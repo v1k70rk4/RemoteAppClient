@@ -3,7 +3,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
-/// <summary>A helyi agent enrollment-adatainak olvasása (a kliens csak olvassa az enrollment.json-t).</summary>
+/// <summary>Reads local agent enrollment data. The client only reads enrollment.json.</summary>
 public static class AgentInfo
 {
     private const string EnrollmentPath = @"C:\ProgramData\RemoteAgent\enrollment.json";
@@ -19,7 +19,7 @@ public static class AgentInfo
         catch { return null; }
     }
 
-    /// <summary>A szerver megjelenítendő neve (host) az enrollmentből.</summary>
+    /// <summary>Display server name (host) from enrollment.</summary>
     public static string ServerName()
     {
         var url = ServerUrl();

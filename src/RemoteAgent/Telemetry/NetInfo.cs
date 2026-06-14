@@ -6,14 +6,14 @@ using System.Text;
 
 namespace RemoteAgent.Telemetry;
 
-/// <summary>Hálózati telemetria: elsődleges IPv4, VPN-heurisztika, Wi-Fi SSID (netsh). Csak BCL + netsh, AOT-barát.</summary>
+/// <summary>Network telemetry: primary IPv4, VPN heuristic, and Wi-Fi SSID via netsh. BCL + netsh only, AOT-friendly.</summary>
 internal static class NetInfo
 {
     private static readonly string[] VpnKeywords =
         ["vpn", "wireguard", "wintun", "openvpn", "tap-windows", "anyconnect", "fortinet", "forticlient",
          "globalprotect", "pangp", "zerotier", "tailscale", "nordlynx", "softether", "tunnel"];
 
-    /// <summary>Az elsődleges (alapértelmezett átjáróval rendelkező) interfész IPv4 címe, vagy null.</summary>
+    /// <summary>IPv4 address of the primary interface with a default gateway, or null.</summary>
     public static string? PrimaryIPv4()
     {
         try
@@ -28,11 +28,11 @@ internal static class NetInfo
                 if (ip is not null) return ip.ToString();
             }
         }
-        catch { /* nincs IP */ }
+        catch { /* no IP */ }
         return null;
     }
 
-    /// <summary>Heurisztika: van-e aktív VPN-adapter (Ppp/Tunnel típus vagy ismert VPN-szoftver az adapter nevében).</summary>
+    /// <summary>Heuristic for active VPN adapters: Ppp/Tunnel type or known VPN software in the adapter name.</summary>
     public static bool IsVpnActive()
     {
         try
@@ -45,11 +45,11 @@ internal static class NetInfo
                 if (VpnKeywords.Any(name.Contains)) return true;
             }
         }
-        catch { /* nem tudjuk */ }
+        catch { /* unknown */ }
         return false;
     }
 
-    /// <summary>A csatlakozott Wi-Fi SSID-je (netsh wlan show interfaces), vagy null, ha nincs/nem csatlakozik.</summary>
+    /// <summary>Connected Wi-Fi SSID from netsh wlan show interfaces, or null when absent/disconnected.</summary>
     public static string? WifiSsid()
     {
         try
@@ -69,12 +69,12 @@ internal static class NetInfo
                 int i = raw.IndexOf(':');
                 if (i < 0) continue;
                 var key = raw[..i].Trim().ToLowerInvariant();
-                if (key != "ssid") continue;              // a "BSSID" nem egyezik (exact match)
+                if (key != "ssid") continue;              // "BSSID" does not match because this is exact
                 var val = raw[(i + 1)..].Trim();
                 if (!string.IsNullOrWhiteSpace(val)) return val;
             }
         }
-        catch { /* nincs WLAN / hiba */ }
+        catch { /* no WLAN / error */ }
         return null;
     }
 }

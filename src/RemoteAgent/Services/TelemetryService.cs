@@ -11,8 +11,8 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Periodikusan összegyűjti és elküldi a gép-telemetriát a szerver-oldali API-ba
-/// (mTLS + szerver-pin). Szándékosan NEM ír közvetlenül SQL-be: a DB az API mögött marad.
+/// Periodically collects and sends device telemetry to the server-side API over mTLS with
+/// server pinning. It intentionally never writes directly to SQL; the DB stays behind the API.
 /// </summary>
 public sealed class TelemetryService(
     IOptions<AgentOptions> options,
@@ -32,20 +32,20 @@ public sealed class TelemetryService(
         }
 
         var interval = TimeSpan.FromSeconds(_opt.IntervalSeconds);
-        HttpClient? http = null; // lustán épül; cert-hiba esetén újraépül (pl. enrollment után)
+        HttpClient? http = null; // built lazily; rebuilt after cert errors, for example after enrollment
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                http ??= BuildClient(); // itt dobhat, ha a cert még nincs — elkapjuk, nem áll le a host
+                http ??= BuildClient(); // may throw before the cert exists; caught so host keeps running
                 var payload = collector.Collect();
                 using var resp = await http.PostAsJsonAsync(
                     _opt.IngestUrl, payload, AgentJsonContext.Default.TelemetryPayload, stoppingToken);
 
                 if (resp.IsSuccessStatusCode)
                 {
-                    status.MarkServerContact(); // a status-pipe „utolsó szerver-kontakt"-ja
+                    status.MarkServerContact(); // status-pipe "last server contact"
                     logger.LogDebug(L.TelemetryService_002);
                 }
                 else
@@ -59,7 +59,7 @@ public sealed class TelemetryService(
             {
                 logger.LogWarning(ex, L.TelemetryService_004);
                 http?.Dispose();
-                http = null; // a következő ciklusban újraépül (pl. ha közben megtörtént a beléptetés)
+                http = null; // rebuild on next cycle, for example if enrollment completed meanwhile
             }
 
             try { await Task.Delay(interval, stoppingToken); }

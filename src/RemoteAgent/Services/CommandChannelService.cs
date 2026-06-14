@@ -12,9 +12,9 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Kimenő, perzisztens WSS kapcsolatot tart a szerver felé, fogadja a parancsokat,
-/// ellenőrzi őket (<see cref="CommandVerifier"/>), és a busra teszi a jókat.
-/// Lekapcsolódásnál exponenciális backoff-fal újracsatlakozik.
+/// Maintains the outbound persistent WSS connection to the server, receives commands,
+/// verifies them with <see cref="CommandVerifier"/>, and places valid ones on the bus.
+/// Reconnects with exponential backoff after disconnects.
 /// </summary>
 public sealed class CommandChannelService(
     IOptions<AgentOptions> options,
@@ -43,7 +43,7 @@ public sealed class CommandChannelService(
             try
             {
                 await ConnectAndListenAsync(stoppingToken);
-                delay = TimeSpan.FromSeconds(_opt.ReconnectBaseDelaySeconds); // siker → reset
+                delay = TimeSpan.FromSeconds(_opt.ReconnectBaseDelaySeconds); // success resets backoff
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -53,7 +53,7 @@ public sealed class CommandChannelService(
             {
                 logger.LogWarning(ex, L.CommandChannelService_002, delay.TotalSeconds);
             }
-            finally { status.SetC2Connected(false); } // lekapcsolódtunk → a status-pipe ezt mutatja
+            finally { status.SetC2Connected(false); } // disconnected; status pipe reflects this
 
             try { await Task.Delay(delay, stoppingToken); }
             catch (OperationCanceledException) { break; }
@@ -75,16 +75,16 @@ public sealed class CommandChannelService(
                 CertHelper.PinnedServerValidator(_opt.ServerCertPinSha256);
 
         ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(_opt.KeepAliveIntervalSeconds);
-        // Pong-timeout: e nélkül az alvás utáni "half-open" kapcsolatot a ReceiveAsync nem érzékeli
-        // (az OS TCP-timeoutjáig blokkol, akár ~2 óra). Ezzel a holt kapcsolat ~interval+timeout
-        // alatt kiderül, a ReceiveAsync dob, és a backoff-loop azonnal újracsatlakozik.
+        // Pong timeout: without this, ReceiveAsync can miss a post-sleep half-open connection
+        // and block until the OS TCP timeout, often hours. This detects dead connections after
+        // roughly interval+timeout, throws, and the backoff loop reconnects immediately.
         ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(_opt.KeepAliveTimeoutSeconds);
 
         logger.LogInformation(L.CommandChannelService_003, _opt.Url);
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
         logger.LogInformation(L.CommandChannelService_004);
         status.SetC2Connected(true); // a status-pipe ezt jelzi a kliensnek
-        uplink.SetSocket(ws);        // innentől tudunk visszafelé is írni (eredmény-jelzés)
+        uplink.SetSocket(ws);        // from here we can send result messages back
 
         var buffer = new byte[8192];
         var message = new MemoryStream();

@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Platformfüggetlen (sem -windows): a kliens (net10.0-windows) ÉS a
-         szerver (net10.0, Linux) is hivatkozza. Csak POCO-k + kripto, nincs Win API. -->
+    <!-- Platform-independent: referenced by the Windows client and the Linux-capable server.
+         Contains only POCOs and crypto helpers, with no Windows APIs. -->
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

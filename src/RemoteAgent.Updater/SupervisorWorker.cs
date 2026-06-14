@@ -8,24 +8,24 @@ using L = RemoteAgent.Updater.Localization.Strings;
 namespace RemoteAgent.Updater;
 
 /// <summary>
-/// Helper / supervisor a fő agent fölött. Két feladata:
+/// Helper / supervisor that watches the main agent. It has two jobs:
 ///
-///  1) UPDATE: ha az agent kirakott egy MÁR ELLENŐRZÖTT új exét + egy update.ready
-///     markert (benne a célpath), leállítja a RemoteAgent service-t, lecseréli az
-///     exét, és újraindít. Futó service nem cserélheti a SAJÁT binárisát — ezért
-///     végzi ezt külön exe/service.
+///  1) UPDATE: when the agent stages an already verified new executable plus an
+///     update.ready marker containing the target path, it stops the RemoteAgent
+///     service, replaces the executable, and restarts it. A running service cannot
+///     replace its own binary, so this lives in a separate executable/service.
 ///
-///  2) WATCHDOG: figyeli az agent életjelét (&lt;ProgramData&gt;\RemoteAgent\agent.heartbeat).
-///     - ha a service NEM fut → megpróbálja elindítani;
-///     - ha "fut", de az életjel elöregedett → az agent BERAGADT (az SCM ezt nem
-///       látja, csak a kilépést): stop → ha időben nem áll le, a processz kilövése
-///       PID alapján → restart.
-///     Backoff + circuit breaker: hibás állapotban NEM loopol, hanem parkol; a
-///     reboot a természetes "tiszta lap" (akkor friss próbálkozás).
+///  2) WATCHDOG: watches the agent heartbeat file
+///     (&lt;ProgramData&gt;\RemoteAgent\agent.heartbeat).
+///     - if the service is not running, it tries to start it;
+///     - if the service appears running but the heartbeat is stale, the agent is hung
+///       (SCM only sees process exit): stop, kill by PID if it does not stop in time,
+///       then restart.
+///     Backoff and circuit breaker prevent a tight failure loop; reboot is the natural reset.
 ///
-/// A Helpernek NINCS hálózati/parancs-jogosultsága — kizárólag lokális jelekre
-/// reagál (markerek + életjel). A szerverrel csak a hitelesített Agent beszél. Az
-/// incidenseket egy lokális status-fájlba írja, amit az Agent visz fel telemetriával.
+/// The Helper has no network or command authority. It only reacts to local markers and
+/// heartbeat files. Only the authenticated Agent talks to the server. Incidents are
+/// written to a local status file and uploaded by the Agent as telemetry.
 /// </summary>
 public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : BackgroundService
 {
@@ -39,13 +39,13 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
 
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan HeartbeatStale = TimeSpan.FromSeconds(90);
-    private static readonly TimeSpan StartGrace = TimeSpan.FromSeconds(60);   // indítás után ne ítéljünk beragadást
-    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(20);  // ennyit várunk a graceful stopra, utána kill
+    private static readonly TimeSpan StartGrace = TimeSpan.FromSeconds(60);   // do not judge hang immediately after start
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(20);  // graceful stop window before killing
     private const int MaxConsecutiveFailures = 5;
     private static readonly TimeSpan ParkDuration = TimeSpan.FromMinutes(10);
 
-    // Indulástól számít a türelmi ablak: bootkor az agentnek idő kell az első életjelig,
-    // ne ítéljük azonnal "beragadtnak".
+    // Grace window starts at process start: after boot the agent needs time to emit
+    // its first heartbeat, so do not classify it as hung immediately.
     private DateTimeOffset _lastAgentAction = DateTimeOffset.UtcNow;
     private DateTimeOffset _parkedUntil = DateTimeOffset.MinValue;
     private int _consecutiveFailures;
@@ -82,38 +82,38 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
     {
         var state = await QueryStateAsync(AgentService);
         if (state == ServiceState.NotInstalled)
-            return; // nincs mit őrizni
+            return; // nothing to supervise
 
         if (state == ServiceState.Running)
         {
-            // Indítás/csere utáni türelmi ablakban ne ítéljünk beragadást
-            // (a friss agentnek idő kell az első életjelig).
+            // During the post-start/swap grace window, the fresh agent needs time
+            // to emit its first heartbeat.
             if (DateTimeOffset.UtcNow - _lastAgentAction < StartGrace)
                 return;
 
             var age = HeartbeatAge();
             if (age <= HeartbeatStale)
             {
-                // EGÉSZSÉGES: fut ÉS ver a szíve → csak ez ad "tiszta lapot".
+                // Healthy means both running and heartbeat present; only this resets failure state.
                 _consecutiveFailures = 0;
                 _parkedUntil = DateTimeOffset.MinValue;
                 return;
             }
 
-            // Fut, de néma → beragadt. Parkolva ne hammerünk.
+            // Running but silent means hung. When parked, do not hammer SCM.
             if (DateTimeOffset.UtcNow < _parkedUntil)
                 return;
 
             _lastIncident = L.Format(L.SupervisorWorker_001, age.TotalSeconds);
             logger.LogWarning("{Incident}", _lastIncident);
             await RestartHungAgentAsync(ct);
-            await RegisterFailureAsync(); // a beragadás-churn is törje meg a breakert
+            await RegisterFailureAsync(); // hung-service churn should also trip the breaker
             return;
         }
 
-        // Nem fut: indítás backoff + circuit breaker mellett.
+        // Not running: start it with backoff and circuit breaker protection.
         if (DateTimeOffset.UtcNow < _parkedUntil)
-            return; // parkolva — nem loopolunk
+            return; // parked; do not loop
 
         logger.LogInformation(L.SupervisorWorker_002, state);
         if (await StartAsync(AgentService))
@@ -121,7 +121,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
             _lastAgentAction = DateTimeOffset.UtcNow;
             _agentRestarts++;
             _lastIncident = L.SupervisorWorker_003;
-            // a "tiszta lapot" NEM itt adjuk: csak ha a következő körben egészséges (fut + életjel).
+            // Do not reset here; only the next healthy cycle (running + heartbeat) clears failures.
             await WriteStatusAsync();
         }
         else
@@ -141,7 +141,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         _agentRestarts++;
     }
 
-    /// <summary>Sikertelen helyreállítás könyvelése; küszöb felett parkolás (nincs loop).</summary>
+    /// <summary>Records a failed recovery and parks above the threshold to avoid loops.</summary>
     private async Task RegisterFailureAsync()
     {
         _consecutiveFailures++;
@@ -215,7 +215,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
     private static async Task<ServiceState> QueryStateAsync(string name)
     {
         var (code, output) = await RunCaptureAsync("sc.exe", "query", name);
-        if (code != 0) return ServiceState.NotInstalled; // 1060 = nincs ilyen service
+        if (code != 0) return ServiceState.NotInstalled; // 1060 = no such service
         if (output.Contains("RUNNING")) return ServiceState.Running;
         if (output.Contains("STOPPED")) return ServiceState.Stopped;
         return ServiceState.Other; // START_PENDING / STOP_PENDING stb.
@@ -224,7 +224,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
     private async Task<bool> StartAsync(string name)
     {
         await RunAsync("sc.exe", "start", name);
-        for (int i = 0; i < 15; i++) // ~15s, amíg tényleg fut
+        for (int i = 0; i < 15; i++) // about 15s until it is actually running
         {
             if (await QueryStateAsync(name) == ServiceState.Running) return true;
             await Task.Delay(1000);
@@ -232,7 +232,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         return await QueryStateAsync(name) == ServiceState.Running;
     }
 
-    /// <summary>Graceful stop; ha az időkereten belül nem áll le → a processz kilövése PID alapján.</summary>
+    /// <summary>Graceful stop; if the timeout elapses, kills the process by PID.</summary>
     private async Task StopWithKillAsync(string name, CancellationToken ct)
     {
         await RunAsync("sc.exe", "stop", name);
@@ -253,7 +253,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
             catch (Exception ex) { logger.LogWarning(ex, L.SupervisorWorker_013); }
         }
 
-        for (int i = 0; i < 10; i++) // adjunk az SCM-nek időt a 'stopped'-re
+        for (int i = 0; i < 10; i++) // give SCM time to report 'stopped'
         {
             if (await QueryStateAsync(name) == ServiceState.Stopped) return;
             try { await Task.Delay(500, ct); } catch (OperationCanceledException) { return; }

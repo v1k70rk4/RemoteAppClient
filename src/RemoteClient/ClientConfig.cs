@@ -3,9 +3,9 @@ using System.Text.Json;
 namespace RemoteClient;
 
 /// <summary>
-/// Az admin-client beállításai (%APPDATA%\RemoteClient\config.json). A bizalmi
-/// gyökér az admin SSH-hozzáférése a boxhoz — SSH-n éri el az admin API-t és a
-/// bástya VNC-portjait. Nincs külön szerver-oldali admin-auth (v1).
+/// Admin client settings (%APPDATA%\RemoteClient\config.json). Trust root is the admin's
+/// SSH access to the box: SSH reaches the admin API and bastion VNC ports. There is no
+/// separate server-side admin auth in v1.
 /// </summary>
 public sealed class ClientConfig
 {
@@ -19,16 +19,16 @@ public sealed class ClientConfig
     /// <summary>A szerver admin API portja a boxon (Kestrel, localhost).</summary>
     public int AdminApiPort { get; set; } = 5000;
 
-    /// <summary>Téma-mód: "light" | "dark" | "auto" (auto = a Windows beállítását követi).</summary>
+    /// <summary>Theme mode: "light" | "dark" | "auto" (auto follows Windows settings).</summary>
     public string ThemeMode { get; set; } = "dark";
 
-    /// <summary>Release-csatorna az önfrissítéshez: "rtm" (alap) vagy "beta".</summary>
+    /// <summary>Release channel for self-update: "rtm" (default) or "beta".</summary>
     public string Channel { get; set; } = "rtm";
 
-    /// <summary>Windows Hello: a szerverhez regisztrált hitelesítő azonosítója ezen a gépen (null = nincs beállítva).</summary>
+    /// <summary>Windows Hello credential ID registered with the server on this device (null = not configured).</summary>
     public Guid? HelloCredentialId { get; set; }
 
-    /// <summary>A Hello-hoz tartozó felhasználónév (a passwordless belépéshez).</summary>
+    /// <summary>Username associated with Hello for passwordless sign-in.</summary>
     public string? HelloUsername { get; set; }
 
     public bool IsComplete =>
@@ -48,7 +48,7 @@ public sealed class ClientConfig
             if (File.Exists(Path))
                 return JsonSerializer.Deserialize<ClientConfig>(File.ReadAllText(Path)) ?? new ClientConfig();
         }
-        catch { /* hibás config → alapértelmezett */ }
+        catch { /* invalid config; use defaults */ }
         return new ClientConfig();
     }
 

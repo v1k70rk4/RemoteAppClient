@@ -6,16 +6,16 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Vnc;
 
 /// <summary>
-/// Telepíti és bekonfigurálja a TightVNC szervert: csendes MSI-telepítés, majd
-/// registry-hardening (loopback-only, HTTP ki, gépenként egyedi jelszó). Idempotens:
-/// ha a service már fut, csak a hardeninget alkalmazza. SYSTEM/admin jog kell hozzá.
+/// Installs and configures the TightVNC server: silent MSI install followed by registry
+/// hardening (loopback-only, HTTP disabled, unique per-device password). Idempotent:
+/// if the service already runs, only hardening is applied. Requires SYSTEM/admin rights.
 /// </summary>
 public static class VncProvisioner
 {
     private const string ServerKey = @"SOFTWARE\TightVNC\Server";
     private const string ServiceName = "tvnserver";
 
-    /// <summary>CLI belépés: RemoteAgent.exe provision-vnc [--msi path] [--password p]</summary>
+    /// <summary>CLI entry: RemoteAgent.exe provision-vnc [--msi path] [--password p]</summary>
     public static async Task<int> RunAsync(string[] args)
     {
         var msi = GetArg(args, "--msi") ?? Path.Combine(AppContext.BaseDirectory, "vnc", "tightvnc.msi");
@@ -42,7 +42,7 @@ public static class VncProvisioner
         }
     }
 
-    /// <summary>Telepíti a TightVNC-t, ha még nincs. Visszaadja: most telepítettük-e.</summary>
+    /// <summary>Installs TightVNC when missing. Returns whether it was installed now.</summary>
     public static async Task<bool> EnsureInstalledAsync(string msiPath)
     {
         if (ServiceExists())
@@ -57,22 +57,22 @@ public static class VncProvisioner
         };
         using var proc = Process.Start(psi)!;
         await proc.WaitForExitAsync();
-        // 0 = siker, 3010 = siker, újraindítás ajánlott.
+        // 0 = success, 3010 = success with reboot recommended.
         if (proc.ExitCode is not (0 or 3010))
             throw new InvalidOperationException(L.Format(L.VncProvisioner_006, proc.ExitCode));
         return true;
     }
 
-    /// <summary>Registry-hardening + a service újraindítása, hogy életbe lépjen.</summary>
+    /// <summary>Applies registry hardening and restarts the service so it takes effect.</summary>
     public static void ApplyHardening(string password)
     {
         var encrypted = VncPassword.Encrypt(password);
-        // MINDKÉT registry-nézetbe írunk: a 64-bites tvnserver a sima kulcsot, a 32-bites
+        // Write both registry views: 64-bit tvnserver reads the normal key, 32-bit reads Wow6432Node.
         // (pl. Program Files (x86) alatti) a WOW6432Node-ot olvassa.
         WriteServerConfig(RegistryView.Registry64, encrypted);
         WriteServerConfig(RegistryView.Registry32, encrypted);
 
-        // A futó szerver csak újraindításkor olvassa újra a configot.
+        // The running server reloads config only after restart.
         RestartService(ServiceName);
     }
 
@@ -89,10 +89,10 @@ public static class VncProvisioner
         key.SetValue("Password", encryptedPassword, RegistryValueKind.Binary);
     }
 
-    // 'net' szinkron (megvárja a leállást/indulást) — az 'sc stop; sc start' versenyhelyzetet okoz.
+    // 'net' is synchronous and waits for stop/start; 'sc stop; sc start' can race.
     private static void RestartService(string service)
     {
-        RunNet("stop", service);   // ha nem fut, hibakód → eldobjuk
+        RunNet("stop", service);   // non-running service returns an error; ignore it
         RunNet("start", service);
     }
 
@@ -120,10 +120,10 @@ public static class VncProvisioner
             RedirectStandardError = true,
         })!;
         proc.WaitForExit();
-        return proc.ExitCode == 0; // 1060 = nincs ilyen service
+        return proc.ExitCode == 0; // 1060 = no such service
     }
 
-    /// <summary>8 karakteres random jelszó (a klasszikus VncAuth úgyis 8 bájtot néz).</summary>
+    /// <summary>8-character random password; classic VncAuth uses only 8 bytes anyway.</summary>
     public static string GeneratePassword()
     {
         const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";

@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Egy felhasználó Windows Hello eszközei (listázás + visszavonás) — beágyazható panel a „Windows Hello" füléhez.</summary>
+/// <summary>User Windows Hello devices (list + revoke), embedded in the Windows Hello tab.</summary>
 public sealed class HelloDevicesPanel : UserControl
 {
     private readonly AdminApi _api;

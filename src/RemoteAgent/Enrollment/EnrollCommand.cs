@@ -13,14 +13,14 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Enrollment;
 
 /// <summary>
-/// Az agent "enroll" módja (telepítéskor, emberi lépés). A gépen kulcspárt generál,
-/// CSR-t küld a szervernek a tokennel, és eltárolja a visszakapott certet (PFX) + a
-/// CA-t + az enrollment.json-t. A privát kulcs SOHA nem hagyja el a gépet.
-/// A kimenet lokalizált (Strings) — a telepítő ember nyelvén.
+/// Agent "enroll" mode, run as an install-time interactive step. Generates a key pair
+/// on the device, sends a CSR plus token to the server, and stores the returned cert
+/// (PFX), CA, and enrollment.json. The private key never leaves the device.
+/// Output is localized through Strings for the installing operator.
 /// </summary>
 public static class EnrollCommand
 {
-    /// <summary>A beléptetés eredménye (a CLI és a bootstrap self-enroll is ezt kapja).</summary>
+    /// <summary>Enrollment result returned to both CLI and bootstrap self-enroll.</summary>
     public sealed record EnrollResult(bool Ok, string? DeviceId, string? Thumbprint, string? ErrorCode);
 
     public static async Task<int> RunAsync(string[] args)
@@ -58,20 +58,20 @@ public static class EnrollCommand
     }
 
     /// <summary>
-    /// A tényleges beléptetés (UI-mentes, újrahasználható): kulcs+CSR+SSH-kulcs generálás,
-    /// POST /enroll, a válasz (cert/CA/SSH-cert/enrollment.json) eltárolása. A CLI és a
-    /// bootstrap self-enroll is ezt hívja. A privát kulcs SOHA nem hagyja el a gépet.
+    /// Actual UI-free reusable enrollment flow: generate key, CSR, and SSH key, POST /enroll,
+    /// then store cert/CA/SSH-cert/enrollment.json from the response. Used by both CLI and
+    /// bootstrap self-enroll. The private key never leaves the device.
     /// </summary>
     public static async Task<EnrollResult> EnrollCoreAsync(string token, string server, string hostname, string outDir)
     {
         Directory.CreateDirectory(outDir);
 
-        // mTLS kulcs + CSR.
+        // mTLS key and CSR.
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var csrRequest = new CertificateRequest("CN=enroll", key, HashAlgorithmName.SHA256);
         string csrPem = csrRequest.CreateSigningRequestPem();
 
-        // SSH kulcspár a bástya-tunnelhez (ssh-keygen — a privát kulcs a gépen marad).
+        // SSH key pair for the bastion tunnel. ssh-keygen creates it locally; private key stays on the device.
         var sshKeyPath = Path.Combine(outDir, "id_ed25519");
         string sshPublicKey = GenerateSshKey(sshKeyPath);
 
@@ -92,7 +92,7 @@ public static class EnrollCommand
                     var err = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.EnrollError);
                     if (!string.IsNullOrEmpty(err?.Code)) code = err.Code;
                 }
-                catch { /* nem JSON hibatest */ }
+                catch { /* non-JSON error body */ }
                 return new EnrollResult(false, null, null, code);
             }
 
@@ -106,17 +106,17 @@ public static class EnrollCommand
         if (resp is null || string.IsNullOrEmpty(resp.Certificate))
             return new EnrollResult(false, null, null, "empty_response");
 
-        // A visszakapott cert + a helyi privát kulcs összefűzése, PFX-be mentés.
+        // Combine the returned cert with the local private key and save as PFX.
         using var leaf = X509Certificate2.CreateFromPem(resp.Certificate);
         using var withKey = leaf.CopyWithPrivateKey(key);
 
-        // A PFX-et DPAPI-val titkosítva mentjük (géphez kötve, lemásolva használhatatlan).
+        // Store the PFX DPAPI-protected and machine-bound, so copied blobs are unusable elsewhere.
         File.WriteAllBytes(
             Path.Combine(outDir, "agent.pfx.dat"),
             Dpapi.Protect(withKey.Export(X509ContentType.Pfx)));
         File.WriteAllText(Path.Combine(outDir, "ca.crt"), resp.CaCertificate);
 
-        // Az SSH-cert a privát kulcs mellé (OpenSSH a <kulcs>-cert.pub-ot is használja).
+        // Store the SSH cert next to the private key; OpenSSH also uses <key>-cert.pub.
         if (!string.IsNullOrWhiteSpace(resp.SshCertificate))
             File.WriteAllText(sshKeyPath + "-cert.pub", resp.SshCertificate.Trim() + "\n");
 
@@ -141,7 +141,7 @@ public static class EnrollCommand
         return new EnrollResult(true, resp.DeviceId, withKey.Thumbprint, null);
     }
 
-    /// <summary>SSH ed25519 kulcspár generálása ssh-keygennel; visszaadja a publikus kulcsot.</summary>
+    /// <summary>Generates an SSH ed25519 key pair with ssh-keygen and returns the public key.</summary>
     private static string GenerateSshKey(string keyPath)
     {
         foreach (var p in new[] { keyPath, keyPath + ".pub", keyPath + "-cert.pub" })
@@ -175,11 +175,11 @@ public static class EnrollCommand
     }
 
     /// <summary>
-    /// A privát kulcs jogainak beállítása úgy, hogy a Windows ssh.exe elfogadja MIND a
-    /// SYSTEM service, MIND az admin-konzol alatt: tulajdonos = Rendszergazdák, öröklés ki,
-    /// és PONTOSAN {SYSTEM, Rendszergazdák} kap jogot. Konkrét user-ACE-t (pl. a beléptető
-    /// rviktor) az ssh a SYSTEM service alatt "idegennek" vesz → "too open" → kulcs eldobva.
-    /// .NET FileSecurity (nem icacls), így nincs nyelvfüggés és maradék ACE.
+    /// Tightens private-key ACLs so Windows ssh.exe accepts the key under both the SYSTEM
+    /// service and an admin console: owner = Administrators, inheritance disabled, and exactly
+    /// SYSTEM plus Administrators have access. A concrete user ACE for the enrolling user is
+    /// considered foreign under the SYSTEM service, causing "too open" and key rejection.
+    /// Uses .NET FileSecurity instead of icacls to avoid localization and leftover ACE issues.
     /// </summary>
     private static void TightenAcl(string path)
     {
@@ -189,13 +189,13 @@ public static class EnrollCommand
             var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
 
             var sec = new FileSecurity();
-            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false); // öröklés ki, semmi átvétel
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false); // no inheritance
             sec.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
             sec.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
             sec.SetOwner(admins);
             new FileInfo(path).SetAccessControl(sec);
         }
-        catch { /* best effort — sikertelennél az ssh "too open"-t adhat SYSTEM alatt */ }
+        catch { /* best effort; on failure ssh may report "too open" under SYSTEM */ }
     }
 
     private static (string? Token, string? Server, string Hostname, string OutDir) ParseArgs(string[] args)

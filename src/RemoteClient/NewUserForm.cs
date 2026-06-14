@@ -4,7 +4,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
-/// <summary>Új felhasználó adatai (a szerver ideiglenes jelszót generál hozzá).</summary>
+/// <summary>New user data; the server generates a temporary password.</summary>
 public sealed class NewUserForm : MaterialForm
 {
     private readonly MaterialTextBox2 _username = new() { Hint = L.ForgotPasswordForm_001 };

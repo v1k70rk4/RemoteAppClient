@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient;
 
-/// <summary>Egy blob/token utólagos módosítása: lejárat és/vagy max telepítés. A „Változatlan" opciók nem nyúlnak a mezőhöz.</summary>
+/// <summary>Edits an existing blob/token: expiry and/or max installs. "Unchanged" options leave the field untouched.</summary>
 public sealed class EditTokenForm : MaterialForm
 {
     private readonly MaterialComboBox _expiry = new() { Hint = L.EditTokenForm_001 };

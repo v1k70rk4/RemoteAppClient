@@ -4,55 +4,55 @@ using RemoteAgent.Telemetry;
 namespace RemoteAgent.Commands;
 
 /// <summary>
-/// Agent → szerver üzenet a perzisztens WSS-en visszafelé (pl. a tunnel-nyitás/hozzájárulás eredménye).
-/// A szerver a <see cref="Nonce"/> alapján párosítja a kiadott parancshoz, és a konzol erre vár.
+/// Agent-to-server message sent back over the persistent WSS channel, for example an access result.
+/// The server matches it to the issued command by <see cref="Nonce"/>, and the console waits for it.
 /// </summary>
 public sealed class AgentUplinkMessage
 {
-    /// <summary>Üzenet típusa, pl. "access-result".</summary>
+    /// <summary>Message type, for example "access-result".</summary>
     [JsonPropertyName("type")] public string Type { get; set; } = string.Empty;
-    /// <summary>A kiadott parancs nonce-a (korreláció).</summary>
+    /// <summary>Nonce of the issued command, used for correlation.</summary>
     [JsonPropertyName("nonce")] public string Nonce { get; set; } = string.Empty;
-    /// <summary>Kimenetel: "auto" | "granted" | "denied" | "timeout" | "no-user" | "locked".</summary>
+    /// <summary>Outcome: "auto" | "granted" | "denied" | "timeout" | "no-user" | "locked".</summary>
     [JsonPropertyName("outcome")] public string Outcome { get; set; } = string.Empty;
 }
 
 /// <summary>
-/// A szerverről érkező, aláírt parancs. A <see cref="Signature"/> a payload
-/// kanonikus formája feletti ECDSA aláírás (lásd <see cref="CommandSignature"/>);
-/// a <see cref="Nonce"/> és <see cref="IssuedAt"/> a replay-védelem.
-/// KÖZÖS típus: a kliens és a szerver ugyanezt használja, így nem csúszhat szét.
+/// Signed command sent by the server. <see cref="Signature"/> is an ECDSA signature
+/// over the canonical payload, see <see cref="CommandSignature"/>.
+/// <see cref="Nonce"/> and <see cref="IssuedAt"/> provide replay protection.
+/// Shared DTO: client and server use the same type so their contracts cannot drift.
 /// </summary>
 public sealed class AgentCommand
 {
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
 
-    /// <summary>Egyedi parancsazonosító (GUID), egyben nonce a replay-cache-hez.</summary>
+    /// <summary>Unique command ID (GUID), also used as the replay-cache nonce.</summary>
     [JsonPropertyName("nonce")]
     public string Nonce { get; set; } = string.Empty;
 
-    /// <summary>Kibocsátás ideje (Unix epoch másodperc).</summary>
+    /// <summary>Issue time as Unix epoch seconds.</summary>
     [JsonPropertyName("iat")]
     public long IssuedAt { get; set; }
 
-    /// <summary>Parancs-specifikus adat (pl. melyik szerver-portra menjen a forward).</summary>
+    /// <summary>Command-specific data, for example which server-side port to forward to.</summary>
     [JsonPropertyName("data")]
     public CommandData? Data { get; set; }
 
-    /// <summary>A fenti mezők kanonikus JSON-ja feletti aláírás (Base64).</summary>
+    /// <summary>Signature over the canonical form of the fields above (Base64).</summary>
     [JsonPropertyName("sig")]
     public string Signature { get; set; } = string.Empty;
 }
 
 public sealed class CommandData
 {
-    /// <summary>Tunnel parancsnál: melyik távoli (bástya-oldali) portot nyissa a forward.</summary>
+    /// <summary>For tunnel commands: which remote bastion-side port to forward.</summary>
     [JsonPropertyName("remotePort")]
     public int RemotePort { get; set; }
 
-    // Update parancsnál: a csomag verziója, letöltési URL-je és SHA-256 hash-e.
-    // Mindegyik az aláírás alá esik (lásd CommandSignature.Canonicalize).
+    // For update commands: package version, download URL, and SHA-256 hash.
+    // All of them are covered by the signature, see CommandSignature.Canonicalize.
     [JsonPropertyName("version")]
     public string? UpdateVersion { get; set; }
 
@@ -63,26 +63,26 @@ public sealed class CommandData
     public string? UpdateSha256 { get; set; }
 
     /// <summary>
-    /// Melyik komponenst frissíti: "agent" (alapértelmezett) vagy "updater"/"helper".
-    /// Az "updater" csomagot az AGENT cseréli (a Helper a saját futó exéjét nem tudja),
-    /// az "agent" csomagot a Helper. Az aláírás alá esik.
+    /// Which component to update: "agent" (default) or "updater"/"helper".
+    /// The agent replaces the updater package because the Helper cannot replace its own running executable;
+    /// the Helper replaces the agent package. This field is covered by the signature.
     /// </summary>
     [JsonPropertyName("target")]
     public string? UpdateTarget { get; set; }
 
-    // Tunnel-nyitásnál a hozzáférés-policy (a szerver tölti ki). Az aláírás-kanonizálás része,
-    // tehát a gép csak a szervertől származó, hiteles policy-t fogadja el.
-    // Hiányzó (null) = mai viselkedés: nincs consent, unattended OK.
-    /// <summary>Kell-e a gépnél ülő felhasználó hozzájárulása a csatlakozáshoz. null = nem.</summary>
+    // Access policy for opening tunnels, filled by the server. It is part of the signed canonical payload,
+    // so the device only accepts an authenticated policy from the server.
+    // Missing (null) means the legacy behavior: no consent required, unattended allowed.
+    /// <summary>Whether the interactive user at the device must approve the connection. null = no.</summary>
     [JsonPropertyName("consentRequired")]
     public bool? ConsentRequired { get; set; }
 
-    /// <summary>Engedélyezett-e a felügyelet nélküli (senki nincs bejelentkezve) hozzáférés. null = igen.</summary>
+    /// <summary>Whether unattended access is allowed when nobody is signed in. null = yes.</summary>
     [JsonPropertyName("unattendedAllowed")]
     public bool? UnattendedAllowed { get; set; }
 }
 
-/// <summary>Ismert parancstípusok. Tetszőleges stringet nem dolgozunk fel.</summary>
+/// <summary>Known command types. Arbitrary strings are ignored.</summary>
 public static class CommandTypes
 {
     public const string OpenTunnel = "open-tunnel";

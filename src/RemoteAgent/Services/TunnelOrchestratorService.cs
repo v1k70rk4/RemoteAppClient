@@ -9,8 +9,8 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// A busról érkező, MÁR ELLENŐRZÖTT parancsok alapján nyitja/zárja a reverse tunnelt.
-/// Egyszerre egy tunnel él. Idle-timeout után magától lebont.
+/// Opens and closes the reverse tunnel based on already verified commands from the bus.
+/// Only one tunnel is active at a time. Idle timeout closes it automatically.
 /// </summary>
 public sealed class TunnelOrchestratorService(
     IOptions<AgentOptions> options,
@@ -27,7 +27,7 @@ public sealed class TunnelOrchestratorService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Külön idle-watchdog, hogy a tétlen tunnelt akkor is lezárjuk, ha nem jön parancs.
+        // Separate idle watchdog closes inactive tunnels even when no command arrives.
         var watchdog = Task.Run(() => IdleWatchdogAsync(stoppingToken), stoppingToken);
 
         try
@@ -38,7 +38,7 @@ public sealed class TunnelOrchestratorService(
                 catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_001, cmd.Type); }
             }
         }
-        catch (OperationCanceledException) { /* leállás */ }
+        catch (OperationCanceledException) { /* shutdown */ }
         finally
         {
             await CloseTunnelAsync();
@@ -71,7 +71,7 @@ public sealed class TunnelOrchestratorService(
         var data = cmd.Data;
         int remotePort = data?.RemotePort ?? 0;
 
-        // HELYI VNC-zár: ha a gépet helyileg letiltották, NEM nyitunk tunnelt, és naplózzuk a próbálkozást.
+        // Local VNC lock: when the device is locally disabled, do not open a tunnel and log the attempt.
         if (RemoteAgent.Vnc.VncLock.IsLocked())
         {
             RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_002);
@@ -87,14 +87,14 @@ public sealed class TunnelOrchestratorService(
             return;
         }
 
-        // Hozzáférés-policy (a szerver aláírt parancsából): hozzájárulás + felügyelet nélküli hozzáférés.
+        // Access policy from the server-signed command: consent and unattended access.
         var outcome = await ConsentGateAsync(data?.ConsentRequired ?? false, data?.UnattendedAllowed ?? true, ct);
         await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
         if (outcome is not ("auto" or "granted"))
-            return; // elutasítva / timeout / nincs user — a tunnel nem nyílik
+            return; // denied / timeout / no user; tunnel stays closed
 
-        // Minden open-tunnel friss portra jöhet (a szerver random portot oszt), ezért a
-        // meglévő tunnelt lezárjuk és újat nyitunk — különben a régi port "beragadna".
+        // Each open-tunnel can get a fresh server-assigned random port, so close the existing
+        // tunnel and open a new one to avoid keeping the old port stuck.
         if (_tunnel is not null)
             await _tunnel.StopAsync();
 
@@ -105,10 +105,10 @@ public sealed class TunnelOrchestratorService(
     }
 
     /// <summary>
-    /// Hozzáférés-kapu a tunnel-nyitás előtt. Visszaadja a kimenetelt a szervernek/konzolnak is:
-    /// "auto" (nincs consent, engedett) | "granted" | "denied" | "timeout" | "no-user".
-    /// - Nincs bejelentkezett felhasználó → az unattended-policy dönt.
-    /// - Van felhasználó + consentRequired → WTS Igen/Nem prompt; csak „Igen" enged.
+    /// Access gate before opening the tunnel. Returns the outcome to the server/console too:
+    /// "auto" (no consent, allowed) | "granted" | "denied" | "timeout" | "no-user".
+    /// - No signed-in user: unattended policy decides.
+    /// - Signed-in user + consentRequired: WTS Yes/No prompt, only Yes allows access.
     /// </summary>
     private async Task<string> ConsentGateAsync(bool consentRequired, bool unattendedAllowed, CancellationToken ct)
     {
@@ -122,12 +122,12 @@ public sealed class TunnelOrchestratorService(
                 logger.LogWarning(L.TunnelOrchestratorService_006);
                 return "no-user";
             }
-            return "auto"; // unattended engedett → mehet consent nélkül
+            return "auto"; // unattended allowed; proceed without consent
         }
 
         if (!consentRequired) return "auto";
 
-        // A WTS prompt blokkol a válaszig/timeoutig — háttérszálon, hogy ne fogja meg az async folyamot.
+        // The WTS prompt blocks until answer/timeout; run it in the background to keep async flow free.
         var outcome = await Task.Run(() => RemoteAgent.Consent.ConsentPrompt.Ask(
             L.TunnelOrchestratorService_007,
             L.TunnelOrchestratorService_008,
@@ -171,6 +171,6 @@ public sealed class TunnelOrchestratorService(
                 }
             }
         }
-        catch (OperationCanceledException) { /* leállás */ }
+        catch (OperationCanceledException) { /* shutdown */ }
     }
 }

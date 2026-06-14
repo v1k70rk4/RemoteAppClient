@@ -9,17 +9,17 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Services;
 
 /// <summary>
-/// Csoport-specifikus MSI legyártása Linuxon (wixl / msitools). Az MSI "buta": lerakja az
-/// agent + updater exét és a group bootstrap.dat-ját a Program Files-ba, majd egy custom
-/// action lefuttatja a `RemoteAgent.exe install-service`-t (ami mindkét service-t telepíti,
-/// SCM-recoveryvel, és elindítja → az agent a bootstrap.dat-ból MAGÁTÓL beléptet → Pending).
-/// Eltávolításkor `uninstall-service`. Opcionális osslsigncode-aláírás (ha van cert).
+/// Builds group-specific MSI packages on Linux with wixl/msitools. The MSI is simple:
+/// places agent + updater executables and the group bootstrap.dat under Program Files,
+/// then runs `RemoteAgent.exe install-service` as a custom action. That installs both
+/// services with SCM recovery, starts them, and the agent self-enrolls from bootstrap.dat
+/// into Pending. Uninstall runs `uninstall-service`. Optional osslsigncode signing.
 /// </summary>
 public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuilder> logger)
 {
     private readonly ServerOptions _opt = options.Value;
 
-    // Stabil GUID-ok: az UpgradeCode a termékhez kötött (in-place upgrade), a komponensek fixek.
+    // Stable GUIDs: UpgradeCode belongs to the product for in-place upgrade; components are fixed.
     private const string UpgradeCode = "7E2A9C40-1B3D-4C5E-9F2A-0A1B2C3D4E5F";
     private const string CompAgent = "A1A1A1A1-0001-4001-8001-000000000001";
     private const string CompUpdater = "A1A1A1A1-0001-4001-8001-000000000002";
@@ -40,7 +40,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var bootstrapPath = Path.Combine(work, "bootstrap.dat");
             await File.WriteAllTextAsync(bootstrapPath, bootstrapBlob, ct);
 
-            var iconPath = await TryWriteIconAsync(work, ct); // null, ha nincs beágyazott ikon
+            var iconPath = await TryWriteIconAsync(work, ct); // null when no embedded icon exists
 
             var wxsPath = Path.Combine(work, "product.wxs");
             await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, clientExe, bootstrapPath, iconPath, SanitizeVersion(version), label, startMenuShortcut, ownerName), ct);
@@ -72,7 +72,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         }
     }
 
-    /// <summary>A beágyazott app.ico kiírása a munkamappába (ARP-ikonhoz). Null, ha nincs erőforrás.</summary>
+    /// <summary>Writes embedded app.ico to the work directory for ARP icon. Null when resource is missing.</summary>
     private static async Task<string?> TryWriteIconAsync(string work, CancellationToken ct)
     {
         try
@@ -92,8 +92,8 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         bool hasClient = !string.IsNullOrWhiteSpace(clientExe);
         bool hasIcon = !string.IsNullOrWhiteSpace(iconPath);
         bool shortcut = startMenuShortcut && hasClient;
-        // FONTOS: a Windows Installer NEM nyitja meg az UTF-8 (65001) codepage-ű MSI-t (1620-as hiba),
-        // ezért 1252-t használunk, és a megjelenő nevet ASCII-ra hajtjuk (ékezet nélkül) — így biztos kompatibilis.
+        // Important: Windows Installer does not open UTF-8 (65001) MSI databases (error 1620),
+        // so use 1252 and fold display names to ASCII for compatibility.
         var name = AsciiFold($"RemoteAppClient Agent ({label})");
         var sb = new StringBuilder();
         sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
@@ -131,7 +131,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         sb.AppendLine("""        </Directory>""");
         sb.AppendLine("""      </Directory>""");
 
-        // Opcionális Start menü parancsikon a konzol-klienshez (perMachine → All Users start menü).
+        // Optional Start menu shortcut for the console client (perMachine -> All Users Start menu).
         if (shortcut)
         {
             sb.AppendLine("""      <Directory Id="ProgramMenuFolder">""");
@@ -153,26 +153,26 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         if (shortcut) sb.AppendLine("""      <ComponentRef Id="C.Shortcut" />""");
         sb.AppendLine("""    </Feature>""");
 
-        // Add/Remove Programs ikon (ha van beágyazott app.ico). A parancsikon is ezt használja.
+        // Add/Remove Programs icon, when embedded app.ico exists. Shortcut uses it too.
         if (hasIcon)
         {
             sb.AppendLine($"""    <Icon Id="AppIcon.ico" SourceFile="{X(iconPath!)}" />""");
             sb.AppendLine("""    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />""");
         }
 
-        // A service-telepítést maga az agent végzi (mindkét service + SCM-recovery), nem az MSI deklaratívan.
-        // Telepítés: a frissen telepített exe futtatása (type 18 FileKey — telepítéskor működik).
-        // A megjelenített szolgáltatás-nevet az agent komponálja az átadott owner+group argokból.
+        // The agent performs service installation (both services + SCM recovery), not declarative MSI.
+        // Install: run the freshly installed exe (type 18 FileKey works during install).
+        // The agent composes display service names from owner+group args.
         var ownerArg = string.IsNullOrWhiteSpace(ownerName) ? "" : $" --owner &quot;{X(AsciiFold(ownerName!))}&quot;";
         var groupArg = $" --group &quot;{X(AsciiFold(label))}&quot;";
         sb.AppendLine($"""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service{ownerArg}{groupArg}" Execute="deferred" Impersonate="no" Return="check" />""");
-        // Eltávolítás: a FileKey (type 18) eltávolításkor 2753-at ad ("nincs telepítésre jelölve"),
-        // ezért az exe útvonalát property-ből (CustomActionData) adjuk át. A KVÓTÁZOTT út kezeli a szóközt.
+        // Uninstall: FileKey type 18 gives 2753 during uninstall ("not marked for installation"),
+        // so pass the exe path through a property (CustomActionData). Quoted path handles spaces.
         sb.AppendLine("""    <CustomAction Id="CA.SetUninst" Property="CA.UninstallSvc" Value="&quot;[#F.Agent]&quot;" Execute="immediate" />""");
         sb.AppendLine("""    <CustomAction Id="CA.UninstallSvc" Property="CA.UninstallSvc" ExeCommand="uninstall-service" Execute="deferred" Impersonate="no" Return="ignore" />""");
         sb.AppendLine("""    <InstallExecuteSequence>""");
-        // A wixl a MajorUpgrade RemoveExistingProducts-ját az InstallInitialize ELÉ teszi (1401),
-        // ami upgrade-nél „transaction not started" (2762) hibát ad. Áttesszük UTÁNA.
+        // wixl places MajorUpgrade RemoveExistingProducts before InstallInitialize (1401), which
+        // causes "transaction not started" (2762) during upgrade. Move it after.
         sb.AppendLine("""      <RemoveExistingProducts After="InstallInitialize" />""");
         sb.AppendLine("""      <Custom Action="CA.SetUninst" Before="CA.UninstallSvc">Installed AND (REMOVE="ALL")</Custom>""");
         sb.AppendLine("""      <Custom Action="CA.UninstallSvc" Before="RemoveFiles">Installed AND (REMOVE="ALL")</Custom>""");
@@ -184,7 +184,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         return sb.ToString();
     }
 
-    /// <summary>Opcionális Authenticode-aláírás osslsigncode-dal (ha van cert ÉS elérhető a tool).</summary>
+    /// <summary>Optional Authenticode signing with osslsigncode when cert and tool are available.</summary>
     private async Task TrySignAsync(string msiPath, CancellationToken ct)
     {
         try
@@ -207,7 +207,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         catch (Exception ex) { logger.LogWarning(ex, L.MsiBuilder_005); }
     }
 
-    /// <summary>Ékezetek/nem-ASCII eltávolítása (a Windows-kompatibilis MSI string-poolhoz).</summary>
+    /// <summary>Removes accents/non-ASCII characters for the Windows-compatible MSI string pool.</summary>
     private static string AsciiFold(string s)
     {
         var norm = s.Normalize(NormalizationForm.FormD);
@@ -239,7 +239,7 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
 
     private static string SanitizeVersion(string v)
     {
-        // MSI ProductVersion: max 3-4 numerikus tag. Levágjuk a nem szám/pont részeket.
+        // MSI ProductVersion: max 3-4 numeric parts. Trim non-digit/dot suffixes.
         var clean = new string(v.Trim().TakeWhile(c => char.IsDigit(c) || c == '.').ToArray());
         var parts = clean.Split('.', StringSplitOptions.RemoveEmptyEntries);
         return parts.Length == 0 ? "1.0.0" : string.Join('.', parts.Take(4));

@@ -7,8 +7,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Eszközlista + ablakon BELÜLI, füles szerkesztő (mint a Felhasználóknál):
-/// „← Vissza | Általános | LOG | Telemetria". A Csatlakozás/Jóváhagyás a listán marad.
+/// Device list plus in-window tabbed editor, like Users:
+/// "Back | General | Log | Telemetry". Connect/Approve remain on the list.
 /// </summary>
 public sealed class DevicesView : UserControl, IContentView
 {
@@ -25,7 +25,7 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly MaterialTextBox2 _search = new() { Hint = L.DevicesView_001, Width = 360 };
     private readonly MaterialButton _connectBtn = new() { Text = L.DevicesView_002, AutoSize = true };
 
-    // Szerkesztő
+    // Editor
     private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_003);
     private readonly MaterialButton _tabLog = TabBtn("LOG");
     private readonly MaterialButton _tabTelemetry = TabBtn(L.DevicesView_044);
@@ -54,7 +54,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     private void BuildList()
     {
-        // Felső sáv: lista-szintű műveletek (keresés + frissítés).
+        // Top bar: list-level actions (search + refresh).
         var tools = ViewUi.Toolbar();
         _search.Margin = new Padding(4, 0, 16, 0);
         _search.TextChanged += (_, _) => RenderList();
@@ -75,8 +75,8 @@ public sealed class DevicesView : UserControl, IContentView
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
         _list.ColumnClick += (_, e) => { if (_sortColumn == e.Column) _sortAsc = !_sortAsc; else { _sortColumn = e.Column; _sortAsc = true; } RenderList(); };
 
-        // Jobb alsó sarok: a kijelölt gépre ható műveletek (Csatlakozás | Szerkesztés | Jóváhagyás).
-        // RightToLeft → a legelőször hozzáadott a legjobboldalibb, ezért fordított sorrendben adjuk.
+        // Bottom-right: actions for the selected device (Connect | Edit | Approve).
+        // With RightToLeft, the first added control is rightmost, so add in reverse order.
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
         void RightBtn(string text, EventHandler onClick) { var b = ViewUi.ToolbarButton(text); b.Margin = new Padding(4, 0, 4, 0); b.Click += onClick; actions.Controls.Add(b); }
         if (_isAdmin) RightBtn(L.DevicesView_005, async (_, _) => await UnlockSelectedAsync());
@@ -85,7 +85,7 @@ public sealed class DevicesView : UserControl, IContentView
         if (_isAdmin) RightBtn(L.DevicesView_007, async (_, _) => await EditSelectedAsync());
         _connectBtn.Margin = new Padding(4, 0, 4, 0);
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
-        actions.Controls.Add(_connectBtn); // legutoljára → legbaloldalibb (Csatlakozás)
+        actions.Controls.Add(_connectBtn); // added last -> leftmost (Connect)
 
         _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, actions, ViewUi.StatusHost(_status)));
     }
@@ -141,7 +141,7 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Items.Clear();
         foreach (var d in items)
         {
-            // Oszlopsorrend: Gép | Csoport | Megjegyzés | Online | Felhasználó | Utoljára online | Publikus IP
+            // Column order: Device | Group | Note | Online | User | Last seen | Public IP.
             var name = string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_010 : d.Hostname;
             if (d.LoginLocked) name = "🔒 " + name;
             var item = new ListViewItem(name) { Tag = d, UseItemStyleForSubItems = false };
@@ -159,7 +159,7 @@ public sealed class DevicesView : UserControl, IContentView
         _list.EndUpdate();
     }
 
-    // Rendezés a kattintott oszlop szerint, típushelyesen (dátum/online külön kezelve).
+    // Sort by clicked column with type-aware handling for date/online.
     private IEnumerable<DeviceInfo> SortItems(IEnumerable<DeviceInfo> items)
     {
         if (_sortColumn < 0) return items;
@@ -225,8 +225,8 @@ public sealed class DevicesView : UserControl, IContentView
     }
 
     /// <summary>
-    /// Megvárja a hozzáférés kimenetelét. Először ~2,5 mp-ig csendben (auto/unattended esetén nincs
-    /// felugró ablak), utána — ha még várunk — látható „várakozás a válaszra" ablakkal a hátralévő időre.
+    /// Waits for access outcome. First waits quietly for about 2.5s so auto/unattended access
+    /// does not flash a dialog; if still pending, shows a wait dialog for the remaining time.
     /// </summary>
     private async Task<string> WaitAccessAsync(string? nonce)
     {

@@ -5,7 +5,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>MSI gyártása egy csoporthoz egy csatornából + letöltés — beágyazható panel (a Csatornák „MSI gyártás" füle).</summary>
+/// <summary>Builds and downloads an MSI for a group from a channel, embedded in the Channels MSI build tab.</summary>
 public sealed class MsiPanel : UserControl
 {
     private readonly AdminApi _api;

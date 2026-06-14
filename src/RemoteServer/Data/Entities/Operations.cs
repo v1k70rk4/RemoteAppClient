@@ -1,16 +1,16 @@
 namespace RemoteServer.Data.Entities;
 
-/// <summary>Egyszer-használatos (alapból) beléptető token. Token = jogosultság egy installra.</summary>
+/// <summary>Enrollment token, one-time by default. Token equals permission for one install.</summary>
 public sealed class EnrollmentToken
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    /// <summary>A token HASH-e (a nyers tokent csak kiadáskor látjuk).</summary>
+    /// <summary>Token hash. The raw token is visible only when issued.</summary>
     public string TokenHash { get; set; } = string.Empty;
 
     public Guid? CreatedByUserId { get; set; }
 
-    /// <summary>Melyik csoportba kerüljön a beléptetett gép.</summary>
+    /// <summary>Group assigned to the enrolled device.</summary>
     public Guid? GroupId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -20,29 +20,29 @@ public sealed class EnrollmentToken
     public int UseCount { get; set; }
 
     /// <summary>
-    /// Igaz: a beléptetett gép azonnal Approved (admin által kiadott, egyszer-használatos token).
-    /// Hamis: a gép Pending-be kerül, jóváhagyásra vár (site/bootstrap token — önkiszolgáló telepítés).
+    /// True: enrolled device becomes Approved immediately (admin-issued one-time token).
+    /// False: device becomes Pending and waits for approval (site/bootstrap self-service install).
     /// </summary>
     public bool AutoApprove { get; set; } = true;
 
     public DateTimeOffset? UsedAt { get; set; }
     public Guid? UsedByDeviceId { get; set; }
 
-    /// <summary>Visszavonva (admin) — ekkor a token már nem használható beléptetésre.</summary>
+    /// <summary>Revoked by admin; token can no longer be used for enrollment.</summary>
     public DateTimeOffset? RevokedAt { get; set; }
 
     public string? Note { get; set; }
 
     /// <summary>
-    /// Ha a token egy generált MSI-hez tartozik: a kész MSI fájlneve (a PackagesDir-ben,
-    /// az /admin/msi/{fileName} szolgálja ki). Kézi token/blob esetén null.
+    /// Generated MSI file name when this token belongs to an MSI, stored under PackagesDir
+    /// and served by /admin/msi/{fileName}. Null for manual tokens/blobs.
     /// </summary>
     public string? MsiFileName { get; set; }
 }
 
 /// <summary>
-/// EGYSÉGES parancs-sor: tunnel, restart, exec, update — mind ide kerül, type-pal.
-/// Offline gépnél a parancs Queued állapotban vár, és lefut amint a gép online lesz.
+/// Unified command queue: tunnel, restart, exec, update all live here by type.
+/// For offline devices, commands wait as Queued and run when the device comes online.
 /// </summary>
 public sealed class Command
 {
@@ -52,7 +52,7 @@ public sealed class Command
     /// <summary>open-tunnel / close-tunnel / exec / restart / update / …</summary>
     public string Type { get; set; } = string.Empty;
 
-    /// <summary>Parancs-specifikus paraméterek JSON-ként.</summary>
+    /// <summary>Command-specific parameters as JSON.</summary>
     public string? PayloadJson { get; set; }
 
     public CommandStatus Status { get; set; } = CommandStatus.Queued;
@@ -62,27 +62,27 @@ public sealed class Command
     public DateTimeOffset? SentAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
 
-    /// <summary>A gép által visszaküldött eredmény JSON-ként.</summary>
+    /// <summary>Result returned by the device as JSON.</summary>
     public string? ResultJson { get; set; }
 
-    // A kiadott aláírt parancs nonce-a és aláírása (audit + replay-nyomon követés).
+    // Nonce and signature of the issued signed command for audit and replay tracking.
     public string? Nonce { get; set; }
     public string? Signature { get; set; }
 }
 
 /// <summary>
-/// Egy kiadott csomag egy release-csatornán. Csatorna (rtm/beta) + komponens (agent/updater)
-/// + verzió. Az adott (csatorna, komponens) "aktuális" csomagja a legfrissebb UploadedAt.
-/// A fájl a PackagesDir-ben, az /api/updates/{FileName} szolgálja ki.
+/// A package published to a release channel. Channel (rtm/beta) + component (agent/updater)
+/// + version. The current package for a (channel, component) is the latest UploadedAt.
+/// File lives in PackagesDir and is served by /api/updates/{FileName}.
 /// </summary>
 public sealed class ReleasePackage
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    /// <summary>Release-csatorna: "rtm" (stabil) vagy "beta" (teszt-gyűrű).</summary>
+    /// <summary>Release channel: "rtm" (stable) or "beta" (test ring).</summary>
     public string Channel { get; set; } = "rtm";
 
-    /// <summary>Komponens: "agent" vagy "updater".</summary>
+    /// <summary>Component: "agent" or "updater".</summary>
     public string Component { get; set; } = "agent";
 
     public string Version { get; set; } = string.Empty;
@@ -92,7 +92,7 @@ public sealed class ReleasePackage
     public DateTimeOffset UploadedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-/// <summary>Egy távoli megtekintési session — ki, mikor, melyik gépet nézte (privacy-audit).</summary>
+/// <summary>A remote viewing session: who viewed which device and when, for privacy audit.</summary>
 public sealed class RemoteSession
 {
     public Guid Id { get; set; } = Guid.NewGuid();

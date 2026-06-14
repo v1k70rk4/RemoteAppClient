@@ -10,9 +10,9 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Services;
 
 /// <summary>
-/// A parancs-sor (Commands tábla) kezelése. A sor a SZÁNDÉKOT tárolja; az aláírás
-/// mindig KÉZBESÍTÉSKOR készül friss időbélyeggel (a replay-ablak miatt nem lehet
-/// előre aláírni). Online gépnek azonnal push, offline-nak Queued marad.
+/// Manages the command queue (Commands table). The row stores intent; the signature is
+/// created at delivery time with a fresh timestamp because the replay window prevents
+/// pre-signing. Online devices receive push immediately; offline devices remain Queued.
 /// </summary>
 public sealed class CommandService(
     AppDbContext db,
@@ -20,7 +20,7 @@ public sealed class CommandService(
     AgentConnectionRegistry registry,
     ILogger<CommandService> logger)
 {
-    /// <summary>Új parancs a sorba + azonnali kézbesítési kísérlet, ha a gép online.</summary>
+    /// <summary>Adds a command to the queue and attempts immediate delivery when the device is online.</summary>
     public async Task<Command?> EnqueueAsync(string deviceId, string type, CommandData? data, Guid? createdBy, CancellationToken ct)
     {
         var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
@@ -45,7 +45,7 @@ public sealed class CommandService(
         return entity;
     }
 
-    /// <summary>A gép csatlakozásakor: a függő (Queued) parancsok kézbesítése.</summary>
+    /// <summary>Delivers pending Queued commands when the device connects.</summary>
     public async Task DrainQueuedAsync(string deviceId, CancellationToken ct)
     {
         var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
@@ -62,7 +62,7 @@ public sealed class CommandService(
 
     private async Task TryDeliverAsync(string deviceId, Command entity, CancellationToken ct)
     {
-        // FRISS aláírás kézbesítéskor — így az időbélyeg mindig az ablakon belül van.
+        // Fresh signature at delivery time keeps the timestamp inside the replay window.
         var data = entity.PayloadJson is null
             ? null
             : JsonSerializer.Deserialize(entity.PayloadJson, AgentJsonContext.Default.CommandData);

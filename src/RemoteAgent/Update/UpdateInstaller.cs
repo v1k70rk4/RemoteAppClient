@@ -9,14 +9,14 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Update;
 
 /// <summary>
-/// Az aláírt update-parancs végrehajtása: letölti a csomagot (mTLS-sel a szerverről),
-/// ELLENŐRZI a SHA-256-ot, stagingbe teszi (&lt;EnrollmentDir&gt;\update\…) és kiír egy
-/// markert a célpathszal.
+/// Executes signed update commands: downloads the package from the server over mTLS,
+/// verifies SHA-256, stages it under &lt;EnrollmentDir&gt;\update, and writes a marker
+/// containing the target path.
 ///
-/// A cserét a MÁSIK processz végzi (futó exe nem cserélheti a sajátját):
-///  - "agent"   csomag → a Helper (RemoteAgent.Updater) cseréli   (update.ready)
-///  - "updater" csomag → az Agent (HelperUpdateWatcher) cseréli   (update.updater.ready)
-/// A parancs aláírása + a hash adja a biztonságot.
+/// Replacement is done by the other process because a running executable cannot replace itself:
+///  - "agent" package: Helper (RemoteAgent.Updater) replaces it via update.ready
+///  - "updater" package: Agent (HelperUpdateWatcher) replaces it via update.updater.ready
+/// Security comes from the command signature plus the package hash.
 /// </summary>
 public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<UpdateInstaller> logger)
 {
@@ -31,15 +31,15 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             return;
         }
 
-        // A "vnc" csomag MSI — nem exe-csere, hanem msiexec helyben (a futó exét nem érinti).
+        // The "vnc" package is an MSI: install it locally with msiexec, without replacing this process.
         if (string.Equals(target, "vnc", StringComparison.OrdinalIgnoreCase))
         {
             await ApplyVncMsiAsync(version, url, sha256, ct);
             return;
         }
 
-        // A "client" a mellé telepített konzol-kliens (RemoteClient.exe). NEM az agent exéje és nem
-        // service, ezért az agent maga felülírhatja (best-effort retry, ha épp fut valakinél).
+        // The "client" package is the side-by-side console client (RemoteClient.exe), not the agent
+        // executable and not a service, so the agent can overwrite it with best-effort retries.
         if (string.Equals(target, "client", StringComparison.OrdinalIgnoreCase))
         {
             await ApplyClientExeAsync(version, url, sha256, ct);
@@ -98,8 +98,8 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
     }
 
     /// <summary>
-    /// TightVNC (vnc) frissítés: letölti az MSI-t, ELLENŐRZI a SHA-256-ot, majd helyben telepíti
-    /// (msiexec /i … ADDLOCAL=Server — ahogy a provisioner is). In-place upgrade, a beállítások maradnak.
+    /// TightVNC (vnc) update: downloads the MSI, verifies SHA-256, then installs it locally
+    /// with msiexec /i ... ADDLOCAL=Server, just like the provisioner. Settings are preserved.
     /// </summary>
     private async Task ApplyVncMsiAsync(string? version, string url, string sha256, CancellationToken ct)
     {
@@ -134,7 +134,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             };
             using var proc = Process.Start(psi)!;
             await proc.WaitForExitAsync(ct);
-            if (proc.ExitCode is 0 or 3010) // 3010 = siker, újraindítás javasolt
+            if (proc.ExitCode is 0 or 3010) // 3010 = success, reboot recommended
                 logger.LogInformation(L.UpdateInstaller_008, version);
             else
                 logger.LogWarning(L.UpdateInstaller_009, proc.ExitCode);
@@ -144,9 +144,9 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
     }
 
     /// <summary>
-    /// Konzol-kliens (RemoteClient.exe) frissítése: letölti, ELLENŐRZI a SHA-256-ot, és felülírja
-    /// az agent mellé telepített RemoteClient.exe-t. Ha épp fut (zárolt), néhányszor újrapróbálja.
-    /// Így a kliens akkor is naprakész a gépen, ha senki nem indítja el (a self-update nem fut le).
+    /// Console client (RemoteClient.exe) update: downloads it, verifies SHA-256, and overwrites
+    /// the copy installed next to the agent. If it is running and locked, retry a few times.
+    /// This keeps the client current even when nobody launches it and self-update never runs.
     /// </summary>
     private async Task ApplyClientExeAsync(string? version, string url, string sha256, CancellationToken ct)
     {
@@ -181,7 +181,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
                 return;
             }
 
-            // 1) Türelmi idő: ha épp fut/záródik, pár mp-ig várunk a cserével.
+            // 1) Grace period: if it is running or closing, wait a few seconds before replacement.
             bool copied = false;
             for (int i = 0; i < 5 && !copied; i++)
             {
@@ -189,7 +189,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
                 await Task.Delay(TimeSpan.FromSeconds(1), ct);
             }
 
-            // 2) Ha még mindig zárolt (nyitva tartott kliens), kilőjük a futó RemoteClient-et és újrapróbáljuk.
+            // 2) If still locked by an open client, kill RemoteClient and retry.
             if (!copied)
             {
                 KillRunningClient();
@@ -207,7 +207,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         finally { TryDelete(tmp); }
     }
 
-    /// <summary>Megpróbálja felülírni a cél exét; false, ha zárolt (fut) vagy hozzáférés-hiba.</summary>
+    /// <summary>Tries to overwrite the target executable; false if locked or access is denied.</summary>
     private static bool TryCopy(string src, string dest)
     {
         try { File.Copy(src, dest, overwrite: true); return true; }
@@ -215,7 +215,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         catch (UnauthorizedAccessException) { return false; }
     }
 
-    /// <summary>Kilövi a futó RemoteClient.exe-ket, hogy a frissítés át tudja írni az exét. (A user-t kidobja.)</summary>
+    /// <summary>Kills running RemoteClient.exe instances so the update can overwrite the executable. This signs the user out.</summary>
     private void KillRunningClient()
     {
         foreach (var p in Process.GetProcessesByName("RemoteClient"))
@@ -231,21 +231,21 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
         }
     }
 
-    /// <summary>A konzol-kliens exe útvonala: az agent exe mellett (a telepítés így rakja le).</summary>
+    /// <summary>Console client executable path, installed next to the agent executable.</summary>
     private static string ClientExePath()
     {
         var dir = Path.GetDirectoryName(Environment.ProcessPath);
         return string.IsNullOrEmpty(dir) ? "" : Path.Combine(dir, "RemoteClient.exe");
     }
 
-    /// <summary>A Helper/Updater exe útvonala: az agent exe mellett van (a telepítés így rakja le).</summary>
+    /// <summary>Helper/Updater executable path, installed next to the agent executable.</summary>
     private static string UpdaterExePath()
     {
         var dir = Path.GetDirectoryName(Environment.ProcessPath);
         return string.IsNullOrEmpty(dir) ? "" : Path.Combine(dir, "RemoteAgent.Updater.exe");
     }
 
-    /// <summary>Relatív URL feloldása a szerver-bázishoz (a Telemetry.IngestUrl alapján).</summary>
+    /// <summary>Resolves a relative URL against the server base inferred from Telemetry.IngestUrl.</summary>
     private string ResolveUrl(string url)
     {
         if (url.StartsWith('/') && !string.IsNullOrWhiteSpace(_opt.Telemetry.IngestUrl))

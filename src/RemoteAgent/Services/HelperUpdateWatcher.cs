@@ -8,13 +8,11 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// A "ki frissíti az Updatert" probléma megoldása. Futó service nem cserélheti a
-/// SAJÁT binárisát, ezért:
-///  - az agent exéjét a Helper (RemoteAgent.Updater) cseréli;
-///  - a Helper exéjét EZ a figyelő (az Agentben) cseréli.
-/// Ha az UpdateInstaller kirakott egy ellenőrzött új Updater exét + egy
-/// update.updater.ready markert (benne a Helper exe célpathja): leállítja a
-/// RemoteAgent.Updater service-t, lecseréli az exét, és újraindítja.
+/// Solves the "who updates the updater" problem. A running service cannot replace its
+/// own binary, so the Helper replaces the agent executable, while this watcher inside
+/// the Agent replaces the Helper executable.
+/// When UpdateInstaller stages a verified new Updater executable plus update.updater.ready
+/// containing the Helper target path, this stops RemoteAgent.Updater, replaces it, and restarts it.
 /// </summary>
 public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<HelperUpdateWatcher> logger) : BackgroundService
 {
@@ -82,7 +80,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
     {
         try
         {
-            // 'net' szinkron (megvárja a leállást/indulást).
+            // 'net' is synchronous and waits for stop/start.
             using var proc = Process.Start(new ProcessStartInfo("net", $"{verb} \"{service}\"")
             {
                 UseShellExecute = false,

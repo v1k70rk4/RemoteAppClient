@@ -5,9 +5,9 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient;
 
 /// <summary>
-/// Jelszó-emlékeztető: a user megadja a felhasználónevét + e-mail címét, kér egy kódot
-/// (10 mp-enként egyszer), majd a kóddal új jelszót állít be. Az ablak nyitva marad a kód kéréséig.
-/// Anti-enumeration: a „Kód kérése" mindig semleges üzenetet ad.
+/// Password recovery: the user enters username and email, requests a code at most every
+/// 10 seconds, then sets a new password with that code. The form stays open after requesting.
+/// Anti-enumeration: "request code" always shows a neutral message.
 /// </summary>
 public sealed class ForgotPasswordForm : MaterialForm
 {
@@ -62,9 +62,9 @@ public sealed class ForgotPasswordForm : MaterialForm
 
         _requestBtn.Enabled = false;
         try { await _api.RequestPasswordCodeAsync(u, e); }
-        catch { /* anti-enumeration: nem jelezzük */ }
+        catch { /* anti-enumeration: do not reveal details */ }
 
-        // Mindig semleges visszajelzés (nem áruljuk el, létezik-e a fiók).
+        // Always neutral feedback; do not reveal whether the account exists.
         _status.Text = L.ForgotPasswordForm_010;
         StartCooldown(10);
     }

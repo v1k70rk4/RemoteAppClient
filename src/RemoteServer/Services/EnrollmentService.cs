@@ -12,9 +12,9 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Services;
 
 /// <summary>
-/// A beléptetés logikája: token-validáció (hash + lejárat + felhasználás), a CSR
-/// aláírása a CA-val, a <see cref="Device"/> létrehozása, és audit-nyom. A device-
-/// azonosítót a szerver osztja (nem a kliens).
+/// Enrollment flow: token validation (hash + expiry + usage), CSR signing by the CA,
+/// <see cref="Device"/> creation, and audit trail. The server assigns the device ID,
+/// not the client.
 /// </summary>
 public sealed class EnrollmentService(
     AppDbContext db,
@@ -60,10 +60,10 @@ public sealed class EnrollmentService(
             return new Result(null, "bad_csr");
         }
 
-        // Az SSH-kulcs aláírása a bástya-CA-val (best effort; tunnelhez kell).
+        // Sign the SSH key with the bastion CA, best effort but required for tunnels.
         var sshCert = await sshCa.SignAsync(req.SshPublicKey, deviceId, ct);
 
-        // Stabil, egyedi bástya-port kiosztása a tartományból (a legalacsonyabb szabad).
+        // Allocate a stable unique bastion port from the range, using the lowest free one.
         var usedPorts = (await db.Devices
             .Where(d => d.TunnelPort != null)
             .Select(d => d.TunnelPort!.Value)
@@ -79,7 +79,7 @@ public sealed class EnrollmentService(
             DeviceId = deviceId,
             Hostname = req.Hostname,
             GroupId = token.GroupId,
-            // Admin egyszer-használatos token → azonnal Approved; site/bootstrap token → Pending (jóváhagyásra vár).
+            // Admin one-time token -> Approved immediately; site/bootstrap token -> Pending approval.
             Status = token.AutoApprove ? DeviceStatus.Approved : DeviceStatus.Pending,
             CertThumbprint = thumbprint,
             SshPublicKey = req.SshPublicKey,
@@ -118,8 +118,8 @@ public sealed class EnrollmentService(
     }
 
     /// <summary>
-    /// Új beléptető token. A NYERS tokent (csak most látható; a DB-ben hash van) ÉS a létrejött
-    /// entitást adja vissza — utóbbin a hívó pl. az MSI-fájlnevet állíthatja be build után.
+    /// Creates a new enrollment token. Returns the raw token, visible only now because the DB
+    /// stores a hash, plus the created entity so callers can attach MSI file name after build.
     /// </summary>
     public async Task<(string Raw, EnrollmentToken Token)> CreateTokenAsync(
         int maxUses, int? expiresInHours, Guid? groupId, string? note, CancellationToken ct, bool autoApprove = true)

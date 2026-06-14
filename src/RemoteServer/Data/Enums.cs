@@ -1,25 +1,25 @@
 namespace RemoteServer.Data;
 
-/// <summary>Eszköz jóváhagyási/élet-állapota („licenc").</summary>
+/// <summary>Device approval/lifecycle state.</summary>
 public enum DeviceStatus
 {
-    Pending = 0,    // beléptetett, de még nem jóváhagyott
-    Approved = 1,   // jóváhagyott, használható
-    Rejected = 2,   // elutasított
+    Pending = 0,    // enrolled but not approved yet
+    Approved = 1,   // approved and usable
+    Rejected = 2,   // rejected
     Revoked = 3,    // visszavont (kitiltott)
 }
 
-/// <summary>Parancs életciklusa a commands sorban.</summary>
+/// <summary>Command lifecycle in the commands queue.</summary>
 public enum CommandStatus
 {
-    Queued = 0,     // sorban, offline gépnél vár
-    Sent = 1,       // push-olva a gépnek
-    Acked = 2,      // a gép nyugtázta
-    Done = 3,       // lefutott
-    Failed = 4,     // hibára futott
+    Queued = 0,     // queued, waiting for offline device
+    Sent = 1,       // pushed to device
+    Acked = 2,      // acknowledged by device
+    Done = 3,       // completed
+    Failed = 4,     // failed
 }
 
-/// <summary>Felhasználói hozzájárulás állapota egy távoli sessionhöz.</summary>
+/// <summary>User consent state for a remote session.</summary>
 public enum ConsentState
 {
     NotRequired = 0,

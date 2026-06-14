@@ -21,13 +21,13 @@ RemoteAgent.Globalization.RuntimeLanguage.ApplyFromSharedSettings();
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Az update-csomag (agent exe) ~70-100 MB — a Kestrel alap ~28 MB limitjét megemeljük.
+// Update packages (agent exe) are about 70-100 MB, so raise Kestrel's default ~28 MB limit.
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 512L * 1024 * 1024);
 
 builder.Services.Configure<ServerOptions>(builder.Configuration.GetSection(ServerOptions.SectionName));
 
-// MariaDB (Galera) — EF Core 9 + Pomelo. A retry a Galera tranziens
-// certifikációs/deadlock hibáit nyeli el. A connection string env/secretből jön.
+// MariaDB (Galera) with EF Core 9 + Pomelo. Retry handles Galera transient
+// Avoids swallowing certification/deadlock errors. Connection string comes from env/secret.
 builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseMySql(
         builder.Configuration.GetConnectionString("MariaDb") ?? "",
@@ -52,15 +52,15 @@ builder.Services.AddHostedService<SecretExpiryWatcher>();
 var app = builder.Build();
 app.UseWebSockets();
 
-// === Session-auth az /admin-ra: érvényes Bearer-token kell (a transportot a gép SSH-tunnelje adja).
-// A /auth/* végpontok publikusak (a tunnelen át), és maguk validálnak. Amíg a user setupja
-// (jelszócsere / TOTP-enroll) nincs kész, a konzol-végpontok 403-at adnak. ===
+// === Session auth for /admin: requires a valid Bearer token. Transport is provided by the device SSH tunnel.
+// /auth/* endpoints are public through the tunnel and validate themselves. Until user setup
+// (password change / TOTP enrollment) is complete, console endpoints return 403. ===
 app.Use(async (ctx, next) =>
 {
     if (!ctx.Request.Path.StartsWithSegments("/admin")) { await next(); return; }
 
-    // A branding (tulajdonos + support) publikus a tunnelen át — bejelentkezés ELŐTT is kell.
-    // (Az nginx az /admin/-t csak localhostról, a tunnelen át engedi, így kintről nem elérhető.)
+    // Branding (owner + support) is public through the tunnel and needed before sign-in.
+    // nginx exposes /admin/ only from localhost via tunnel, so it is not reachable externally.
     if (ctx.Request.Path.StartsWithSegments("/admin/branding")) { await next(); return; }
 
     var auth = ctx.RequestServices.GetRequiredService<AuthService>();
@@ -79,8 +79,8 @@ app.Use(async (ctx, next) =>
         return;
     }
 
-    // Szerep-gating: az operator CSAK a géplistát/csoportlistát látja és csak open-tunnelt indíthat
-    // (a szűrést/grant-ellenőrzést a végpontok végzik); MINDEN más /admin végpont admin-only.
+    // Role gate: operator can only see device/group lists and start open-tunnel.
+    // Endpoints do filtering/grant checks; every other /admin endpoint is admin-only.
     var user = v.Value.User;
     if (!AuthService.IsAdmin(user))
     {
@@ -103,7 +103,7 @@ app.Use(async (ctx, next) =>
 
 app.MapGet("/", () => "RemoteServer up.");
 
-// === Bejelentkezés / 2FA (a gép SSH-tunneljén át érhető el; maguk validálnak) ===
+// === Sign-in / 2FA, reachable through the device SSH tunnel; endpoints validate themselves. ===
 app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IEmailSender email, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     LoginRequest? req;
@@ -111,11 +111,11 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     catch (JsonException) { return Results.BadRequest(); }
     if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest();
 
-    // Min-verzió kapu: elavult kliens nem kap sessiont, hanem kötelező frissítés-infót.
+    // Minimum-version gate: outdated clients get mandatory update info instead of a session.
     if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
         return Results.Json(gate, AgentJsonContext.Default.LoginResponse);
 
-    // Gép-szintű belépés-zárolás: ha a gép zárolva, semmilyen belépés nem megy (csak admin oldja fel).
+    // Device-level login lockout: when locked, no sign-in is allowed until an admin unlocks it.
     var device = await FindDeviceAsync(db, req.DeviceId, ct);
     if (device?.LoginLockedAt is not null)
         return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
@@ -129,13 +129,13 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
     }
 
-    // Ha már be van állítva a TOTP, kötelező a kód.
+    // If TOTP is already configured, the code is mandatory.
     if (user.TotpConfirmed)
     {
         var secret = protector.TryUnprotect(user.TotpSecret);
         if (secret is null || !TotpService.Verify(secret, req.Totp ?? ""))
         {
-            // A hibás TOTP is sikertelen próba — de a „totp_required" (még nem írt be kódot) nem.
+            // Invalid TOTP counts as a failed attempt, but totp_required (no code submitted yet) does not.
             if (!string.IsNullOrWhiteSpace(req.Totp))
                 await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed", L.Program_003, ct);
             return Results.Json(new AuthError { Error = string.IsNullOrWhiteSpace(req.Totp) ? "totp_required" : "totp_invalid" },
@@ -143,7 +143,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         }
     }
 
-    await ResetLoginFailAsync(db, device, ct); // sikeres belépés → számláló nullázása
+    await ResetLoginFailAsync(db, device, ct); // successful sign-in resets the counter
     var token = await auth.CreateSessionAsync(user, ct);
     user.LastLoginAt = DateTimeOffset.UtcNow;
 
@@ -155,7 +155,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         TotpEnrollRequired = !user.TotpConfirmed,
     };
 
-    // Első belépés / nincs még TOTP: generálunk titkot az enrollhoz (titkosítva tároljuk, még nem confirmed).
+    // First sign-in or no TOTP yet: generate an enrollment secret, store encrypted and unconfirmed.
     if (!user.TotpConfirmed)
     {
         var secret = TotpService.GenerateSecret();
@@ -168,8 +168,8 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     return Results.Json(resp, AgentJsonContext.Default.LoginResponse);
 });
 
-// === Windows Hello (passkey-stílus) ===
-// Belépés 1/2: challenge. Mindig adunk (nem áruljuk el, létezik-e a user / van-e Hello).
+// === Windows Hello (passkey-style) ===
+// Sign-in 1/2: challenge. Always return one so user/Hello existence is not revealed.
 app.MapPost("/auth/hello/challenge", async (HttpContext ctx, HelloChallengeStore challenges, CancellationToken ct) =>
 {
     HelloChallengeRequest? req;
@@ -180,7 +180,7 @@ app.MapPost("/auth/hello/challenge", async (HttpContext ctx, HelloChallengeStore
     return Results.Json(new HelloChallengeResponse { Challenge = Convert.ToBase64String(nonce) }, AgentJsonContext.Default.HelloChallengeResponse);
 });
 
-// Belépés 2/2: az aláírt challenge ellenőrzése a tárolt publikus kulccsal → session.
+// Sign-in 2/2: verify signed challenge with stored public key, then create a session.
 app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthService auth, HelloChallengeStore challenges, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     HelloLoginRequest? req;
@@ -189,7 +189,7 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
     if (req is null || string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Signature))
         return Results.Json(new AuthError { Error = "invalid_request" }, AgentJsonContext.Default.AuthError, statusCode: 400);
 
-    // Min-verzió kapu (ld. /auth/login): elavult kliens kötelező frissítést kap.
+    // Minimum-version gate, same as /auth/login: outdated clients receive a mandatory update.
     if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
         return Results.Json(gate, AgentJsonContext.Default.LoginResponse);
 
@@ -227,7 +227,7 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
     }, AgentJsonContext.Default.LoginResponse);
 });
 
-// Hello-eszköz regisztrálása (bejelentkezve; bármely user a sajátját — ezért itt validálunk, nem az /admin gate-en).
+// Register a Hello device while signed in. Any user can register their own, so validate here instead of /admin gate.
 app.MapPost("/auth/hello/register", async (HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
 {
     var v = await auth.ValidateAsync(BearerToken(ctx), ct);
@@ -273,7 +273,7 @@ app.MapPost("/auth/hello/credentials/{id:guid}/revoke", async (Guid id, HttpCont
     return Results.NoContent();
 });
 
-// A setup-lépések (mid-setup user is hívhatja, ezért itt validálunk, nem az /admin gate-en).
+// Setup steps. Mid-setup users can call these, so validation is here instead of /admin gate.
 app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
 {
     var v = await auth.ValidateAsync(BearerToken(ctx), ct);
@@ -293,9 +293,9 @@ app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, Au
     return Results.NoContent();
 });
 
-// === Jelszó-emlékeztető (publikus, a tunnelen át, bejelentkezés ELŐTT) ===
-// Kód kérése: a válasz MINDIG OK (anti-enumeration). Csak akkor küld kódot, ha a
-// felhasználónév + e-mail egy aktív userre illik.
+// === Password recovery, public through the tunnel before sign-in. ===
+// Code request: response is always OK for anti-enumeration. A code is sent only when
+// username + email match an active user.
 app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext db, IEmailSender email, CancellationToken ct) =>
 {
     PasswordCodeRequest? req;
@@ -307,7 +307,7 @@ app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext 
     var uname = req.Username.Trim();
     var mail = req.Email.Trim();
     var device = await FindDeviceAsync(db, req.DeviceId, ct);
-    if (device?.LoginLockedAt is not null) return Results.NoContent(); // zárolt gép → némán nem küld
+    if (device?.LoginLockedAt is not null) return Results.NoContent(); // locked device; silently do not send
 
     var user = await db.Users.FirstOrDefaultAsync(u => u.Username == uname && u.IsActive, ct);
     if (user is not null && string.Equals(user.Email, mail, StringComparison.OrdinalIgnoreCase))
@@ -319,15 +319,15 @@ app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext 
     }
     else
     {
-        // Nem stimmel (rossz e-mail vagy nincs ilyen user) → naplózott sikertelen próba + counter.
+        // Mismatch (wrong email or no such user): logged failed attempt plus counter.
         await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-code-failed",
             user is null ? L.Program_001 : L.Program_027, ct);
     }
-    // A válasz mindig OK (anti-enumeration).
+    // Response is always OK for anti-enumeration.
     return Results.NoContent();
 });
 
-// Új jelszó beállítása a kapott kóddal.
+// Set a new password with the received code.
 app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, AuthService auth, IEmailSender email, CancellationToken ct) =>
 {
     PasswordResetRequest? req;
@@ -354,12 +354,12 @@ app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, Aut
     }
 
     user.PasswordHash = PasswordHasher.Hash(req.NewPassword!);
-    user.MustChangePassword = false;          // a user maga állította be
+    user.MustChangePassword = false;          // user set it themselves
     user.PasswordChangedAt = DateTimeOffset.UtcNow;
     user.ResetCodeHash = null; user.ResetCodeExpiresAt = null;
     await auth.RevokeAllForUserAsync(user.Id, ct);
     await db.SaveChangesAsync(ct);
-    await ResetLoginFailAsync(db, device, ct); // sikeres self-reset → számláló nullázása
+    await ResetLoginFailAsync(db, device, ct); // successful self-reset resets the counter
     await AuditAsync(db, ctx, "user-password-reset-self", null, null, actorOverride: user.Username);
     return Results.NoContent();
 });
@@ -402,9 +402,9 @@ app.MapGet("/auth/me", async (HttpContext ctx, AuthService auth, CancellationTok
 });
 
 // === Agent WSS parancscsatorna ===
-// Az agent ide tartja a kimenő kapcsolatot; a szerver ezen push-ol aláírt parancsot.
-// Éles üzemben nginx terminálja a TLS-t és validálja a kliens-certet (mTLS),
-// a device-azonosító a cert CN-jéből jön. Cert nélkül a ?deviceId= a fallback (dev).
+// Agents keep their outbound connection here; the server pushes signed commands over it.
+// In production, nginx terminates TLS and validates the client certificate (mTLS).
+// Device ID comes from the certificate CN. Without a cert, ?deviceId= is the dev fallback.
 app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, AccessResultStore accessResults, ILoggerFactory lf) =>
 {
     if (!ctx.WebSockets.IsWebSocketRequest)
@@ -425,8 +425,8 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
     registry.Register(deviceId, socket);
     log.LogInformation("Agent csatlakozott: {Device}", deviceId);
 
-    // A csatlakozáskor a függő (Queued) parancsok kézbesítése — rövid scope-ban,
-    // hogy ne tartsuk a DbContextet a teljes kapcsolat élettartamán át.
+    // On connect, deliver pending Queued commands in a short scope so DbContext is not
+    // held for the entire connection lifetime.
     using (var scope = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>().CreateScope())
     {
         var commands = scope.ServiceProvider.GetRequiredService<CommandService>();
@@ -438,7 +438,7 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
         var scopes = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>();
         await PumpIncomingAsync(socket, deviceId, accessResults, scopes, log, ctx.RequestAborted);
     }
-    catch (OperationCanceledException) { /* leállás/lekapcsolódás */ }
+    catch (OperationCanceledException) { /* shutdown/disconnect */ }
     catch (WebSocketException ex) { log.LogDebug(ex, L.Program_006, deviceId); }
     finally
     {
@@ -447,7 +447,7 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
     }
 });
 
-// === Telemetria ingest (éles: mTLS az nginx mögött) ===
+// === Telemetry ingest. Production uses mTLS behind nginx. ===
 app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink) =>
 {
     var deviceId = ResolveDeviceId(ctx) ?? "unknown";
@@ -467,7 +467,7 @@ app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink) =>
     return Results.NoContent();
 });
 
-// === A gép jelenti a VNC-jelszavát (mTLS) → devices.vnc_secret ===
+// === Device reports its VNC password over mTLS into devices.vnc_secret. ===
 app.MapPost("/api/vnc-secret", async (HttpContext ctx, AppDbContext db, SecretProtector protector) =>
 {
     var deviceId = ResolveDeviceId(ctx);
@@ -485,20 +485,20 @@ app.MapPost("/api/vnc-secret", async (HttpContext ctx, AppDbContext db, SecretPr
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ctx.RequestAborted);
     if (device is null) return Results.NotFound();
 
-    device.VncSecret = protector.Protect(report.Secret); // nyugalmi titkosítás
+    device.VncSecret = protector.Protect(report.Secret); // encryption at rest
     device.VncSecretUpdatedAt = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync(ctx.RequestAborted);
     return Results.NoContent();
 });
 
-// === Admin (ideiglenes; localhost-only az nginxen át — a client SSH-tunnelen éri el) ===
+// === Admin. localhost-only through nginx; the client reaches it over SSH tunnel. ===
 
-// Eszközlista a DB-ből (online a registryből, + a VNC-jelszó a client autoconnecthez).
+// Device list from DB, online state from registry, plus VNC password for client autoconnect.
 app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConnectionRegistry registry, SecretProtector protector, AuthService auth, CancellationToken ct) =>
 {
     var devices = await db.Devices.Include(d => d.Group).OrderBy(d => d.Hostname).ToListAsync(ct);
 
-    // Operator csak a grantolt gépeket látja; admin mindent.
+    // Operators see only granted devices; admins see everything.
     var me = (User)ctx.Items["user"]!;
     if (!AuthService.IsAdmin(me))
     {
@@ -540,7 +540,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
     return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);
 });
 
-// Eszköz admin-mezőinek módosítása (csoport, flagek, megjegyzés). A null mezők változatlanok.
+// Updates device admin fields (group, flags, note). Null fields are unchanged.
 app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx, AppDbContext db, SecretProtector protector) =>
 {
     DeviceUpdate? upd;
@@ -564,7 +564,7 @@ app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx,
     return Results.NoContent();
 });
 
-// Csoportok listája + létrehozása.
+// List and create groups.
 app.MapGet("/admin/groups", async (AppDbContext db, CancellationToken ct) =>
 {
     var groups = await db.DeviceGroups.OrderBy(g => g.Name).ToListAsync(ct);
@@ -611,7 +611,7 @@ app.MapDelete("/admin/groups/{id:guid}", async (Guid id, AppDbContext db, Cancel
 {
     var group = await db.DeviceGroups.FirstOrDefaultAsync(g => g.Id == id, ct);
     if (group is null) return Results.NotFound();
-    // A csoportban lévő gépek csoport nélkülivé válnak (nem töröljük őket).
+    // Devices in the group become ungrouped; they are not deleted.
     var devices = await db.Devices.Where(d => d.GroupId == id).ToListAsync(ct);
     foreach (var d in devices) d.GroupId = null;
     db.DeviceGroups.Remove(group);
@@ -621,7 +621,7 @@ app.MapDelete("/admin/groups/{id:guid}", async (Guid id, AppDbContext db, Cancel
 
 app.MapGet("/admin/devices/online", (AgentConnectionRegistry registry) => Results.Ok(registry.ConnectedDevices));
 
-// Update-parancs: csak ha a gépen engedélyezett a frissítés (UpdateAllowed).
+// Update command, only when updates are allowed on the device (UpdateAllowed).
 app.MapPost("/admin/devices/{deviceId}/update", async (
     string deviceId, HttpContext ctx, AppDbContext db, CommandService commands, CancellationToken ct) =>
 {
@@ -641,9 +641,9 @@ app.MapPost("/admin/devices/{deviceId}/update", async (
     return cmd is null ? Results.NotFound() : Results.Ok(new { deviceId, version = req.Version, target = req.Target ?? "agent", status = cmd.Status.ToString() });
 });
 
-// Update-csomag feltöltése EGY CSATORNÁRA: a body a nyers exe; query: channel (rtm/beta),
-// component (agent/updater), version. A szerver eltárolja, SHA-256-ot számol, és felveszi
-// egy ReleasePackage sorba — onnantól ez a (csatorna, komponens) AKTUÁLIS csomagja.
+// Upload an update package to one channel: body is raw exe; query has channel (rtm/beta),
+// component (agent/updater), and version. Server stores it, computes SHA-256, and inserts
+// a ReleasePackage row; from then on it is the current package for (channel, component).
 app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions<ServerOptions> opt) =>
 {
     var channel = Norm(ctx.Request.Query["channel"], "rtm");
@@ -653,7 +653,7 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
     if (channel is not ("rtm" or "beta")) return Results.BadRequest(new { error = "bad_channel" });
     if (component is not ("agent" or "updater" or "client" or "vnc")) return Results.BadRequest(new { error = "bad_component" });
 
-    // Belső, ütközésmentes fájlnév: {component}-{channel}-{version}.{ext}. A vnc MSI-ként jön.
+    // Internal collision-free file name: {component}-{channel}-{version}.{ext}. vnc arrives as MSI.
     var ext = component == "vnc" ? "msi" : "exe";
     var safeVer = version.Replace('/', '_').Replace('\\', '_');
     var fileName = $"{component}-{channel}-{safeVer}.{ext}";
@@ -690,7 +690,7 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
     }
 });
 
-// Csatornák aktuális csomagjai (komponensenként) — a kliens csatorna-nézetéhez.
+// Current packages per channel and component, used by the client channel view.
 app.MapGet("/admin/channels", async (AppDbContext db, CancellationToken ct) =>
 {
     var all = await db.ReleasePackages.ToListAsync(ct);
@@ -707,7 +707,7 @@ app.MapGet("/admin/channels", async (AppDbContext db, CancellationToken ct) =>
     return Results.Json(current, AgentJsonContext.Default.ListChannelPackageInfo);
 });
 
-// Rollout: egy csatorna AKTUÁLIS csomagját kiadja minden ott lévő, frissíthető, jóváhagyott gépnek.
+// Rollout: sends a channel's current package to every approved and updatable device on it.
 app.MapPost("/admin/channels/{channel}/rollout", async (
     string channel, string? component, HttpContext ctx, AppDbContext db, CommandService commands, CancellationToken ct) =>
 {
@@ -725,7 +725,7 @@ app.MapPost("/admin/channels/{channel}/rollout", async (
     int sent = 0, skipped = 0;
     foreach (var d in devices)
     {
-        // Már a cél-verzión van? (laza egyezés: a riportolt "2.0.0.0" kezdődik a "2.0.0"-val)
+        // Already on target version? Loose match: reported "2.0.0.0" starts with "2.0.0".
         var reported = comp switch { "updater" => d.HelperVersion, "vnc" => d.VncVersion, "client" => d.ClientVersion, _ => d.AgentVersion };
         if (reported is not null && reported.StartsWith(pkg.Version, StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
 
@@ -741,7 +741,7 @@ app.MapPost("/admin/channels/{channel}/rollout", async (
     return Results.Ok(new { channel, component = comp, version = pkg.Version, devices = devices.Count, sent, skipped });
 });
 
-// Promótálás: egy csatorna aktuális csomagját a cél-csatorna aktuálisává teszi (UGYANAZ a fájl, nincs újra-feltöltés).
+// Promotion: makes a channel's current package current on the target channel, using the same file.
 app.MapPost("/admin/channels/{channel}/promote", async (
     string channel, string? component, string? to, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
 {
@@ -764,7 +764,7 @@ app.MapPost("/admin/channels/{channel}/promote", async (
     return Results.Ok(new { promoted = pkg.Version, component = comp, from, to = toChannel, fileName = pkg.FileName });
 });
 
-// Egy gép frissítése a SAJÁT csatornája aktuális csomagjára (per-device, csatorna-tudatos).
+// Updates one device to the current package on its own channel, channel-aware.
 app.MapPost("/admin/devices/{deviceId}/update-channel", async (
     string deviceId, string? component, AppDbContext db, CommandService commands, CancellationToken ct) =>
 {
@@ -786,7 +786,7 @@ app.MapPost("/admin/devices/{deviceId}/update-channel", async (
     return cmd is null ? Results.NotFound() : Results.Ok(new { deviceId, channel = device.Channel, version = pkg.Version, status = cmd.Status.ToString() });
 });
 
-// Update-csomag kiszolgálása (mTLS mögött az /api/ blokkban — csak beléptetett agentek).
+// Serves update packages behind mTLS under /api, for enrolled agents only.
 app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> opt) =>
 {
     var safe = Path.GetFileName(fileName);
@@ -794,14 +794,14 @@ app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> 
     return File.Exists(path) ? Results.File(path, "application/octet-stream", safe) : Results.NotFound();
 });
 
-// Tunnel nyitása: a gép STABIL portját használja (enrollkor kiosztva); felülírható a query-ből.
+// Open tunnel: uses the device's stable port assigned at enrollment; can be overridden by query.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     string deviceId, int? remotePort, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();
 
-    // Operator csak a grantolt gépre indíthat tunnelt.
+    // Operators can open tunnels only to granted devices.
     var me = (User)ctx.Items["user"]!;
     if (!AuthService.IsAdmin(me))
     {
@@ -811,10 +811,10 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     }
 
     var port = remotePort is > 0 ? remotePort.Value
-             : device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback régi (port nélküli) géphez
+             : device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback for old devices without port
 
-    // Effektív hozzáférés-policy: gép-szintű override, különben a csoport, különben alapértelmezés
-    // (nincs consent / unattended engedett). Az agent ez alapján kérdez/dönt a tunnel-nyitás előtt.
+    // Effective access policy: device override, then group, then defaults (no consent / unattended allowed).
+    // The agent uses this to prompt/decide before opening the tunnel.
     var grp = device.GroupId is { } gid ? await db.DeviceGroups.FirstOrDefaultAsync(x => x.Id == gid, ct) : null;
     bool consentRequired = device.ConsentRequired ?? grp?.ConsentRequired ?? false;
     bool unattendedAllowed = device.UnattendedAllowed ?? grp?.UnattendedAllowed ?? true;
@@ -825,7 +825,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
         createdBy: null, ct);
     if (cmd is null) return Results.NotFound();
 
-    // A nonce-hoz kötjük: ki (Actor) melyik gépre kért hozzáférést → az agent kimenetelekor naplózzuk.
+    // Bind context to nonce: who requested access to which device, so the agent outcome can be audited.
     accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
 
     return Results.Json(
@@ -833,12 +833,12 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
         AgentJsonContext.Default.OpenTunnelResult);
 });
 
-// A hozzáférés-kérés eredménye (a konzol pollozza nonce alapján a tunnel-nyitás után).
-// Üres outcome = még nincs válasz (az agent dolgozik / a felhasználót kérdezi).
+// Access request result, polled by console by nonce after opening a tunnel.
+// Empty outcome means no answer yet; agent is working or asking the user.
 app.MapGet("/admin/devices/access-result/{nonce}", (string nonce, AccessResultStore accessResults) =>
     Results.Json(new AccessResultInfo { Outcome = accessResults.Get(nonce) ?? "" }, AgentJsonContext.Default.AccessResultInfo));
 
-// Napló (audit) lekérdezés szűrőkkel: action (kulcs), actor (felhasználónév), deviceId (gép), limit.
+// Audit log query with filters: action key, actor username, deviceId, limit.
 app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceId, int? limit, AppDbContext db, CancellationToken ct) =>
 {
     Guid? devGuid = null;
@@ -865,9 +865,9 @@ app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceI
     return Results.Json(list, AgentJsonContext.Default.ListAuditEntryInfo);
 });
 
-// === Beléptetés ===
-// A gép CSR-t + tokent küld; siker esetén aláírt cert + CA jön vissza.
-// Hiba esetén gép-olvasható kód (a kliens lokalizál belőle).
+// === Enrollment ===
+// Device sends CSR + token. On success, signed cert + CA are returned.
+// On failure, machine-readable code is returned and localized by the client.
 app.MapPost("/enroll", async (HttpContext ctx, EnrollmentService enroll, CancellationToken ct) =>
 {
     EnrollRequest? req;
@@ -888,15 +888,15 @@ app.MapPost("/enroll", async (HttpContext ctx, EnrollmentService enroll, Cancell
         : Results.Json(new EnrollError { Code = result.ErrorCode! }, AgentJsonContext.Default.EnrollError, statusCode: 400);
 });
 
-// === Token-gyártás (ideiglenes; később auth+2FA mögé) ===
+// === Token generation, currently admin-only and protected by auth+2FA. ===
 app.MapPost("/admin/tokens", async (EnrollmentService enroll, int? maxUses, int? expiresInHours, CancellationToken ct) =>
 {
     var (raw, _) = await enroll.CreateTokenAsync(maxUses ?? 1, expiresInHours, groupId: null, note: null, ct);
     return Results.Ok(new { token = raw, maxUses = maxUses ?? 1, expiresInHours });
 });
 
-// === Bootstrap blob: token nélküli ön-telepítéshez (site-token + szerver-URL egy stringben) ===
-// A létrejövő token AutoApprove=false → a vele beléptetett gép Pending-be kerül (jóváhagyásra vár).
+// === Bootstrap blob for tokenless self-install: site token + server URL in one string. ===
+// Generated token has AutoApprove=false, so devices enrolled with it become Pending.
 app.MapPost("/admin/bootstrap", async (
     HttpContext ctx, AppDbContext db, EnrollmentService enroll, IOptions<ServerOptions> opt,
     string? serverUrl, Guid? groupId, int? maxUses, int? expiresInHours, CancellationToken ct) =>
@@ -911,7 +911,7 @@ app.MapPost("/admin/bootstrap", async (
     return Results.Ok(new { blob, url = url.TrimEnd('/'), token = raw, groupId, maxUses = maxUses ?? 100000, expiresInHours });
 });
 
-// === Bootstrap/beléptető tokenek (blob-ok) listája + visszavonás/törlés ===
+// === Bootstrap/enrollment token (blob) list, revoke, and delete. ===
 app.MapGet("/admin/tokens-list", async (AppDbContext db, CancellationToken ct) =>
 {
     var groups = await db.DeviceGroups.ToDictionaryAsync(g => g.Id, g => g.Name, ct);
@@ -936,8 +936,8 @@ app.MapPost("/admin/tokens-list/{id:guid}/revoke", async (Guid id, HttpContext c
     return Results.NoContent();
 });
 
-// Blob/token utólagos módosítása: max telepítés és/vagy lejárat. A letiltás = revoke (külön),
-// ezért a MaxUses NEM mehet a már elhasznált (UseCount) alá.
+// Edit blob/token: max installs and/or expiry. Disable is revoke, handled separately,
+// so MaxUses cannot go below already used count (UseCount).
 app.MapPut("/admin/tokens-list/{id:guid}", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
 {
     EditTokenRequest? req;
@@ -972,7 +972,7 @@ app.MapDelete("/admin/tokens-list/{id:guid}", async (Guid id, HttpContext ctx, A
     return Results.NoContent();
 });
 
-// === Szerver-beállítások: branding (tulajdonos + support) + e-mail küldés ===
+// === Server settings: branding (owner + support) and email sending. ===
 app.MapGet("/admin/settings", async (AppDbContext db, CancellationToken ct) =>
 {
     var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
@@ -1007,7 +1007,7 @@ app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretPro
     s.GraphTenantId = Nz(upd.GraphTenantId); s.GraphClientId = Nz(upd.GraphClientId); s.GraphSender = Nz(upd.GraphSender);
     if (!string.IsNullOrEmpty(upd.GraphClientSecret)) s.GraphClientSecretEnc = protector.Protect(upd.GraphClientSecret);
 
-    // Secret lejárat: max 2 év a mostantól. Ha változott a lejárat → újra figyelmeztethetünk.
+    // Secret expiry: max 2 years from now. If expiry changed, warnings can fire again.
     var prevExpiry = s.GraphSecretExpiresAt;
     if (upd.GraphSecretExpiresAt is { } exp)
     {
@@ -1019,7 +1019,7 @@ app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretPro
 
     await db.SaveChangesAsync(ct);
 
-    // Napló-detail: a mentett (nem-titkos) értékek pillanatképe; titkoknál csak a tény, az érték SOHA.
+    // Audit detail: snapshot saved non-secret values; for secrets, only the fact is recorded, never the value.
     var detail = $"provider={s.EmailProvider}; owner={Q(s.OwnerName)}; phone={Q(s.SupportPhone)}; email={Q(s.SupportEmail)}";
     if (s.EmailProvider == "smtp")
         detail += $"; smtp={Q(s.SmtpHost)}:{s.SmtpPort} tls={s.SmtpUseTls} user={Q(s.SmtpUser)} from={Q(s.SmtpFrom)}";
@@ -1047,7 +1047,7 @@ app.MapPost("/admin/settings/test-email", async (HttpContext ctx, AppDbContext d
     return ok ? Results.Ok(new { ok = true }) : Results.Problem(err ?? "send_failed");
 });
 
-// Publikus branding (a tunnelen át, bejelentkezés ELŐTT is) — az auth-gate kivételt ad rá.
+// Public branding through the tunnel before sign-in; auth gate has an exception for it.
 app.MapGet("/admin/branding", async (AppDbContext db, CancellationToken ct) =>
 {
     var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
@@ -1055,15 +1055,15 @@ app.MapGet("/admin/branding", async (AppDbContext db, CancellationToken ct) =>
     return Results.Json(b, AgentJsonContext.Default.BrandingInfo);
 });
 
-// === MSI-gyártás: egy csoporthoz, egy csatorna aktuális exéiből (wixl) ===
-// Lerakja az agent+updater exét + a group bootstrap.dat-ját, és install-service-szel telepít.
+// === MSI build for a group from the current executables on one channel (wixl). ===
+// Places agent + updater executables plus group bootstrap.dat, then installs via install-service.
 app.MapPost("/admin/msi", async (
     string? group, string? channel, bool? client, bool? shortcut, HttpContext ctx, AppDbContext db, EnrollmentService enroll,
     MsiBuilder msi, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     var ch = string.IsNullOrWhiteSpace(channel) ? "rtm" : channel.Trim().ToLowerInvariant();
-    bool includeClient = client ?? true;       // alapból a konzol-klienst is telepíti
-    bool startMenuShortcut = shortcut ?? true; // alapból Start menü parancsikonnal
+    bool includeClient = client ?? true;       // install console client by default
+    bool startMenuShortcut = shortcut ?? true; // include Start menu shortcut by default
 
     Guid? groupId = Guid.TryParse(group, out var g) ? g : null;
     string label = "all";
@@ -1088,7 +1088,7 @@ app.MapPost("/admin/msi", async (
     var updaterExe = updaterPkg is null ? null : Path.Combine(opt.Value.PackagesDir, updaterPkg.FileName);
     if (updaterExe is not null && !File.Exists(updaterExe)) updaterExe = null;
 
-    // Konzol-kliens (opcionális): az adott csatorna aktuális 'client' csomagja, ha kérve van + létezik.
+    // Optional console client: current 'client' package on the channel when requested and available.
     string? clientExe = null;
     if (includeClient)
     {
@@ -1101,7 +1101,7 @@ app.MapPost("/admin/msi", async (
         }
     }
 
-    // Csoport-bootstrap: AutoApprove=false site-token → a telepített gép Pending lesz.
+    // Group bootstrap: AutoApprove=false site token makes installed devices Pending.
     var (rawToken, tokenEntity) = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = rawToken });
 
@@ -1109,7 +1109,7 @@ app.MapPost("/admin/msi", async (
     var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ownerName, ct);
     if (!res.Ok) return Results.Problem(res.Error ?? "msi_failed");
 
-    // A blobot a generált MSI-hez kötjük → a bootstrap nézet megmutatja, melyik MSI-hez tartozik.
+    // Bind the blob to the generated MSI so the bootstrap view can show which MSI owns it.
     tokenEntity.MsiFileName = res.FileName;
     await db.SaveChangesAsync(ct);
     await AuditAsync(db, ctx, "msi-build", null, $"{label} · {ch} · {agentPkg.Version}");
@@ -1124,7 +1124,7 @@ app.MapPost("/admin/msi", async (
     });
 });
 
-// MSI letöltése (admin/localhost — a kliens SSH-tunnelen éri el).
+// MSI download, admin/localhost, reached by the client over SSH tunnel.
 app.MapGet("/admin/msi/{fileName}", (string fileName, IOptions<ServerOptions> opt) =>
 {
     var safe = Path.GetFileName(fileName);
@@ -1132,7 +1132,7 @@ app.MapGet("/admin/msi/{fileName}", (string fileName, IOptions<ServerOptions> op
     return File.Exists(path) ? Results.File(path, "application/x-msi", safe) : Results.NotFound();
 });
 
-// === User-kezelés (admin-only; az operatort a middleware már kizárta) ===
+// === User management, admin-only; middleware already excluded operators. ===
 app.MapGet("/admin/users", async (AppDbContext db, CancellationToken ct) =>
 {
     var users = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role).OrderBy(u => u.Username).ToListAsync(ct);
@@ -1160,7 +1160,7 @@ app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, IEmailSende
 
     var temp = TempPw();
     var user = new User { Username = req.Username.Trim(), Name = string.IsNullOrWhiteSpace(req.Name) ? null : req.Name.Trim(), Email = req.Email.Trim(), PasswordHash = PasswordHasher.Hash(temp), MustChangePassword = true };
-    var code = SetResetCode(user);   // mindig adunk helyreállítási tokent (az admin felület ezt mutatja)
+    var code = SetResetCode(user);   // always issue a recovery token; admin UI displays it
     db.Users.Add(user);
     await db.SaveChangesAsync(ct);
     await SetRoleAsync(db, user.Id, role, ct);
@@ -1168,7 +1168,7 @@ app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, IEmailSende
 
     bool emailSent = req.EmailCode && await EmailResetCodeAsync(email, user, code, ct);
 
-    await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}{(emailSent ? " · token e-mailben" : "")}");
+    await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}{(emailSent ? " · token emailed" : "")}");
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
 });
 
@@ -1182,7 +1182,7 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
     var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
     if (user is null) return Results.NotFound();
 
-    // Önkizárás-védelem: a hívó admin ne deaktiválja / ne fokozza le saját magát.
+    // Self-lockout protection: caller admin cannot deactivate or demote themselves.
     var me = (User)ctx.Items["user"]!;
     if (id == me.Id && upd.IsActive == false) return Results.BadRequest(new { error = "self_deactivate" });
     if (id == me.Id && upd.Role == "operator") return Results.BadRequest(new { error = "self_demote" });
@@ -1193,14 +1193,14 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
     if (upd.IsActive is { } act)
     {
         user.IsActive = act;
-        if (!act) await auth.RevokeAllForUserAsync(id, ct); // deaktiválás = azonnali kiléptetés
+        if (!act) await auth.RevokeAllForUserAsync(id, ct); // deactivation signs the user out immediately
     }
     await db.SaveChangesAsync(ct);
     await AuditAsync(db, ctx, "user-update", null, user.Username);
     return Results.NoContent();
 });
 
-// Gép belépés-zárolásának feloldása (admin): számláló nullázása + zár törlése.
+// Unlock device login lockout (admin): reset counter and clear lock.
 app.MapPost("/admin/devices/{deviceId}/unlock", async (string deviceId, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
@@ -1220,25 +1220,25 @@ app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, bool? email
     var temp = TempPw();
     user.PasswordHash = PasswordHasher.Hash(temp);
     user.MustChangePassword = true;
-    var code = SetResetCode(user);   // a régi jelszót érvényteleníti; a user a tokennel áll be új jelszót
-    if (clearTotp == true) { user.TotpSecret = null; user.TotpConfirmed = false; } // elveszett authenticator → újra-enroll
+    var code = SetResetCode(user);   // invalidates old password; user sets a new one with the token
+    if (clearTotp == true) { user.TotpSecret = null; user.TotpConfirmed = false; } // lost authenticator -> re-enroll
     await auth.RevokeAllForUserAsync(id, ct);
     await db.SaveChangesAsync(ct);
 
     bool emailSent = emailCode == true && await EmailResetCodeAsync(email, user, code, ct);
 
-    await AuditAsync(db, ctx, "user-reset-password", null, $"{user.Username}{(emailSent ? " · token e-mailben" : "")}{(clearTotp == true ? " · TOTP törölve" : "")}");
+    await AuditAsync(db, ctx, "user-reset-password", null, $"{user.Username}{(emailSent ? " · token emailed" : "")}{(clearTotp == true ? " · TOTP cleared" : "")}");
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
 });
 
-// TOTP törlése ÖNMAGÁBAN (jelszó-reset nélkül): elveszett authenticator esetén újra-enroll.
+// Clear TOTP by itself, without password reset, for lost-authenticator re-enroll.
 app.MapPost("/admin/users/{id:guid}/clear-totp", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
     if (user is null) return Results.NotFound();
     user.TotpSecret = null;
     user.TotpConfirmed = false;
-    await auth.RevokeAllForUserAsync(id, ct); // kiléptetés → a következő belépéskor újra beállítja
+    await auth.RevokeAllForUserAsync(id, ct); // sign out; next sign-in sets it up again
     await db.SaveChangesAsync(ct);
     await AuditAsync(db, ctx, "user-totp-clear", null, user.Username);
     return Results.NoContent();
@@ -1246,7 +1246,7 @@ app.MapPost("/admin/users/{id:guid}/clear-totp", async (Guid id, HttpContext ctx
 
 app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
 {
-    // Önkizárás-védelem: ne tudja a hívó admin saját magát azonnal kiléptetni.
+    // Self-lockout protection: caller admin cannot immediately sign themselves out.
     var me = (User)ctx.Items["user"]!;
     if (id == me.Id) return Results.BadRequest(new { error = "self_revoke" });
     var uname = (await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct))?.Username ?? id.ToString();
@@ -1255,7 +1255,7 @@ app.MapPost("/admin/users/{id:guid}/revoke-sessions", async (Guid id, HttpContex
     return Results.NoContent();
 });
 
-// Egy user Windows Hello eszközei (admin): listázás + visszavonás.
+// User Windows Hello devices (admin): list + revoke.
 app.MapGet("/admin/users/{id:guid}/hello", async (Guid id, AppDbContext db, CancellationToken ct) =>
 {
     if (!await db.Users.AnyAsync(u => u.Id == id, ct)) return Results.NotFound();
@@ -1325,7 +1325,7 @@ app.MapDelete("/admin/users/{id:guid}/grants/{grantId:guid}", async (Guid id, Gu
     return Results.NoContent();
 });
 
-// === Bootstrap: szerepek (admin/operator) + első admin user (ideiglenes jelszó a szerver-logba) ===
+// === Bootstrap roles (admin/operator) plus first admin user; temporary password goes to server log. ===
 using (var scope = app.Services.CreateScope())
 {
     var sdb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -1347,7 +1347,7 @@ using (var scope = app.Services.CreateScope())
 
 app.Run();
 
-// Audit-bejegyzés írása (best-effort; az audit ne bontsa el a műveletet). Az actor a bejelentkezett user.
+// Writes an audit entry best-effort; audit failure must not break the operation. Actor is the signed-in user.
 static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Guid? target = null, string? detail = null, string? actorOverride = null)
 {
     try
@@ -1362,21 +1362,21 @@ static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Gu
     }
     catch (Exception ex)
     {
-        // Az audit hiba ne befolyásolja a választ — de legalább naplózzuk (eddig néma volt).
+        // Audit failure must not affect the response, but at least log it.
         try { ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("Audit").LogWarning(ex, L.Program_014, action); } catch { }
     }
 }
 
-// A Bearer session-token kiolvasása az Authorization fejlécből.
+// Reads the Bearer session token from the Authorization header.
 static string? BearerToken(HttpContext ctx)
 {
     var h = ctx.Request.Headers.Authorization.ToString();
     return h.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? h["Bearer ".Length..].Trim() : null;
 }
 
-// Min-verzió kapu: ha a kliens régebbi a megengedettnél, mustUpdate-választ ad a csatorna aktuális
-// kliens-csomagjával (innen tölti le a kötelező frissítést). null = a kliens elég friss, mehet a login.
-// Ha nincs kliens-csomag amire frissíteni lehetne, nem blokkolunk (különben kizárnánk a klienst).
+// Minimum-version gate: if the client is older than allowed, return mustUpdate with the
+// current client package from the channel. null means the client is fresh enough to sign in.
+// If no client package exists to update to, do not block; otherwise we could lock out the client.
 static async Task<LoginResponse?> ClientUpdateGateAsync(
     string? clientVersion, string? channel, string minVersion, AppDbContext db, CancellationToken ct)
 {
@@ -1391,7 +1391,7 @@ static async Task<LoginResponse?> ClientUpdateGateAsync(
         .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct)
         ?? await db.ReleasePackages.Where(p => p.Component == "client" && p.Channel == "rtm")
         .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
-    if (pkg is null) return null; // nincs mire frissíteni → ne brickeljük a klienst
+    if (pkg is null) return null; // nothing to update to; do not brick the client
 
     return new LoginResponse
     {
@@ -1402,7 +1402,7 @@ static async Task<LoginResponse?> ClientUpdateGateAsync(
     };
 }
 
-// Egy user szerepének beállítása (a meglévő szerepeket lecseréli). A hívó ment.
+// Sets a user's role by replacing existing roles. Caller saves changes.
 static async Task SetRoleAsync(AppDbContext db, Guid userId, string roleName, CancellationToken ct)
 {
     var existing = await db.UserRoles.Where(ur => ur.UserId == userId).ToListAsync(ct);
@@ -1411,11 +1411,11 @@ static async Task SetRoleAsync(AppDbContext db, Guid userId, string roleName, Ca
     db.UserRoles.Add(new UserRole { UserId = userId, RoleId = role.Id });
 }
 
-// Rövid, URL-biztos ideiglenes jelszó.
+// Short URL-safe temporary password.
 static string TempPw() =>
     Convert.ToBase64String(RandomNumberGenerator.GetBytes(9)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
 
-// 8 karakteres, könnyen begépelhető reset-kód (nincs 0/O/1/I, csupa nagybetű/szám).
+// 8-character reset code that is easy to type; no 0/O/1/I, uppercase letters and numbers only.
 static string ResetCode()
 {
     const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1428,15 +1428,16 @@ static string ResetCode()
 static string Sha256Hex(string s) =>
     Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s)));
 
-// === Gép-szintű belépés-zárolás (brute-force) ===
+// === Device-level login lockout for brute-force protection. ===
 const int LoginFailLockThreshold = 5;
 
 static async Task<RemoteServer.Data.Entities.Device?> FindDeviceAsync(AppDbContext db, string? deviceId, CancellationToken ct) =>
     string.IsNullOrWhiteSpace(deviceId) ? null : await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
 
 /// <summary>
-/// Sikertelen próba: NAPLÓZZA (a usernél is — actor=username, ha létezik —, ÉS a gépnél is — TargetDeviceId+detail),
-/// növeli a gép számlálóját; az 5. próbánál zárol + e-mailt küld az adminnak.
+/// Failed attempt: logs it for the user when known (actor=username) and for the device
+/// (TargetDeviceId+detail), increments the device counter, and on the 5th attempt locks
+/// the device and emails admins.
 /// </summary>
 static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, HttpContext ctx,
     RemoteServer.Data.Entities.Device? device, string username, string action, string reason, CancellationToken ct)
@@ -1449,8 +1450,8 @@ static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, Ht
         if (justLocked) device.LoginLockedAt = DateTimeOffset.UtcNow;
     }
 
-    // A próbát rögzítjük: actor=a próbált felhasználónév (létező usernél a saját logjában látszik),
-    // TargetDeviceId=a gép (a gép logjában látszik), detail=mivel próbálkozott + ok. Ez menti a device-számlálót is.
+    // Record the attempt: actor=attempted username, TargetDeviceId=device, detail=method and reason.
+    // This also saves the device counter.
     await AuditAsync(db, ctx, action, device?.Id, $"{username} · {reason}", actorOverride: username);
 
     if (justLocked && device is not null)
@@ -1477,7 +1478,7 @@ static async Task ResetLoginFailAsync(AppDbContext db, RemoteServer.Data.Entitie
     await db.SaveChangesAsync(ct);
 }
 
-/// <summary>Jelszó-helyreállítási tokent állít a userre (hash + 30 perc lejárat). A nyers tokent adja vissza (NEM ment — a hívó ment).</summary>
+/// <summary>Sets a password recovery token on the user (hash + 30 min expiry). Returns raw token; caller saves.</summary>
 static string SetResetCode(RemoteServer.Data.Entities.User user)
 {
     var code = ResetCode();
@@ -1486,7 +1487,7 @@ static string SetResetCode(RemoteServer.Data.Entities.User user)
     return code;
 }
 
-/// <summary>A helyreállítási tokent e-mailben kiküldi a usernek. true = sikerült.</summary>
+/// <summary>Sends the recovery token by email. true = sent successfully.</summary>
 static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Data.Entities.User user, string code, CancellationToken ct)
 {
     if (string.IsNullOrWhiteSpace(user.Email)) return false;
@@ -1497,9 +1498,9 @@ static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Dat
     return ok;
 }
 
-// A device-azonosító feloldása. Éles üzemben az nginx validálja a kliens-certet
-// (mTLS) és a CN-t headerben adja át; a backend csak localhostról (nginx) érhető el,
-// így a headerek megbízhatók. Fallback: közvetlen Kestrel-cert, majd ?deviceId= (dev).
+// Resolves device ID. In production nginx validates the client cert (mTLS) and forwards
+// the CN in a header. Backend is reachable only from localhost/nginx, so headers are trusted.
+// Fallback: direct Kestrel certificate, then ?deviceId= for dev.
 static string? ResolveDeviceId(HttpContext ctx)
 {
     if (string.Equals(ctx.Request.Headers["X-Client-Verify"], "SUCCESS", StringComparison.OrdinalIgnoreCase))
@@ -1519,9 +1520,9 @@ static string? ResolveDeviceId(HttpContext ctx)
     return string.IsNullOrWhiteSpace(q) ? null : q;
 }
 
-// Az agent publikus IP-je. Éles: az nginx X-Real-IP fejléce ($remote_addr = a közvetlen
-// kapcsolat forrás-IP-je, vagyis ahonnan a tunnel jön). Fallback: X-Forwarded-For első
-// eleme, majd a közvetlen Kestrel-kapcsolat (dev).
+// Agent public IP. Production: nginx X-Real-IP ($remote_addr = direct connection source,
+// the address where the tunnel comes from). Fallback: first X-Forwarded-For value, then
+// direct Kestrel connection in dev.
 static string? PublicIpOf(HttpContext ctx)
 {
     var real = ctx.Request.Headers["X-Real-IP"].ToString();
@@ -1536,7 +1537,7 @@ static string? PublicIpOf(HttpContext ctx)
     return (remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote).ToString();
 }
 
-// CN kinyerése egy DN-ből (pl. "CN=abc123" vagy "/CN=abc123" vagy "CN=abc,O=...").
+// Extracts CN from a DN such as "CN=abc123", "/CN=abc123", or "CN=abc,O=...".
 static string? ExtractCn(string dn)
 {
     if (string.IsNullOrWhiteSpace(dn)) return null;
@@ -1548,7 +1549,7 @@ static string? ExtractCn(string dn)
     return null;
 }
 
-// Bejövő üzenetek (ACK-ok, státusz) olvasása. Most logol; később a commands.result-ba megy.
+// Reads incoming messages (ACKs/status). Currently logs; later can persist to commands.result.
 static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessResultStore accessResults, IServiceScopeFactory scopes, ILogger log, CancellationToken ct)
 {
     var buffer = new byte[4096];
@@ -1568,7 +1569,7 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
             message.Write(buffer, 0, result.Count);
         } while (!result.EndOfMessage);
 
-        // Agent → szerver üzenet: jelenleg a tunnel-nyitás/hozzájárulás eredménye (nonce-hoz kötve).
+        // Agent-to-server message: currently tunnel open / consent result bound to nonce.
         try
         {
             var msg = JsonSerializer.Deserialize(message.ToArray(), AgentJsonContext.Default.AgentUplinkMessage);
@@ -1577,11 +1578,11 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                 var entry = accessResults.RecordOutcome(msg.Nonce, msg.Outcome);
                 log.LogInformation(L.Program_024, deviceId, msg.Outcome, msg.Nonce);
 
-                // Naplózás: a kimenetelt audit-sorrá írjuk (ki, melyik gép, eredmény).
+                // Audit: write the outcome as an audit row (who, which device, result).
                 var action = msg.Outcome switch
                 {
-                    "granted" => "connect",        // a felhasználó kifejezetten engedélyezte (Igen)
-                    "auto" => "connect-auto",       // hozzájárulás NÉLKÜL (consent kikapcsolva vagy nincs jelen user)
+                    "granted" => "connect",        // user explicitly allowed it
+                    "auto" => "connect-auto",       // without consent: consent disabled or no user present
                     "denied" => "access-denied",
                     "timeout" => "access-timeout",
                     "no-user" => "access-no-user",
@@ -1597,7 +1598,7 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                         Actor = entry?.Actor ?? "?",
                         Action = action,
                         TargetDeviceId = entry?.DeviceId,
-                        // ha nincs Guid (ritka), a hostname fallback a Detailben; egyébként null (a Target hordozza)
+                        // if Guid is unavailable, hostname falls back into Detail; otherwise Target carries it
                         DetailJson = entry?.DeviceId is null && !string.IsNullOrEmpty(entry?.Hostname) ? entry!.Hostname : null,
                     });
                     await adb.SaveChangesAsync(ct);

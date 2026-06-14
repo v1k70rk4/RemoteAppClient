@@ -7,8 +7,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Szerver-szintű beállítások (admin): „Általános" fül (tulajdonos + support) és
-/// „E-mail küldés" fül (SMTP vagy MS Graph app-only) + teszt-küldés. Lent: Mentés.
+/// Server-level admin settings: General tab (owner + support) and Email sending tab
+/// (SMTP or MS Graph app-only) with test sending. Save lives at the bottom.
 /// </summary>
 public sealed class ServerSettingsView : UserControl, IContentView
 {
@@ -19,12 +19,12 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
     private readonly MaterialLabel _status = new();
 
-    // Általános
+    // General
     private readonly MaterialTextBox2 _owner = new() { Hint = L.ServerSettingsView_029, Width = 360 };
     private readonly MaterialTextBox2 _phone = new() { Hint = L.ServerSettingsView_002, Width = 360 };
     private readonly MaterialTextBox2 _email = new() { Hint = L.ServerSettingsView_003, Width = 360 };
 
-    // E-mail provider + mezők
+    // Email provider + fields
     private readonly MaterialComboBox _provider = new() { Hint = "E-mail provider", Width = 260 };
     private readonly Panel _smtpBox = new() { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
     private readonly Panel _graphBox = new() { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
@@ -126,7 +126,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
         _graphBox.Dock = DockStyle.Top; _graphBox.Controls.Add(f);
     }
 
-    /// <summary>Kis info-ikon (Segoe MDL2 Assets): buborék-tooltip (súgó) + kattintásra böngészőben nyit.</summary>
+    /// <summary>Small info icon (Segoe MDL2 Assets): tooltip help plus browser link on click.</summary>
     private Label InfoIcon(string tooltip, string url)
     {
         var l = new Label
@@ -139,11 +139,11 @@ public sealed class ServerSettingsView : UserControl, IContentView
             Margin = new Padding(10, 16, 0, 0),
         };
         _tips.SetToolTip(l, tooltip);
-        l.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { /* nincs böngésző */ } };
+        l.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { /* no browser */ } };
         return l;
     }
 
-    /// <summary>Vízszintes sor (szövegdoboz + ikon egymás mellett).</summary>
+    /// <summary>Horizontal row with textbox and icon side by side.</summary>
     private static FlowLayoutPanel HRow(params Control[] cs)
     {
         var p = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0) };
@@ -221,7 +221,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
             _graphSender.Text = s.GraphSender ?? "";
             _graphSecret.Text = ""; _graphSecret.Hint = s.HasGraphSecret ? L.ServerSettingsView_021 : "Client secret";
 
-            // Kötelező lejárat: ha van mentett, azt mutatjuk (clamp), különben default 2 év.
+            // Required expiry: show saved value when present (clamped), otherwise default to 2 years.
             var d = s.GraphSecretExpiresAt?.LocalDateTime.Date ?? _graphExpiry.MaxDate;
             _graphExpiry.Value = d < _graphExpiry.MinDate ? _graphExpiry.MinDate : (d > _graphExpiry.MaxDate ? _graphExpiry.MaxDate : d);
 
@@ -245,16 +245,16 @@ public sealed class ServerSettingsView : UserControl, IContentView
                 SmtpUseTls = _smtpTls.Checked,
                 SmtpUser = _smtpUser.Text.Trim(),
                 SmtpFrom = _smtpFrom.Text.Trim(),
-                SmtpPassword = _smtpPass.Text,       // üres = változatlan (szerver kezeli)
+                SmtpPassword = _smtpPass.Text,       // empty = unchanged, handled by server
                 GraphTenantId = _graphTenant.Text.Trim(),
                 GraphClientId = _graphClient.Text.Trim(),
                 GraphSender = _graphSender.Text.Trim(),
-                GraphClientSecret = _graphSecret.Text, // üres = változatlan
-                GraphSecretExpiresAt = new DateTimeOffset(_graphExpiry.Value.Date), // kötelező
+                GraphClientSecret = _graphSecret.Text, // empty = unchanged
+                GraphSecretExpiresAt = new DateTimeOffset(_graphExpiry.Value.Date), // required
             };
             await _api.UpdateSettingsAsync(info);
             _status.Text = "Mentve.";
-            await LoadAsync(); // frissíti a Has* helykitöltőket
+            await LoadAsync(); // refresh Has* placeholders
         }
         catch (Exception ex) { _status.Text = L.ServerSettingsView_023 + ex.Message; }
     }

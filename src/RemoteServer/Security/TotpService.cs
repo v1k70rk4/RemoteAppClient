@@ -3,16 +3,16 @@ using OtpNet;
 namespace RemoteServer.Security;
 
 /// <summary>
-/// TOTP 2FA (RFC 6238, SHA-1 / 6 jegy / 30s — a standard authenticator appok ezt várják).
-/// A titok base32 stringként készül; nyugalmi tárolásnál a hívó TITKOSÍTJA (SecretProtector).
+/// TOTP 2FA (RFC 6238, SHA-1 / 6 digits / 30s), matching standard authenticator apps.
+/// Secret is generated as base32; caller encrypts it at rest with SecretProtector.
 /// </summary>
 public static class TotpService
 {
-    /// <summary>Új, véletlen TOTP-titok base32 formában (20 bájt entrópia).</summary>
+    /// <summary>New random TOTP secret in base32 form with 20 bytes of entropy.</summary>
     public static string GenerateSecret() =>
         Base32Encoding.ToString(KeyGeneration.GenerateRandomKey(20));
 
-    /// <summary>otpauth:// URI a QR-kódhoz (issuer + fióknév).</summary>
+    /// <summary>otpauth:// URI for QR code, with issuer and account name.</summary>
     public static string BuildUri(string secretBase32, string account, string issuer)
     {
         string Enc(string s) => Uri.EscapeDataString(s);
@@ -20,7 +20,7 @@ public static class TotpService
                $"?secret={secretBase32}&issuer={Enc(issuer)}&algorithm=SHA1&digits=6&period=30";
     }
 
-    /// <summary>Kód ellenőrzése ±1 időablakkal (óracsúszás-tűrés).</summary>
+    /// <summary>Validates code with +/-1 time window for clock skew tolerance.</summary>
     public static bool Verify(string secretBase32, string code)
     {
         if (string.IsNullOrWhiteSpace(code)) return false;

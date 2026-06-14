@@ -5,10 +5,10 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient;
 
 /// <summary>
-/// A HELYI gép VNC-zárának kezelése a kliensből: a flag olvasása, és a tényleges be/ki
-/// kapcsolás az agent exéjén keresztül, EMELT joggal (UAC). A privilegizált műveletet az
-/// agent végzi (vnc-lock/vnc-unlock) — a kliens csak elindítja. Így a zár csak helyi
-/// admin-jelenléttel (UAC) állítható, távolról nem.
+/// Manages the local device VNC lock from the client: reads the flag, then toggles it
+/// through the agent executable elevated by UAC. The privileged operation is performed
+/// by the agent (vnc-lock/vnc-unlock); the client only launches it. This keeps the lock
+/// local-admin-only and not remotely disableable.
 /// </summary>
 public static class LocalVncLock
 {
@@ -22,7 +22,7 @@ public static class LocalVncLock
         catch { return false; }
     }
 
-    /// <summary>Az agent exe útja a RemoteAgent service ImagePath-jából.</summary>
+    /// <summary>Agent executable path from the RemoteAgent service ImagePath.</summary>
     public static string? ResolveAgentExe()
     {
         try
@@ -38,7 +38,7 @@ public static class LocalVncLock
         catch { return null; }
     }
 
-    /// <summary>vnc-lock / vnc-unlock futtatása EMELT joggal (UAC). Igaz, ha a folyamat 0-val tért vissza.</summary>
+    /// <summary>Runs vnc-lock / vnc-unlock elevated by UAC. True when the process exits with 0.</summary>
     public static bool RunElevated(bool lockIt)
     {
         var exe = ResolveAgentExe()

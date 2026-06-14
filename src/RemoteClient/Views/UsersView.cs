@@ -7,8 +7,8 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Admin user-kezelő: lista + ablakon BELÜLI, FÜLES szerkesztő (nem külön ablak).
-/// Felül: „← Vissza | Általános | Jelszó | Jogosultságok | Windows Hello".
+/// Admin user management: list plus in-window tabbed editor, not a separate window.
+/// Top tabs: Back | General | Password | Permissions | Windows Hello.
 /// </summary>
 public sealed class UsersView : UserControl, IContentView
 {
@@ -22,7 +22,7 @@ public sealed class UsersView : UserControl, IContentView
     private readonly MaterialTextBox2 _search = new() { Hint = L.UsersView_001, Width = 360 };
     private readonly List<UserInfo> _users = new();
 
-    // Fülsáv
+    // Tab bar
     private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_003);
     private readonly MaterialButton _tabLog = TabBtn("Log");
     private readonly MaterialButton _tabPassword = TabBtn(L.MainForm_001);
@@ -30,7 +30,7 @@ public sealed class UsersView : UserControl, IContentView
     private readonly MaterialButton _tabHello = TabBtn("Windows Hello");
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
 
-    // Általános fül
+    // General tab
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
     private readonly MaterialTextBox2 _nameBox = new() { Hint = L.UsersView_003, Width = 380 };
     private readonly MaterialTextBox2 _emailBox = new() { Hint = L.ForgotPasswordForm_002, Width = 380 };
@@ -39,11 +39,11 @@ public sealed class UsersView : UserControl, IContentView
     private readonly MaterialLabel _generalStatus = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
     private Panel _generalPanel = null!;
 
-    // Jelszó fül
+    // Password tab
     private readonly MaterialLabel _passwordStatus = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
     private Panel _passwordPanel = null!;
 
-    // Per-user fülek (a kiválasztott userhez újraépítve)
+    // Per-user tabs rebuilt for the selected user.
     private GrantsPanel? _grantsPanel;
     private HelloDevicesPanel? _helloPanel;
     private LogPanel? _logPanel;
@@ -66,7 +66,7 @@ public sealed class UsersView : UserControl, IContentView
 
     private void BuildList()
     {
-        // Felső sáv: keresés + frissítés.
+        // Top bar: search + refresh.
         var tools = ViewUi.Toolbar();
         _search.Margin = new Padding(4, 0, 16, 0);
         _search.TextChanged += (_, _) => RenderList();
@@ -86,14 +86,14 @@ public sealed class UsersView : UserControl, IContentView
         _list.Columns.Add(L.UsersView_005, 140);
         _list.DoubleClick += (_, _) => EditSelected();
 
-        // A tábla alatt jobbra: Tulajdonságok; alatta egy sorral: Új User.
+        // Below table on the right: Properties; next row below: New User.
         var editRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
         var edit = ViewUi.ToolbarButton(L.DevicesView_007);
         edit.Margin = new Padding(4, 0, 4, 0);
         edit.Click += (_, _) => EditSelected();
         editRow.Controls.Add(edit);
 
-        // Új User BALRA: lista-szintű művelet, nem függ a kijelölt sortól.
+        // New User on the left: list-level action independent of selection.
         var newRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
         var newUser = ViewUi.ToolbarButton(L.UsersView_006);
         newUser.Margin = new Padding(4, 0, 4, 0);
@@ -217,7 +217,7 @@ public sealed class UsersView : UserControl, IContentView
             var item = new ListViewItem(u.Username) { Tag = u };
             item.SubItems.Add(u.Name ?? "—");
             item.SubItems.Add(u.Role);
-            item.SubItems.Add(u.IsActive ? "igen" : L.UsersView_038);
+            item.SubItems.Add(u.IsActive ? L.Common_Yes : L.UsersView_038);
             item.SubItems.Add(u.TotpConfirmed ? "ok" : "—");
             item.SubItems.Add(u.HelloCount > 0 ? u.HelloCount.ToString() : "—");
             item.SubItems.Add(u.LastLoginAt?.LocalDateTime.ToString("g") ?? "—");
@@ -237,7 +237,7 @@ public sealed class UsersView : UserControl, IContentView
         _activeSwitch.Checked = u.IsActive;
         _generalStatus.Text = ""; _passwordStatus.Text = "";
 
-        // Per-user fülek frissen
+        // Rebuild per-user tabs.
         _grantsPanel?.Dispose(); _helloPanel?.Dispose(); _logPanel?.Dispose();
         _grantsPanel = new GrantsPanel(_api, u.Id);
         _helloPanel = new HelloDevicesPanel(_api, u.Id);

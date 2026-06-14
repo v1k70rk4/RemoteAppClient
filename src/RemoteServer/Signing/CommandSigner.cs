@@ -7,9 +7,8 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Signing;
 
 /// <summary>
-/// Aláírt parancsokat állít elő a szerver privát kulcsával. A tényleges aláírás a
-/// KÖZÖS <see cref="CommandSignature"/>-rel történik (Contracts) — így a kliens
-/// ellenőrzése és a szerver aláírása definíció szerint egyezik.
+/// Creates signed commands with the server private key. Actual signing uses the shared
+/// <see cref="CommandSignature"/> from Contracts, so client verification and server signing match by definition.
 /// </summary>
 public sealed class CommandSigner : IDisposable
 {
@@ -26,10 +25,10 @@ public sealed class CommandSigner : IDisposable
         _privateKey.ImportFromPem(File.ReadAllText(path));
     }
 
-    /// <summary>A publikus kulcs Base64 SPKI-ben (ezt kapja az agent enrollkor).</summary>
+    /// <summary>Public key as Base64 SPKI, sent to agents during enrollment.</summary>
     public string PublicKeySpkiBase64 => Convert.ToBase64String(_privateKey.ExportSubjectPublicKeyInfo());
 
-    /// <summary>Új, friss nonce-szal és időbélyeggel ellátott, aláírt parancs.</summary>
+    /// <summary>New signed command with fresh nonce and timestamp.</summary>
     public AgentCommand Create(string type, CommandData? data = null)
     {
         var cmd = new AgentCommand

@@ -5,9 +5,9 @@ using Konscious.Security.Cryptography;
 namespace RemoteServer.Security;
 
 /// <summary>
-/// Argon2id jelszó-hash. A hash önleíró: tartalmazza a paramétereket + sót, így a
-/// paraméterek később emelhetők a meglévő hashek érvénytelenítése nélkül.
-/// Formátum: <c>$argon2id$m=&lt;kib&gt;,t=&lt;iter&gt;,p=&lt;par&gt;$&lt;saltB64&gt;$&lt;hashB64&gt;</c>
+/// Argon2id password hash. Hashes are self-describing: they include parameters plus salt,
+/// so parameters can be raised later without invalidating existing hashes.
+/// Format: <c>$argon2id$m=&lt;kib&gt;,t=&lt;iter&gt;,p=&lt;par&gt;$&lt;saltB64&gt;$&lt;hashB64&gt;</c>
 /// </summary>
 public static class PasswordHasher
 {

@@ -6,9 +6,9 @@ using RemoteServer.Data.Entities;
 namespace RemoteServer.Services;
 
 /// <summary>
-/// Session-kezelés: token létrehozás (a nyers tokent csak a kliens kapja, a DB-ben hash van),
-/// validálás (lejárat + visszavonás), visszavonás. A session a felhasználó identitását hordozza
-/// a konzol-hívásokhoz; a transportot a gép SSH-tunnelje adja (csak fleet-gépről érhető el).
+/// Session management: token creation (raw token only goes to client, DB stores hash),
+/// validation (expiry + revocation), and revocation. Session carries user identity for
+/// console calls; transport is provided by the device SSH tunnel and reachable only from fleet devices.
 /// </summary>
 public sealed class AuthService(AppDbContext db)
 {
@@ -27,7 +27,7 @@ public sealed class AuthService(AppDbContext db)
         return raw;
     }
 
-    /// <summary>A tokenhez tartozó user (szerepekkel) + session, ha érvényes; különben null.</summary>
+    /// <summary>User with roles plus session for a valid token; otherwise null.</summary>
     public async Task<(User User, UserSession Session)?> ValidateAsync(string? token, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(token)) return null;
@@ -59,7 +59,7 @@ public sealed class AuthService(AppDbContext db)
         }
     }
 
-    /// <summary>Egy user összes élő sessionjének visszavonása (kitiltás/jogmegvonás).</summary>
+    /// <summary>Revokes all live sessions of a user for lockout or permission removal.</summary>
     public async Task RevokeAllForUserAsync(Guid userId, CancellationToken ct)
     {
         var live = await db.UserSessions.Where(s => s.UserId == userId && s.RevokedAt == null).ToListAsync(ct);
@@ -73,7 +73,7 @@ public sealed class AuthService(AppDbContext db)
 
     public static bool IsAdmin(User u) => u.UserRoles.Any(r => r.Role.Name == "admin");
 
-    /// <summary>Egy user grantjai: a grantolt csoport-Id-k és gép-Id-k halmaza.</summary>
+    /// <summary>User grants: sets of granted group IDs and device IDs.</summary>
     public async Task<(HashSet<Guid> GroupIds, HashSet<Guid> DeviceIds)> GrantsAsync(Guid userId, CancellationToken ct)
     {
         var grants = await db.UserGrants.Where(g => g.UserId == userId).ToListAsync(ct);
@@ -81,7 +81,7 @@ public sealed class AuthService(AppDbContext db)
                 grants.Where(g => g.DeviceId != null).Select(g => g.DeviceId!.Value).ToHashSet());
     }
 
-    /// <summary>Hozzáfér-e az operator az adott géphez (csoport-grant VAGY gép-grant alapján)?</summary>
+    /// <summary>Whether an operator can access the device through group or device grant.</summary>
     public static bool CanAccessDevice(Device d, HashSet<Guid> groupIds, HashSet<Guid> deviceIds) =>
         (d.GroupId is { } g && groupIds.Contains(g)) || deviceIds.Contains(d.Id);
 

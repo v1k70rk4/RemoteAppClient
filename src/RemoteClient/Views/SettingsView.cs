@@ -6,7 +6,7 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Beállítások: Megjelenés (téma: Világos / Sötét / Automata) + Helyi zár.</summary>
+/// <summary>Settings: Appearance (Light / Dark / Auto theme), language, and local lock.</summary>
 public sealed class SettingsView : UserControl, IContentView
 {
     private readonly LocalLockView _lock = new();
@@ -55,8 +55,8 @@ public sealed class SettingsView : UserControl, IContentView
         top.Controls.Add(_languageStatus);
         top.Controls.Add(new MaterialDivider { Width = 460, Margin = new Padding(0, 16, 0, 0) });
 
-        if (_isAdmin) Controls.Add(_lock); // Fill — a Helyi zár CSAK adminnak
-        Controls.Add(top);                 // Top — Megjelenés
+        if (_isAdmin) Controls.Add(_lock); // Fill; local lock is admin-only
+        Controls.Add(top);                 // Top; appearance/language
     }
 
     private void SelectMode(string mode)

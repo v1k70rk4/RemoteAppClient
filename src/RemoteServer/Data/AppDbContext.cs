@@ -62,7 +62,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             e.HasIndex(x => x.DeviceId).IsUnique();
             e.HasIndex(x => x.Status);
-            e.HasIndex(x => x.TunnelPort).IsUnique(); // egyedi bástya-port (NULL többször is lehet)
+            e.HasIndex(x => x.TunnelPort).IsUnique(); // unique bastion port; multiple NULLs allowed
             e.HasOne(x => x.Group).WithMany(g => g.Devices).HasForeignKey(x => x.GroupId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
@@ -98,8 +98,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<AuditLog>(e =>
         {
             e.HasIndex(x => x.CreatedAt);
-            // A detail ember-olvasható szabad szöveg (nem JSON) — longtext, hogy a MariaDB
-            // json_valid CHECK ne utasítsa el. (Korábban json volt → minden detailes audit elbukott.)
+            // Detail is human-readable free text, not JSON. Use longtext so MariaDB json_valid
+            // CHECK does not reject it. When it was json, audit rows with detail failed.
             e.Property(x => x.DetailJson).HasColumnType("longtext");
         });
     }

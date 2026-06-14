@@ -6,27 +6,27 @@ using RemoteAgent.Commands;
 namespace RemoteAgent.Enrollment;
 
 /// <summary>
-/// Token nélküli ön-telepítés "bootstrap blobja": egyetlen, bemásolható string, ami
-/// megmondja az agentnek HOVÁ (szerver-URL) és MIVEL (site-token) léptessen be.
-/// A szerver generálja (a saját URL-jéből + egy long-lived, AutoApprove=false tokenből),
-/// az ügyfél a telepítőbe teszi. A kód SOHA nem tartalmaz szerver-adatot — az itt utazik.
+/// Bootstrap blob for tokenless self-install: a single copyable string that tells the
+/// agent where to enroll (server URL) and with what (site token).
+/// The server generates it from its own URL and a long-lived AutoApprove=false token,
+/// then the customer embeds it in the installer. The code never hardcodes server data.
 /// </summary>
 public sealed class BootstrapBlob
 {
-    /// <summary>A szerver bázis-URL-je (pl. https://c2.pelda.hu), amihez az agent /enroll-t fűz.</summary>
+    /// <summary>Server base URL, for example https://c2.example.com; the agent appends /enroll.</summary>
     [JsonPropertyName("url")]
     public string Url { get; set; } = string.Empty;
 
-    /// <summary>A site/bootstrap token (long-lived, visszavonható; a gép Pending-be kerül vele).</summary>
+    /// <summary>Site/bootstrap token, long-lived and revocable; the device enters Pending with it.</summary>
     [JsonPropertyName("token")]
     public string Token { get; set; } = string.Empty;
 
-    /// <summary>Opcionális: a szerver TLS/CA pin (self-signed esetén); publikus CA-nál üres.</summary>
+    /// <summary>Optional server TLS/CA pin for self-signed deployments; empty for public CAs.</summary>
     [JsonPropertyName("caPin")]
     public string? CaPin { get; set; }
 }
 
-/// <summary>A bootstrap blob be-/kikódolása: base64url(JSON). Nem titkosít — a token a titok.</summary>
+/// <summary>Encodes and decodes the bootstrap blob as base64url(JSON). It is not encrypted; the token is the secret.</summary>
 public static class BootstrapCodec
 {
     public static string Encode(BootstrapBlob blob)

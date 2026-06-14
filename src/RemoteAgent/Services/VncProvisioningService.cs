@@ -12,10 +12,10 @@ using L = RemoteAgent.Localization.Strings;
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Induláskor gondoskodik a VNC-ről: ha még nincs provisionálva, telepíti+hardeneli
-/// egy gépenként egyedi jelszóval, majd a jelszót jelenti a szervernek (mTLS), hogy
-/// az admin tudjon csatlakozni. A jelszót helyben is eltárolja (vnc.secret), hogy
-/// újraindításkor ne rotálódjon (és ne kelljen újraindítani a tvnservert).
+/// Ensures VNC is ready at startup. If not provisioned yet, installs and hardens it with
+/// a unique per-device password, then reports the password to the server over mTLS so
+/// admins can connect. The password is stored locally in vnc.secret to avoid rotation
+/// and tvnserver restart on every boot.
 /// </summary>
 public sealed class VncProvisioningService(
     IOptions<AgentOptions> options,
@@ -25,8 +25,8 @@ public sealed class VncProvisioningService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // HELYI VNC-zár: ha az admin letiltotta a gépet, NEM provisionálunk — sőt kényszerítjük
-        // a leállított+disabled állapotot. A zárat csak helyben lehet feloldani.
+        // Local VNC lock: if an admin disabled this device, do not provision. Enforce
+        // stopped+disabled instead. The lock can only be released locally.
         if (VncLock.IsLocked())
         {
             VncLock.Enforce();
@@ -60,14 +60,14 @@ public sealed class VncProvisioningService(
                 if (!string.IsNullOrEmpty(password))
                     await ReportSecretAsync(password, stoppingToken);
             }
-            catch (OperationCanceledException) { /* leállás */ }
+            catch (OperationCanceledException) { /* shutdown */ }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, L.VncProvisioningService_002);
             }
         }
 
-        // Folyamatos zár-kényszerítés: ha közben letiltják (vagy valami visszaindítja a tvnservert).
+        // Continuous lock enforcement if it is disabled later or something restarts tvnserver.
         while (!stoppingToken.IsCancellationRequested)
         {
             try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }

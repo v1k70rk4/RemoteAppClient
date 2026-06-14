@@ -7,15 +7,15 @@ using L = RemoteServer.Localization.Strings;
 namespace RemoteServer.Signing;
 
 /// <summary>
-/// Az agent SSH-publikus kulcsát aláírja a bástya SSH-CA-jával (ssh-keygen -s),
-/// "agent" principal-lal és lejárattal. A bástya a TrustedUserCAKeys révén bízik a
-/// CA-ban, így nem kell authorized_keys-t kezelni. Linux-only (ssh-keygen kell).
+/// Signs agent SSH public keys with the bastion SSH CA (ssh-keygen -s), using the "agent"
+/// principal and expiry. Bastion trusts the CA through TrustedUserCAKeys, so authorized_keys
+/// management is unnecessary. Linux-only because ssh-keygen is required.
 /// </summary>
 public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILogger<SshCertificateAuthority> logger)
 {
     private readonly BastionOptions _opt = options.Value.Bastion;
 
-    /// <summary>Visszaadja az aláírt SSH-certet (OpenSSH cert), vagy null ha nem sikerült.</summary>
+    /// <summary>Returns the signed SSH certificate (OpenSSH cert), or null on failure.</summary>
     public async Task<string?> SignAsync(string sshPublicKey, string deviceId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(sshPublicKey))
@@ -41,7 +41,7 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
             };
             psi.ArgumentList.Add("-s"); psi.ArgumentList.Add(_opt.SshCaKeyPath);
             psi.ArgumentList.Add("-I"); psi.ArgumentList.Add(deviceId);
-            psi.ArgumentList.Add("-n"); psi.ArgumentList.Add(_opt.User);              // principal = bástya user
+            psi.ArgumentList.Add("-n"); psi.ArgumentList.Add(_opt.User);              // principal = bastion user
             psi.ArgumentList.Add("-V"); psi.ArgumentList.Add($"+{_opt.SshCertValidityDays}d");
             psi.ArgumentList.Add("-z"); psi.ArgumentList.Add(RandomNumberGenerator.GetInt32(1, int.MaxValue).ToString());
             psi.ArgumentList.Add(pubPath);

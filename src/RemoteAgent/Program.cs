@@ -11,20 +11,20 @@ using RemoteAgent.Tunnel;
 
 RemoteAgent.Globalization.RuntimeLanguage.ApplyFromSharedSettings();
 
-// "enroll" mód: telepítéskori, emberi lépés — nem a service-t indítja, hanem beléptet.
+// "enroll" mode: install-time interactive step; enrolls the device instead of starting the service.
 if (args is ["enroll", ..])
     return await EnrollCommand.RunAsync(args[1..]);
 
-// "provision-vnc" mód: a TightVNC csendes telepítése + hardening (admin/SYSTEM kell).
+// "provision-vnc" mode: silent TightVNC install and hardening; requires admin/SYSTEM.
 if (args is ["provision-vnc", ..])
     return await RemoteAgent.Vnc.VncProvisioner.RunAsync(args[1..]);
 
-// Helyi VNC-zár (admin/SYSTEM kell): a távoli elérés letiltása/feloldása ezen a gépen.
+// Local VNC lock (admin/SYSTEM): disables or enables remote access on this device.
 if (args is ["vnc-lock", ..]) return RemoteAgent.Vnc.VncLock.Lock();
 if (args is ["vnc-unlock", ..]) return RemoteAgent.Vnc.VncLock.Unlock();
 
-// Service telepítése/eltávolítása (admin kell). Opcionális: --owner "<név>" --group "<csoport>"
-// → a megjelenített szolgáltatás-név "{owner} RemoteAppClient Agent ({group})".
+// Service install/uninstall (admin). Optional: --owner "<name>" --group "<group>".
+// Display name becomes "{owner} RemoteAppClient Agent ({group})".
 if (args is ["install-service", ..])
     return await RemoteAgent.ServiceControl.InstallAsync(ArgVal(args, "--owner"), ArgVal(args, "--group"));
 if (args is ["uninstall-service", ..]) return await RemoteAgent.ServiceControl.UninstallAsync();
@@ -35,30 +35,30 @@ static string? ArgVal(string[] a, string flag)
     return i >= 0 && i + 1 < a.Length ? a[i + 1] : null;
 }
 
-// "bootstrap <blob>" mód: token nélküli ön-telepítés előkészítése (lerakja a bootstrap.dat-ot).
+// "bootstrap <blob>" mode: prepares tokenless self-install by writing bootstrap.dat.
 if (args is ["bootstrap", var bootstrapBlob, ..])
     return RemoteAgent.Enrollment.BootstrapEnroller.WriteBootstrapFile(bootstrapBlob, @"C:\ProgramData\RemoteAgent");
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// Windows service-ként fut (SYSTEM alatt). Konzolból is indul (debug).
+// Runs as a Windows service under SYSTEM. It can also run from console for debugging.
 builder.Services.AddWindowsService(o => o.ServiceName = "RemoteAgent");
 
-// Egy háttérszolgáltatás hibája NE állítsa le az egész agentet (pl. hiányzó cert
-// beléptetés előtt) — a szolgáltatások maguk kezelik/újrapróbálják.
+// A background-service failure should not stop the whole agent, for example while the
+// certificate is missing before enrollment; services handle and retry their own failures.
 builder.Services.Configure<HostOptions>(o =>
     o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 
-// Logolás: konzol + Windows EventLog (SYSTEM service-nél ez a látható napló).
+// Logging: console plus Windows EventLog, which is the visible log for the SYSTEM service.
 builder.Logging.AddEventLog(o => o.SourceName = "RemoteAgent");
 
-// Konfiguráció kötése.
+// Bind configuration.
 builder.Services.Configure<AgentOptions>(
     builder.Configuration.GetSection(AgentOptions.SectionName));
 
-// Beléptetés bekötése: ha van enrollment.json, az adja a szerver-URL-eket és a
-// kliens-cert PFX-et (felülírja az appsettings placeholdereket). Ez a forrása annak,
-// hová és milyen identitással csatlakozik a beléptetett gép.
+// Enrollment binding: when enrollment.json exists, it supplies server URLs and the
+// client-cert PFX, overriding appsettings placeholders. This defines where and with
+// which identity an enrolled device connects.
 builder.Services.PostConfigure<AgentOptions>(opt =>
 {
     var path = Path.Combine(opt.EnrollmentDir, "enrollment.json");
@@ -69,7 +69,7 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     catch { return; }
     if (rec is null || string.IsNullOrWhiteSpace(rec.ServerUrl)) return;
 
-    if (!string.IsNullOrWhiteSpace(rec.DeviceId)) opt.AgentId = rec.DeviceId; // a szerver-oldali DeviceId (cert CN)
+    if (!string.IsNullOrWhiteSpace(rec.DeviceId)) opt.AgentId = rec.DeviceId; // server-side DeviceId (cert CN)
     var baseUrl = rec.ServerUrl.TrimEnd('/');
     opt.CommandChannel.Url = baseUrl.Replace("https://", "wss://").Replace("http://", "ws://") + "/agent";
     opt.Telemetry.IngestUrl = baseUrl + "/api/telemetry";
@@ -77,7 +77,7 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     if (!string.IsNullOrWhiteSpace(rec.CommandSigningPublicKey))
         opt.CommandChannel.CommandSigningPublicKey = rec.CommandSigningPublicKey;
 
-    // Bástya-tunnel konfig az enrollmentből.
+    // Bastion tunnel config from enrollment.
     if (!string.IsNullOrWhiteSpace(rec.BastionHost))
     {
         opt.Tunnel.BastionHost = rec.BastionHost;
@@ -89,7 +89,7 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     }
 });
 
-// Megosztott állapot és infrastruktúra.
+// Shared state and infrastructure.
 builder.Services.AddSingleton<CommandBus>();
 builder.Services.AddSingleton<TunnelState>();
 builder.Services.AddSingleton<AgentStatusState>();
@@ -98,7 +98,7 @@ builder.Services.AddSingleton<CommandVerifier>();
 builder.Services.AddSingleton<SystemInfoCollector>();
 builder.Services.AddSingleton<RemoteAgent.Update.UpdateInstaller>();
 
-// A három háttérszolgáltatás.
+// Background services.
 builder.Services.AddHostedService<CommandChannelService>();
 builder.Services.AddHostedService<TunnelOrchestratorService>();
 builder.Services.AddHostedService<TelemetryService>();
@@ -108,8 +108,8 @@ builder.Services.AddHostedService<HelperUpdateWatcher>();
 builder.Services.AddHostedService<BrokerService>();
 builder.Services.AddHostedService<StatusPipeService>();
 
-// Token nélküli ön-telepítés: ha nincs enrollment, de van bootstrap.dat, beléptet MOST —
-// a host felépülése (és a PostConfigure enrollment.json-olvasása) ELŐTT.
+// Tokenless self-install: when there is no enrollment but bootstrap.dat exists, enroll now,
+// before the host is built and before PostConfigure reads enrollment.json.
 var enrollDir = builder.Configuration["Agent:EnrollmentDir"];
 await RemoteAgent.Enrollment.BootstrapEnroller.TryEnrollAsync(
     string.IsNullOrWhiteSpace(enrollDir) ? @"C:\ProgramData\RemoteAgent" : enrollDir);

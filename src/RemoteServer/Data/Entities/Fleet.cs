@@ -1,15 +1,15 @@
 namespace RemoteServer.Data.Entities;
 
-/// <summary>Eszközcsoport. A consent/unattended alapértelmezés csoportszinten dől el.</summary>
+/// <summary>Device group. consent/unattended defaults are decided at group level.</summary>
 public sealed class DeviceGroup
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Megtekintés előtt kell-e a felhasználó hozzájárulása.</summary>
+    /// <summary>Whether user consent is required before viewing.</summary>
     public bool ConsentRequired { get; set; }
 
-    /// <summary>Engedélyezett-e az unattended (felügyelet nélküli) hozzáférés.</summary>
+    /// <summary>Whether unattended access is allowed.</summary>
     public bool UnattendedAllowed { get; set; } = true;
 
     public string? Note { get; set; }
@@ -17,12 +17,12 @@ public sealed class DeviceGroup
     public ICollection<Device> Devices { get; set; } = [];
 }
 
-/// <summary>Egy felügyelt gép. A per-device identitás + a jóváhagyási állapot („licenc") horgonya.</summary>
+/// <summary>A managed device. Anchor for per-device identity and approval state.</summary>
 public sealed class Device
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    /// <summary>Stabil, agent-oldali gépazonosító (a cert CN-je is ez).</summary>
+    /// <summary>Stable agent-side device identifier, also used as certificate CN.</summary>
     public string DeviceId { get; set; } = string.Empty;
 
     public string Hostname { get; set; } = string.Empty;
@@ -32,32 +32,32 @@ public sealed class Device
 
     public DeviceStatus Status { get; set; } = DeviceStatus.Pending;
 
-    /// <summary>Gép-szintű override a csoport ConsentRequired-jéhez (null = örökli a csoportét).</summary>
+    /// <summary>Device-level override for group ConsentRequired. Null inherits from group.</summary>
     public bool? ConsentRequired { get; set; }
 
-    /// <summary>Mehet-e erre a gépre frissítés. False = befagyasztva (pl. teszt/karantén).</summary>
+    /// <summary>Whether updates may be sent to this device. False = frozen, for example test/quarantine.</summary>
     public bool UpdateAllowed { get; set; } = true;
 
-    /// <summary>Release-csatorna: "rtm" (alap) vagy "beta". A BETA-gépek a beta csatorna csomagjait kapják.</summary>
+    /// <summary>Release channel: "rtm" (default) or "beta". Beta devices receive beta channel packages.</summary>
     public string Channel { get; set; } = "rtm";
 
-    /// <summary>Engedélyezett-e az unattended hozzáférés (null = örökli a csoportét).</summary>
+    /// <summary>Whether unattended access is allowed. Null inherits from group.</summary>
     public bool? UnattendedAllowed { get; set; }
 
-    /// <summary>A gép stabil, egyedi bástya-portja a reverse tunnelhez (enrollkor kiosztva).</summary>
+    /// <summary>Stable unique bastion port for the device reverse tunnel, assigned at enrollment.</summary>
     public int? TunnelPort { get; set; }
 
-    /// <summary>Az agent mTLS kliens-certjének ujjlenyomata.</summary>
+    /// <summary>Agent mTLS client certificate thumbprint.</summary>
     public string? CertThumbprint { get; set; }
 
-    /// <summary>Az agent SSH publikus kulcsa (a bástya authorized_keys-éhez).</summary>
+    /// <summary>Agent SSH public key for bastion authorized_keys/CA flows.</summary>
     public string? SshPublicKey { get; set; }
 
-    /// <summary>Gépenként egyedi VNC-jelszó, TITKOSÍTVA. Loopback-only mellett a helyi hozzáférést zárja.</summary>
+    /// <summary>Per-device VNC password, encrypted. With loopback-only it gates local access.</summary>
     public string? VncSecret { get; set; }
     public DateTimeOffset? VncSecretUpdatedAt { get; set; }
 
-    // Denormalizált, gyors listázáshoz a legutóbbi telemetriából.
+    // Denormalized from the latest telemetry for fast listing.
     public string? AgentVersion { get; set; }
     public string? HelperVersion { get; set; }
     public string? VncVersion { get; set; }
@@ -65,22 +65,22 @@ public sealed class Device
     public string? OsVersion { get; set; }
     public DateTimeOffset? LastSeenAt { get; set; }
 
-    /// <summary>A Helper supervisor által jelzett agent-újraindítások száma + utolsó incidens (megfigyelhetőség).</summary>
+    /// <summary>Agent restart count and last incident reported by Helper supervisor for observability.</summary>
     public int AgentRestarts { get; set; }
     public string? LastIncident { get; set; }
 
-    /// <summary>A gépen HELYILEG letiltották-e a távoli elérést (VNC-zár). Csak megjelenítés — a kényszerítés lokális.</summary>
+    /// <summary>Whether remote access was disabled locally on the device (VNC lock). Display only; enforcement is local.</summary>
     public bool VncLocked { get; set; }
 
-    // Részletes telemetria a legutóbbi jelentésből (denormalizált, megjelenítéshez).
+    // Detailed telemetry from the latest report, denormalized for display.
     public DateTimeOffset? BootTimeUtc { get; set; }
     public string? IpAddress { get; set; }
-    /// <summary>A publikus IP, ahonnan az agent csatlakozik (a telemetria-kérés forrás-IP-je).</summary>
+    /// <summary>Public IP where the agent connects from, observed from the telemetry request source IP.</summary>
     public string? PublicIpAddress { get; set; }
 
-    // Sikertelen-belépés számláló + zárolás (brute-force védelem; gép-szinten).
+    // Failed-login counter and lockout for device-level brute-force protection.
     public int LoginFailCount { get; set; }
-    /// <summary>Ha nem null: a gépről le van tiltva a belépés (5 sikertelen próba). Csak admin oldja fel.</summary>
+    /// <summary>When not null, sign-in from this device is locked after 5 failures. Admin-only unlock.</summary>
     public DateTimeOffset? LoginLockedAt { get; set; }
     public string? WifiSsid { get; set; }
     public bool VpnActive { get; set; }
@@ -88,17 +88,17 @@ public sealed class Device
 
     public DateTimeOffset EnrolledAt { get; set; } = DateTimeOffset.UtcNow;
 
-    /// <summary>Admin-megjegyzés (használó neve stb.), TITKOSÍTVA tárolva (érzékeny lehet).</summary>
+    /// <summary>Admin note such as user name, stored encrypted because it may be sensitive.</summary>
     public string? Note { get; set; }
 }
 
-/// <summary>Telemetria-történet, append-only. A nyers payload JSON-ként; retencióval ürül.</summary>
+/// <summary>Append-only telemetry history. Raw payload stored as JSON and cleared by retention.</summary>
 public sealed class DeviceTelemetry
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid DeviceId { get; set; }
     public DateTimeOffset CollectedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    /// <summary>A teljes TelemetryPayload JSON-je.</summary>
+    /// <summary>Full TelemetryPayload JSON.</summary>
     public string PayloadJson { get; set; } = "{}";
 }

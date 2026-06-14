@@ -2,25 +2,25 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Windows-verziós TFM kell a WinRT-hez (Windows Hello / KeyCredentialManager). -->
+    <!-- Windows-specific TFM is required for WinRT (Windows Hello / KeyCredentialManager). -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
-    <!-- MaterialSkin.2 fix pixel-méretű betűkkel rajzol, nulla DPI-skálázással → PerMonitorV2 alatt
-         4K/200%-on pöttöm. DpiUnaware: a Windows egyenletes (bilineáris) skálázással a HELYES fizikai
-         méretre nagyítja az ablakot — kicsit lágy, de nem pixeles (a GdiScaled félrenderelése pixelesedett). -->
+    <!-- MaterialSkin.2 draws fixed-pixel fonts with no DPI scaling, so PerMonitorV2 is tiny on
+         4K/200%. DpiUnaware lets Windows scale the window to the correct physical size with
+         smooth bilinear scaling; a little soft, but not pixelated like partial GdiScaled rendering. -->
     <ApplicationHighDpiMode>DpiUnaware</ApplicationHighDpiMode>
     <RootNamespace>RemoteClient</RootNamespace>
     <AssemblyName>RemoteClient</AssemblyName>
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
 
-    <!-- Verzió: ezt olvassa ki az önfrissítés (és a feltöltőben az exe verziója). Kiadáskor bumpold. -->
+    <!-- Version read by self-update and by upload tooling from the exe. Bump on release. -->
     <Version>1.2.0.0</Version>
 
-    <!-- Önfrissítés: EGYETLEN exe legyen (egy DLL-t nem lehet futás közben cserélni),
-         self-contained (nem kell .NET a gépre). A publish ezt az egy exét adja. -->
+    <!-- Self-update needs one exe because DLLs cannot be replaced while loaded.
+         Self-contained means no .NET runtime required on the target device. Publish emits that exe. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
@@ -31,9 +31,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- TOTP QR-kód rajzolása (PngByteQRCode — nem kell System.Drawing a generáláshoz). -->
+    <!-- TOTP QR code rendering with PngByteQRCode, without System.Drawing generation. -->
     <PackageReference Include="QRCoder" Version="1.6.0" />
-    <!-- Modern Material Design kinézet (sötét/világos téma, kártyák, fülek). -->
+    <!-- Modern Material Design look with dark/light theme, cards, and tabs. -->
     <PackageReference Include="MaterialSkin.2" Version="2.3.1" />
   </ItemGroup>
 
