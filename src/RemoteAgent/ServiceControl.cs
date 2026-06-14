@@ -49,7 +49,10 @@ public static class ServiceControl
     public static async Task<int> UninstallAsync()
     {
         await RemoveServiceAsync(UpdaterServiceName);
-        return await RemoveServiceAsync(ServiceName);
+        var rc = await RemoveServiceAsync(ServiceName);
+        // Also tear down the managed TightVNC server (service + files + registry) on uninstall.
+        try { RemoteAgent.Vnc.VncProvisioner.Remove(); } catch { /* best effort */ }
+        return rc;
     }
 
     private static async Task<int> InstallServiceAsync(string name, string exe, string displayName, string description)

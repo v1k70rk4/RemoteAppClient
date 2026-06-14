@@ -39,10 +39,11 @@ public sealed class VncProvisioningService(
                 var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
                 string? password = File.Exists(secretFile) ? File.ReadAllText(secretFile).Trim() : null;
 
+                var msi = Path.Combine(AppContext.BaseDirectory, "vnc", "tightvnc.msi");
+
                 if (string.IsNullOrEmpty(password))
                 {
                     password = VncProvisioner.GeneratePassword();
-                    var msi = Path.Combine(AppContext.BaseDirectory, "vnc", "tightvnc.msi");
                     try
                     {
                         await VncProvisioner.EnsureInstalledAsync(msi);
@@ -56,6 +57,12 @@ public sealed class VncProvisioningService(
                         password = null;
                     }
                 }
+                else
+                {
+                    // Already provisioned: self-heal at startup (reinstall/re-harden/restart only if needed).
+                    try { await VncProvisioner.EnsureHealthyAsync(password, msi); }
+                    catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM); }
+                }
 
                 if (!string.IsNullOrEmpty(password))
                     await ReportSecretAsync(password, stoppingToken);
@@ -67,12 +74,24 @@ public sealed class VncProvisioningService(
             }
         }
 
-        // Continuous lock enforcement if it is disabled later or something restarts tvnserver.
+        // Continuous watchdog: when locked, keep tvnserver stopped/disabled; otherwise keep it
+        // installed, hardened and running (self-healing if removed, tampered with, or stopped).
+        var msiPath = Path.Combine(AppContext.BaseDirectory, "vnc", "tightvnc.msi");
         while (!stoppingToken.IsCancellationRequested)
         {
             try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
             catch (OperationCanceledException) { break; }
-            if (VncLock.IsLocked()) VncLock.Enforce();
+
+            if (VncLock.IsLocked()) { VncLock.Enforce(); continue; }
+
+            try
+            {
+                var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
+                var pw = File.Exists(secretFile) ? File.ReadAllText(secretFile).Trim() : null;
+                if (!string.IsNullOrEmpty(pw))
+                    await VncProvisioner.EnsureHealthyAsync(pw, msiPath);
+            }
+            catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VNCPasswordReportFailed); }
         }
     }
 

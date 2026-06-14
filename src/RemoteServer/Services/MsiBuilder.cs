@@ -180,13 +180,22 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         var ownerArg = string.IsNullOrWhiteSpace(ownerName) ? "" : $" --owner &quot;{X(AsciiFold(ownerName!))}&quot;";
         var groupArg = $" --group &quot;{X(AsciiFold(label))}&quot;";
         sb.AppendLine($"""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service{ownerArg}{groupArg}" Execute="deferred" Impersonate="no" Return="check" />""");
-        // Uninstall is handled declaratively by ServiceControl (stop + delete both services), which runs
-        // before RemoveFiles and unlocks the executables — no custom action needed (and no 2753 risk).
+        // Full teardown on uninstall runs the agent's "uninstall-service", which stops the Updater (Helper) FIRST
+        // then the Agent — the Helper's watchdog would otherwise restart the Agent mid-uninstall — and also removes
+        // TightVNC (service + files + registry). It runs BEFORE StopServices so the supervisor is gone before the
+        // agent. ServiceControl is the backstop. We route through "uninstall-service" (not "remove-vnc") because
+        // older bundled agents already know that verb and exit cleanly; an unknown verb would launch the host and
+        // hang the uninstall. The exe path is captured into a property (CustomActionData) by the immediate action.
+        // Best-effort (Return="ignore"). Skipped during major upgrades (UPGRADINGPRODUCTCODE) so nothing is churned.
+        sb.AppendLine("""    <CustomAction Id="CA.SetUninst" Property="CA.Uninst" Value="&quot;[#F.Agent]&quot;" Execute="immediate" />""");
+        sb.AppendLine("""    <CustomAction Id="CA.Uninst" Property="CA.Uninst" ExeCommand="uninstall-service" Execute="deferred" Impersonate="no" Return="ignore" />""");
         sb.AppendLine("""    <InstallExecuteSequence>""");
         // wixl places MajorUpgrade RemoveExistingProducts before InstallInitialize (1401), which
         // causes "transaction not started" (2762) during upgrade. Move it after.
         sb.AppendLine("""      <RemoveExistingProducts After="InstallInitialize" />""");
         sb.AppendLine("""      <Custom Action="CA.InstallSvc" After="InstallFiles">NOT Installed</Custom>""");
+        sb.AppendLine("""      <Custom Action="CA.SetUninst" Before="CA.Uninst">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>""");
+        sb.AppendLine("""      <Custom Action="CA.Uninst" Before="StopServices">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>""");
         sb.AppendLine("""    </InstallExecuteSequence>""");
 
         sb.AppendLine("""  </Product>""");

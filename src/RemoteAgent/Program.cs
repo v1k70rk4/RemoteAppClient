@@ -23,6 +23,9 @@ if (args is ["provision-vnc", ..])
 if (args is ["vnc-lock", ..]) return RemoteAgent.Vnc.VncLock.Lock();
 if (args is ["vnc-unlock", ..]) return RemoteAgent.Vnc.VncLock.Unlock();
 
+// "remove-vnc" mode: force-remove TightVNC (service + files + registry). Used by the MSI uninstall.
+if (args is ["remove-vnc", ..]) return RemoteAgent.Vnc.VncProvisioner.Remove();
+
 // Service install/uninstall (admin). Optional: --owner "<name>" --group "<group>".
 // Display name becomes "{owner} RemoteAppClient Agent ({group})".
 if (args is ["install-service", ..])

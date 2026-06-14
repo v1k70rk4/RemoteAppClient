@@ -63,6 +63,64 @@ public static class VncProvisioner
         return true;
     }
 
+    /// <summary>
+    /// Watchdog: keeps tvnserver installed, hardened and running. Re-hardens only on configuration
+    /// drift (which restarts the service), so a healthy server is left untouched on every tick.
+    /// </summary>
+    public static async Task EnsureHealthyAsync(string password, string msiPath)
+    {
+        if (!ServiceExists())
+        {
+            await EnsureInstalledAsync(msiPath);
+            ApplyHardening(password); // writes config + starts the service
+            return;
+        }
+        if (!IsHardened(password))
+        {
+            ApplyHardening(password); // re-applies config and restarts (also brings it up if stopped)
+            return;
+        }
+        if (!IsRunning())
+            RunNet("start", ServiceName);
+    }
+
+    /// <summary>Whether tvnserver is currently in the RUNNING state.</summary>
+    public static bool IsRunning()
+    {
+        try
+        {
+            using var proc = Process.Start(new ProcessStartInfo("sc", $"query {ServiceName}")
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true })!;
+            var outp = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit();
+            return outp.Contains("RUNNING", StringComparison.Ordinal);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Whether the hardened config (loopback-only, no HTTP, our password) is present in both registry views.</summary>
+    public static bool IsHardened(string password)
+    {
+        var enc = VncPassword.Encrypt(password);
+        return IsHardenedView(RegistryView.Registry64, enc) && IsHardenedView(RegistryView.Registry32, enc);
+    }
+
+    private static bool IsHardenedView(RegistryView view, byte[] enc)
+    {
+        try
+        {
+            using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+            using var key = baseKey.OpenSubKey(ServerKey);
+            if (key is null) return false;
+            bool Dword(string n, int v) => key.GetValue(n) is int x && x == v;
+            if (!(Dword("RfbPort", 5900) && Dword("LoopbackOnly", 1)
+                  && Dword("AcceptHttpConnections", 0) && Dword("UseVncAuthentication", 1)))
+                return false;
+            return key.GetValue("Password") is byte[] p && p.AsSpan().SequenceEqual(enc);
+        }
+        catch { return false; }
+    }
+
     /// <summary>Applies registry hardening and restarts the service so it takes effect.</summary>
     public static void ApplyHardening(string password)
     {
@@ -121,6 +179,88 @@ public static class VncProvisioner
         })!;
         proc.WaitForExit();
         return proc.ExitCode == 0; // 1060 = no such service
+    }
+
+    private const string ArpKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+
+    /// <summary>
+    /// Uninstall cleanup: stop + delete the service and force-remove TightVNC's files and registry.
+    /// We cannot run "msiexec /x" here because it would run inside our own MSI transaction (mutex 1618),
+    /// so this removes the footprint directly. Best-effort; invoked by the MSI uninstall (remove-vnc).
+    /// </summary>
+    public static int Remove()
+    {
+        RunSc("stop", ServiceName);
+        RunSc("delete", ServiceName);
+
+        var entries = EnumTightVnc().ToList();
+
+        // Program files: ARP InstallLocation plus the default locations.
+        var dirs = entries.Select(e => e.installLocation).Where(d => !string.IsNullOrWhiteSpace(d)).Select(d => d!).ToList();
+        var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        dirs.Add(Path.Combine(pf, "TightVNC"));
+        if (!string.IsNullOrEmpty(pfx86)) dirs.Add(Path.Combine(pfx86, "TightVNC"));
+        foreach (var dir in dirs.Distinct(StringComparer.OrdinalIgnoreCase))
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* in use / best effort */ }
+
+        // Registry: server config (both views) + the ARP entries.
+        DeleteKeyTree(RegistryView.Registry64, ServerKey);
+        DeleteKeyTree(RegistryView.Registry32, ServerKey);
+        foreach (var (view, subKey, _) in entries)
+            DeleteKeyTree(view, ArpKey + "\\" + subKey);
+
+        Console.WriteLine("TightVNC removed.");
+        return 0;
+    }
+
+    /// <summary>ARP entries whose DisplayName starts with "TightVNC", from both registry views.</summary>
+    private static IEnumerable<(RegistryView view, string subKey, string? installLocation)> EnumTightVnc()
+    {
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            RegistryKey? uninstall = null;
+            try { uninstall = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(ArpKey); }
+            catch { /* best effort */ }
+            if (uninstall is null) continue;
+            using (uninstall)
+                foreach (var name in uninstall.GetSubKeyNames())
+                {
+                    string? display = null, loc = null;
+                    try
+                    {
+                        using var sk = uninstall.OpenSubKey(name);
+                        display = sk?.GetValue("DisplayName") as string;
+                        loc = sk?.GetValue("InstallLocation") as string;
+                    }
+                    catch { /* best effort */ }
+                    if (display is not null && display.StartsWith("TightVNC", StringComparison.OrdinalIgnoreCase))
+                        yield return (view, name, loc);
+                }
+        }
+    }
+
+    private static void DeleteKeyTree(RegistryView view, string path)
+    {
+        try
+        {
+            using var b = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+            b.DeleteSubKeyTree(path, throwOnMissingSubKey: false);
+        }
+        catch { /* best effort */ }
+    }
+
+    private static void RunSc(params string[] args)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("sc.exe")
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            using var proc = Process.Start(psi)!;
+            proc.WaitForExit();
+        }
+        catch { /* best effort */ }
     }
 
     /// <summary>8-character random password; classic VncAuth uses only 8 bytes anyway.</summary>
