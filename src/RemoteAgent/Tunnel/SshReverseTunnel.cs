@@ -131,8 +131,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         _knownHostsPath = null;
     }
 
-    private string ResolveSshPath() =>
-        string.IsNullOrWhiteSpace(options.SshExecutablePath) ? "ssh.exe" : options.SshExecutablePath;
+    private string ResolveSshPath() => SshTools.ResolveSsh(options.SshExecutablePath);
 
     private static void AddOption(ProcessStartInfo psi, string kv)
     {

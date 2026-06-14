@@ -168,11 +168,7 @@ public static class EnrollCommand
         return File.ReadAllText(keyPath + ".pub").Trim();
     }
 
-    private static string ResolveSshKeygen()
-    {
-        var sys = Path.Combine(Environment.SystemDirectory, "OpenSSH", "ssh-keygen.exe");
-        return File.Exists(sys) ? sys : "ssh-keygen";
-    }
+    private static string ResolveSshKeygen() => SshTools.ResolveSshKeygen();
 
     /// <summary>
     /// Tightens private-key ACLs so Windows ssh.exe accepts the key under both the SYSTEM

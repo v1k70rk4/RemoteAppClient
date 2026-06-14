@@ -132,8 +132,7 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         _knownHostsPath = null;
     }
 
-    private string ResolveSshPath() =>
-        string.IsNullOrWhiteSpace(options.SshExecutablePath) ? "ssh.exe" : options.SshExecutablePath;
+    private string ResolveSshPath() => SshTools.ResolveSsh(options.SshExecutablePath);
 
     private static void AddOption(ProcessStartInfo psi, string kv)
     {

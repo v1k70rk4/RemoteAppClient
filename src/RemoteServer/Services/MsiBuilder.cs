@@ -195,6 +195,10 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         // The agent composes display service names from owner+group args.
         var ownerArg = string.IsNullOrWhiteSpace(ownerName) ? "" : $" --owner &quot;{X(AsciiFold(ownerName!))}&quot;";
         var groupArg = $" --group &quot;{X(AsciiFold(label))}&quot;";
+        // install-service runs via a FileKey (type-18) deferred action. This reliably launches the freshly
+        // installed exe. On a major upgrade it is safe too because RemoveExistingProducts is at 1501 (before
+        // ProcessComponents), so the old product is gone before component costing and F.Agent is marked for
+        // installation -> no 2753. (A property-sourced/type-50 action could not be launched here -> error 1721.)
         sb.AppendLine($"""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service{ownerArg}{groupArg}" Execute="deferred" Impersonate="no" Return="check" />""");
         // Full teardown on uninstall runs the agent's "uninstall-service", which stops the Updater (Helper) FIRST
         // then the Agent — the Helper's watchdog would otherwise restart the Agent mid-uninstall — and also removes
@@ -206,12 +210,16 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         sb.AppendLine("""    <CustomAction Id="CA.SetUninst" Property="CA.Uninst" Value="&quot;[#F.Agent]&quot;" Execute="immediate" />""");
         sb.AppendLine("""    <CustomAction Id="CA.Uninst" Property="CA.Uninst" ExeCommand="uninstall-service" Execute="deferred" Impersonate="no" Return="ignore" />""");
         sb.AppendLine("""    <InstallExecuteSequence>""");
-        // wixl places MajorUpgrade RemoveExistingProducts before InstallInitialize (1401), which
-        // causes "transaction not started" (2762) during upgrade. Move it after.
-        sb.AppendLine("""      <RemoveExistingProducts After="InstallInitialize" />""");
-        sb.AppendLine("""      <Custom Action="CA.InstallSvc" After="InstallFiles">NOT Installed</Custom>""");
-        sb.AppendLine("""      <Custom Action="CA.SetUninst" Before="CA.Uninst">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>""");
-        sb.AppendLine("""      <Custom Action="CA.Uninst" Before="StopServices">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>""");
+        // EXPLICIT sequence numbers on purpose: wixl mis-sorts Before/After chains (it put a deferred CA
+        // before RemoveExistingProducts -> error 2613, and another before InstallInitialize). Standard slots:
+        // InstallInitialize=1500, ProcessComponents=1600, StopServices=1900, InstallFiles=4000.
+        //  - REP at 1501: right after InstallInitialize (avoids 2762), with NO deferred CA between them (avoids 2613).
+        //  - Uninstall CAs at 1810/1820: after InstallInitialize (transaction started), before StopServices.
+        //  - Install CAs at 4010/4020: after InstallFiles.
+        sb.AppendLine("""      <RemoveExistingProducts Sequence="1501" />""");
+        sb.AppendLine("""      <Custom Action="CA.SetUninst" Sequence="1810">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>""");
+        sb.AppendLine("""      <Custom Action="CA.Uninst" Sequence="1820">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>""");
+        sb.AppendLine("""      <Custom Action="CA.InstallSvc" Sequence="4010">NOT Installed</Custom>""");
         sb.AppendLine("""    </InstallExecuteSequence>""");
 
         sb.AppendLine("""  </Product>""");
@@ -272,12 +280,22 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         return (proc.ExitCode, (stdout + stderr).Trim());
     }
 
+    /// <summary>
+    /// MSI ProductVersion for upgrade detection. Windows Installer compares ONLY the first three fields and
+    /// ignores the fourth, so 1.3.0.0 and 1.3.0.1 would look identical and a major upgrade would not trigger.
+    /// We fold the agent's build+revision into the third field (build*256+revision), so bumping the agent's
+    /// 4th field (1.3.0.0 -> 1.3.0.1) still yields an upgradeable MSI (1.3.0 -> 1.3.1).
+    /// </summary>
     private static string SanitizeVersion(string v)
     {
-        // MSI ProductVersion: max 3-4 numeric parts. Trim non-digit/dot suffixes.
         var clean = new string(v.Trim().TakeWhile(c => char.IsDigit(c) || c == '.').ToArray());
         var parts = clean.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length == 0 ? "1.0.0" : string.Join('.', parts.Take(4));
+        int Field(int idx) => parts.Length > idx && int.TryParse(parts[idx], out var n) ? n : 0;
+        if (parts.Length == 0) return "1.0.0";
+        int major = Math.Clamp(Field(0), 0, 255);
+        int minor = Math.Clamp(Field(1), 0, 255);
+        int third = Math.Clamp(Field(2) * 256 + Field(3), 0, 65535);
+        return $"{major}.{minor}.{third}";
     }
 
     /// <summary>Accent-folded file-name token: keeps letters/digits, turns everything else into single underscores.</summary>
