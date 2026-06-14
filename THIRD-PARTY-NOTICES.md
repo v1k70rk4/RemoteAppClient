@@ -1,5 +1,8 @@
 # Third-Party Notices
 
+RemoteAppClient itself is released under the MIT License. Third-party
+components retain their own licenses.
+
 This product relies on third-party software that is **not** included in this
 source repository but is fetched at build/package time and shipped alongside the
 release artifacts.

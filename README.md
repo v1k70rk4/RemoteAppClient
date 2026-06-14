@@ -479,6 +479,8 @@ RemoteAppClient.slnx
 
 ## TightVNC And Licensing
 
+RemoteAppClient is released under the [MIT License](LICENSE).
+
 RemoteAppClient uses TightVNC as a separate process for screen capture and remote desktop.
 The repository does not commit the TightVNC binary. `deploy/fetch-tightvnc.sh` downloads a
 pinned version, verifies SHA-256, and also downloads the corresponding source ZIP for GPL
@@ -486,6 +488,3 @@ compliance.
 
 TightVNC remains under its own GPLv2 license. RemoteAppClient interacts with it as an
 installed external program and MSI package.
-
-This repository currently does not include a project license file. Add one before public
-release if the source is intended to be reusable by others.
