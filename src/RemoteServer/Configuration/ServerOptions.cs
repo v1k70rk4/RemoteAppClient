@@ -33,7 +33,7 @@ public sealed class ServerOptions
     /// Oldest console client version allowed to sign in. Older clients receive "mustUpdate"
     /// without a session and must update. Empty = no limit.
     /// </summary>
-    public string MinClientVersion { get; set; } = "1.1.1.0";
+    public string MinClientVersion { get; set; } = "1.5.0.0";
 
     /// <summary>MSI Authenticode signing. Optional: empty CertPath means unsigned/test use.</summary>
     public MsiSigningOptions MsiSigning { get; set; } = new();

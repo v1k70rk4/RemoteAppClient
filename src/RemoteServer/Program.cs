@@ -52,6 +52,12 @@ builder.Services.AddHostedService<SecretExpiryWatcher>();
 var app = builder.Build();
 app.UseWebSockets();
 
+// First-run helper: "RemoteServer mint-blob" verifies prerequisites and prints the first bootstrap blob,
+// then exits without starting the web server. Solves the chicken-and-egg of the very first enrollment
+// (the console needs an enrolled agent's tunnel to reach /admin, but there is no agent yet).
+if (args.Contains("mint-blob"))
+    return await RunMintBlobAsync(app);
+
 // === Session auth for /admin: requires a valid Bearer token. Transport is provided by the device SSH tunnel.
 // /auth/* endpoints are public through the tunnel and validate themselves. Until user setup
 // (password change / TOTP enrollment) is complete, console endpoints return 403. ===
@@ -1430,8 +1436,15 @@ app.MapDelete("/admin/users/{id:guid}/grants/{grantId:guid}", async (Guid id, Gu
 });
 
 // === Bootstrap roles (admin/operator) plus first admin user; temporary password goes to server log. ===
-using (var scope = app.Services.CreateScope())
+await SeedAsync(app);
+
+app.Run();
+return 0;
+
+// Seeds the admin/operator roles and the first admin user (temp password logged). Idempotent.
+static async Task SeedAsync(WebApplication a)
 {
+    using var scope = a.Services.CreateScope();
     var sdb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     foreach (var rn in new[] { "admin", "operator" })
         if (!await sdb.Roles.AnyAsync(r => r.Name == rn)) sdb.Roles.Add(new Role { Name = rn });
@@ -1445,11 +1458,74 @@ using (var scope = app.Services.CreateScope())
         await sdb.SaveChangesAsync();
         sdb.UserRoles.Add(new UserRole { UserId = admin.Id, RoleId = (await sdb.Roles.FirstAsync(r => r.Name == "admin")).Id });
         await sdb.SaveChangesAsync();
-        app.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedUsernameAdmin, temp);
+        a.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedUsernameAdmin, temp);
     }
 }
 
-app.Run();
+// "mint-blob": checks the server prerequisites and, when ready, mints + prints the first bootstrap blob.
+static async Task<int> RunMintBlobAsync(WebApplication a)
+{
+    var opt = a.Services.GetRequiredService<IOptions<ServerOptions>>().Value;
+    int missing = 0;
+    void Req(bool ok, string label, string fix) { Console.WriteLine($"  [{(ok ? "OK" : "!!")}] {label}{(ok ? "" : "  -> " + fix)}"); if (!ok) missing++; }
+    void Note(bool ok, string label) => Console.WriteLine($"  [{(ok ? "OK" : "--")}] {label}");
+
+    Console.WriteLine("=== RemoteServer first-run ellenorzes ===");
+
+    // DB reachable + schema applied
+    bool schemaOk = false;
+    using (var scope = a.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        try { _ = await db.Roles.AnyAsync(); schemaOk = true; } catch { /* unreachable or no schema */ }
+    }
+    Req(schemaOk, "DB elerheto + sema fent", "futtasd a schema.sql-t es ellenorizd a 'MariaDb' connection stringet");
+
+    if (schemaOk) { try { await SeedAsync(a); } catch { /* reported via admin check */ } }
+
+    bool adminOk = false;
+    if (schemaOk)
+        using (var scope = a.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            try { adminOk = await db.Users.AnyAsync(); } catch { }
+        }
+    Note(adminOk, "Admin felhasznalo letezik (temp jelszo a szerver logban; elso belepeskor csere)");
+
+    Req(!string.IsNullOrWhiteSpace(opt.CommandSigningKeyPath) && File.Exists(opt.CommandSigningKeyPath),
+        "Parancs-alairo kulcs (Server:CommandSigningKeyPath)",
+        "openssl ecparam -name prime256v1 -genkey -noout -out <path>");
+    Req(File.Exists(opt.CaCertPath) && File.Exists(opt.CaKeyPath),
+        "CA cert + kulcs (Server:CaCertPath / CaKeyPath)", "generald a CA-t (lasd FIRST-RUN.md)");
+    Req(!string.IsNullOrWhiteSpace(opt.PublicUrl),
+        $"PublicUrl ({(string.IsNullOrWhiteSpace(opt.PublicUrl) ? "ures" : opt.PublicUrl)})", "allitsd be Server:PublicUrl-t");
+    Note(!string.IsNullOrWhiteSpace(opt.Bastion.Host) && !string.IsNullOrWhiteSpace(opt.Bastion.HostKey),
+        "Bastion host + host-key (a reverse tunnelhez kell, de a blobhoz nem)");
+    Note(File.Exists(opt.SecretKeyPath), "Secret-kulcs (auto-generalt, ha hianyzik)");
+
+    if (missing > 0)
+    {
+        Console.WriteLine($"\n{missing} kotelezo elem hianyzik - potold, majd futtasd ujra. Blob nem keszult.");
+        return 2;
+    }
+
+    try
+    {
+        using var scope = a.Services.CreateScope();
+        var enroll = scope.ServiceProvider.GetRequiredService<EnrollmentService>();
+        var (raw, _) = await enroll.CreateTokenAsync(100000, null, null, "first-run", default, autoApprove: false);
+        var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = opt.PublicUrl.TrimEnd('/'), Token = raw });
+        Console.WriteLine("\n=== Bootstrap blob (autoApprove=false -> a gepek Pending-be kerulnek, kezi jovahagyas kell) ===\n");
+        Console.WriteLine(blob);
+        Console.WriteLine("\nHasznalat: az agenten  RemoteAgent.exe bootstrap \"<blob>\"  vagy az elso MSI ezt agyazza be.");
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"\nBlob-generalas hiba: {ex.Message}");
+        return 1;
+    }
+}
 
 // Writes an audit entry best-effort; audit failure must not break the operation. Actor is the signed-in user.
 static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Guid? target = null, string? detail = null, string? actorOverride = null)
