@@ -14,6 +14,9 @@ public sealed class ServerSettings
     public string? SupportPhone { get; set; }
     public string? SupportEmail { get; set; }
 
+    /// <summary>Language of server-generated system messages/reminders: "auto" (OS), "en" or "hu".</summary>
+    public string Language { get; set; } = "auto";
+
     /// <summary>"none" | "smtp" | "graph".</summary>
     public string EmailProvider { get; set; } = "none";
 

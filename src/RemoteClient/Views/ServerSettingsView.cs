@@ -23,6 +23,9 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private readonly MaterialTextBox2 _owner = new() { Hint = L.ServerSettingsView_OwnerName, Width = 360 };
     private readonly MaterialTextBox2 _phone = new() { Hint = L.ServerSettingsView_SupportPhoneNumber, Width = 360 };
     private readonly MaterialTextBox2 _email = new() { Hint = L.ServerSettingsView_SupportEmail, Width = 360 };
+    private readonly MaterialComboBox _language = new() { Hint = L.ServerSettingsView_MessageLanguage, Width = 260 };
+
+    private sealed record LangItem(string Code, string Name) { public override string ToString() => Name; }
 
     // Email provider + fields
     private readonly MaterialComboBox _provider = new() { Hint = "E-mail provider", Width = 260 };
@@ -65,6 +68,9 @@ public sealed class ServerSettingsView : UserControl, IContentView
 
         _provider.Items.AddRange([L.DeviceTelemetryPanel_No, "SMTP", "MS Graph (O365)"]);
         _provider.SelectedIndexChanged += (_, _) => ApplyProviderVisibility();
+
+        _language.Items.AddRange(new object[] { new LangItem("auto", L.ServerSettingsView_LanguageAuto), new LangItem("en", "English"), new LangItem("hu", "Magyar") });
+        _language.SelectedIndex = 0;
 
         BuildSmtpBox();
         BuildGraphBox();
@@ -143,6 +149,15 @@ public sealed class ServerSettingsView : UserControl, IContentView
         return l;
     }
 
+    /// <summary>Info icon: balloon tooltip on hover, and a popup with the same text on click.</summary>
+    private Label InfoTip(string info)
+    {
+        var l = new Label { Text = ((char)0xE946).ToString(), Font = new Font("Segoe MDL2 Assets", 13F), AutoSize = true, ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand, Margin = new Padding(10, 6, 0, 0) };
+        _tips.SetToolTip(l, info);
+        l.Click += (_, _) => MessageBox.Show(info, L.ServerSettingsView_MessageLanguage, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return l;
+    }
+
     /// <summary>Horizontal row with textbox and icon side by side.</summary>
     private static FlowLayoutPanel HRow(params Control[] cs)
     {
@@ -167,6 +182,8 @@ public sealed class ServerSettingsView : UserControl, IContentView
         Lbl(L.ServerSettingsView_OwnerName); body.Controls.Add(_owner);
         Lbl(L.ServerSettingsView_SupportPhoneNumber); body.Controls.Add(_phone);
         Lbl(L.ServerSettingsView_SupportEmail); body.Controls.Add(_email);
+        Lbl(L.ServerSettingsView_MessageLanguage);
+        body.Controls.Add(HRow(_language, InfoTip(L.ServerSettingsView_MessageLanguageInfo)));
         return body;
     }
 
@@ -208,6 +225,11 @@ public sealed class ServerSettingsView : UserControl, IContentView
             _phone.Text = s.SupportPhone ?? "";
             _email.Text = s.SupportEmail ?? "";
 
+            var langCode = string.IsNullOrWhiteSpace(s.Language) ? "auto" : s.Language;
+            _language.SelectedIndex = 0;
+            for (int i = 0; i < _language.Items.Count; i++)
+                if (_language.Items[i] is LangItem li && li.Code == langCode) { _language.SelectedIndex = i; break; }
+
             _provider.SelectedIndex = s.EmailProvider switch { "smtp" => 1, "graph" => 2, _ => 0 };
             _smtpHost.Text = s.SmtpHost ?? "";
             _smtpPort.Text = s.SmtpPort.ToString();
@@ -239,6 +261,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
                 OwnerName = _owner.Text.Trim(),
                 SupportPhone = _phone.Text.Trim(),
                 SupportEmail = _email.Text.Trim(),
+                Language = (_language.SelectedItem as LangItem)?.Code ?? "auto",
                 EmailProvider = _provider.SelectedIndex switch { 1 => "smtp", 2 => "graph", _ => "none" },
                 SmtpHost = _smtpHost.Text.Trim(),
                 SmtpPort = int.TryParse(_smtpPort.Text.Trim(), out var p) ? p : 587,

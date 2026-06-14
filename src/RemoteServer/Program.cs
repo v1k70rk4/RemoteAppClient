@@ -989,6 +989,7 @@ app.MapGet("/admin/settings", async (AppDbContext db, CancellationToken ct) =>
     if (s is not null)
     {
         info.OwnerName = s.OwnerName; info.SupportPhone = s.SupportPhone; info.SupportEmail = s.SupportEmail;
+        info.Language = string.IsNullOrWhiteSpace(s.Language) ? "auto" : s.Language;
         info.EmailProvider = s.EmailProvider;
         info.SmtpHost = s.SmtpHost; info.SmtpPort = s.SmtpPort; info.SmtpUseTls = s.SmtpUseTls;
         info.SmtpUser = s.SmtpUser; info.SmtpFrom = s.SmtpFrom;
@@ -1009,6 +1010,7 @@ app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretPro
     if (s is null) { s = new ServerSettings(); db.ServerSettings.Add(s); }
 
     s.OwnerName = Nz(upd.OwnerName); s.SupportPhone = Nz(upd.SupportPhone); s.SupportEmail = Nz(upd.SupportEmail);
+    s.Language = string.IsNullOrWhiteSpace(upd.Language) ? "auto" : upd.Language.Trim().ToLowerInvariant();
     s.EmailProvider = string.IsNullOrWhiteSpace(upd.EmailProvider) ? "none" : upd.EmailProvider.Trim().ToLowerInvariant();
     s.SmtpHost = Nz(upd.SmtpHost); s.SmtpPort = upd.SmtpPort <= 0 ? 587 : upd.SmtpPort; s.SmtpUseTls = upd.SmtpUseTls;
     s.SmtpUser = Nz(upd.SmtpUser); s.SmtpFrom = Nz(upd.SmtpFrom);
@@ -1175,7 +1177,8 @@ app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, IEmailSende
     await SetRoleAsync(db, user.Id, role, ct);
     await db.SaveChangesAsync(ct);
 
-    bool emailSent = req.EmailCode && await EmailResetCodeAsync(email, user, code, null, ct); // admin-triggered → server language
+    string? serverLang = req.EmailCode ? ResolveServerLanguage(await db.ServerSettings.FirstOrDefaultAsync(ct)) : null;
+    bool emailSent = req.EmailCode && await EmailResetCodeAsync(email, user, code, serverLang, ct); // admin-triggered → server language
 
     await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}{(emailSent ? " · token emailed" : "")}");
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
@@ -1234,7 +1237,8 @@ app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, bool? email
     await auth.RevokeAllForUserAsync(id, ct);
     await db.SaveChangesAsync(ct);
 
-    bool emailSent = emailCode == true && await EmailResetCodeAsync(email, user, code, null, ct); // admin-triggered → server language
+    string? serverLang = emailCode == true ? ResolveServerLanguage(await db.ServerSettings.FirstOrDefaultAsync(ct)) : null;
+    bool emailSent = emailCode == true && await EmailResetCodeAsync(email, user, code, serverLang, ct); // admin-triggered → server language
 
     await AuditAsync(db, ctx, "user-reset-password", null, $"{user.Username}{(emailSent ? " · token emailed" : "")}{(clearTotp == true ? " · TOTP cleared" : "")}");
     return Results.Json(new CreateUserResponse { Id = user.Id, Username = user.Username, TempPassword = temp, ResetCode = code, EmailSent = emailSent }, AgentJsonContext.Default.CreateUserResponse);
@@ -1471,10 +1475,11 @@ static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, Ht
         var to = s?.SupportEmail;
         if (!string.IsNullOrWhiteSpace(to))
         {
-            var body = L.Format(L.Program_ThereWereFailedSignIn, device.Hostname, LoginFailLockThreshold) +
-                       L.Format(L.Program_LastAttemptedUsernameSourceIP, username, PublicIpOf(ctx) ?? "-", DateTimeOffset.UtcNow) +
-                       L.Program_UnlockInTheClientGo;
-            await email.SendAsync(to!, L.Program_RemoteAppClientDeviceSignInLocked, body, ct);
+            var lang = ResolveServerLanguage(s); // server-generated, user-independent → server language
+            var body = L.Format(L.Get("Program_ThereWereFailedSignIn", lang), device.Hostname, LoginFailLockThreshold) +
+                       L.Format(L.Get("Program_LastAttemptedUsernameSourceIP", lang), username, PublicIpOf(ctx) ?? "-", DateTimeOffset.UtcNow) +
+                       L.Get("Program_UnlockInTheClientGo", lang);
+            await email.SendAsync(to!, L.Get("Program_RemoteAppClientDeviceSignInLocked", lang), body, ct);
         }
     }
 }
@@ -1500,6 +1505,13 @@ static string SetResetCode(RemoteServer.Data.Entities.User user)
 /// Sends the recovery token by email. Rendered in <paramref name="language"/> (the requesting client's
 /// language) when provided; otherwise the server's language. true = sent successfully.
 /// </summary>
+// Effective server language for server-generated, user-independent messages: the configured
+// ServerSettings.Language, or the OS/process culture when "auto".
+static string ResolveServerLanguage(RemoteServer.Data.Entities.ServerSettings? s) =>
+    string.IsNullOrWhiteSpace(s?.Language) || s.Language == "auto"
+        ? System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
+        : s.Language!;
+
 static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Data.Entities.User user, string code, string? language, CancellationToken ct)
 {
     if (string.IsNullOrWhiteSpace(user.Email)) return false;

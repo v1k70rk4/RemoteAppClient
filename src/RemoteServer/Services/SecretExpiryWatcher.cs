@@ -42,12 +42,17 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
         var to = !string.IsNullOrWhiteSpace(s.SupportEmail) ? s.SupportEmail : s.GraphSender;
         if (string.IsNullOrWhiteSpace(to)) return;
 
+        // Server-generated, user-independent reminder → server language (ServerSettings.Language, or OS when "auto").
+        var lang = string.IsNullOrWhiteSpace(s.Language) || s.Language == "auto"
+            ? System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
+            : s.Language;
+
         var when = expiry.LocalDateTime.ToString("yyyy.MM.dd");
         var body = days <= 0
-            ? L.Format(L.SecretExpiryWatcher_TheRemoteAppClientEmailDeliveryGraph, when)
-            : L.Format(L.SecretExpiryWatcher_TheRemoteAppClientEmailDeliveryGraph_2, (int)days, when);
+            ? L.Format(L.Get("SecretExpiryWatcher_TheRemoteAppClientEmailDeliveryGraph", lang), when)
+            : L.Format(L.Get("SecretExpiryWatcher_TheRemoteAppClientEmailDeliveryGraph_2", lang), (int)days, when);
 
-        var (ok, err) = await email.SendAsync(to!, L.SecretExpiryWatcher_RemoteAppClientEmailDeliverySecretExpires, body, ct);
+        var (ok, err) = await email.SendAsync(to!, L.Get("SecretExpiryWatcher_RemoteAppClientEmailDeliverySecretExpires", lang), body, ct);
         if (ok)
         {
             s.SecretExpiryNotifiedAt = DateTimeOffset.UtcNow;

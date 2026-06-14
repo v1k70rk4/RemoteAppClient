@@ -273,6 +273,9 @@ public sealed class ServerSettingsInfo
     [JsonPropertyName("supportPhone")] public string? SupportPhone { get; set; }
     [JsonPropertyName("supportEmail")] public string? SupportEmail { get; set; }
 
+    /// <summary>Language of server-generated system messages/reminders: "auto" (OS), "en" or "hu".</summary>
+    [JsonPropertyName("language")] public string Language { get; set; } = "auto";
+
     /// <summary>"none" | "smtp" | "graph".</summary>
     [JsonPropertyName("emailProvider")] public string EmailProvider { get; set; } = "none";
 

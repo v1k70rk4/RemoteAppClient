@@ -27,6 +27,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     // Editor
     private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_General);
+    private readonly MaterialButton _tabPermissions = TabBtn(L.UsersView_Permissions);
     private readonly MaterialButton _tabLog = TabBtn("LOG");
     private readonly MaterialButton _tabTelemetry = TabBtn(L.DevicesView_Telemetry);
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
@@ -35,6 +36,7 @@ public sealed class DevicesView : UserControl, IContentView
     private int _sortColumn = -1;
     private bool _sortAsc = true;
     private DeviceGeneralPanel? _generalPanel;
+    private DevicePermissionsPanel? _permPanel;
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
 
@@ -73,6 +75,16 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Columns.Add(L.DevicesView_LastOnline, 140);
         _list.Columns.Add(L.DeviceTelemetryPanel_PublicIP, 120);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
+        // Right-click selects the row under the cursor and opens the properties (General tab).
+        if (_isAdmin)
+            _list.MouseUp += async (_, e) =>
+            {
+                if (e.Button != MouseButtons.Right) return;
+                var hit = _list.GetItemAt(e.X, e.Y);
+                if (hit is null) return;
+                hit.Selected = true;
+                await EditSelectedAsync();
+            };
         _list.ColumnClick += (_, e) => { if (_sortColumn == e.Column) _sortAsc = !_sortAsc; else { _sortColumn = e.Column; _sortAsc = true; } RenderList(); };
 
         // Bottom-right: actions for the selected device (Connect | Edit | Approve).
@@ -95,11 +107,12 @@ public sealed class DevicesView : UserControl, IContentView
         var back = ViewUi.ToolbarButton(L.ChannelsView_Back, primary: false);
         back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
         _tabGeneral.Click += (_, _) => SelectTab("general");
+        _tabPermissions.Click += (_, _) => SelectTab("permissions");
         _tabLog.Click += async (_, _) => await SelectTabAsync("log");
         _tabTelemetry.Click += (_, _) => SelectTab("telemetry");
 
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabLog, _tabTelemetry]);
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabLog, _tabTelemetry]);
 
         _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _tabContent));
     }
@@ -197,8 +210,9 @@ public sealed class DevicesView : UserControl, IContentView
             _editing = d;
             _editorTitle.Text = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
 
-            _generalPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
+            _generalPanel?.Dispose(); _permPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
             _generalPanel = new DeviceGeneralPanel(_api, d, groups);
+            _permPanel = new DevicePermissionsPanel(_api, d);
             _logPanel = new LogPanel(_api, deviceId: d.DeviceId);
             _telemetryPanel = new DeviceTelemetryPanel(d);
 
@@ -212,13 +226,14 @@ public sealed class DevicesView : UserControl, IContentView
 
     private async Task SelectTabAsync(string tab)
     {
-        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
+        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
             b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
 
         _tabContent.Controls.Clear();
         switch (tab)
         {
             case "general" when _generalPanel is not null: _tabContent.Controls.Add(_generalPanel); break;
+            case "permissions" when _permPanel is not null: _tabContent.Controls.Add(_permPanel); break;
             case "telemetry" when _telemetryPanel is not null: _tabContent.Controls.Add(_telemetryPanel); break;
             case "log" when _logPanel is not null: _tabContent.Controls.Add(_logPanel); await _logPanel.ShownAsync(); break;
         }

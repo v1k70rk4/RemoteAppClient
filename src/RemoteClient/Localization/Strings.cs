@@ -83,6 +83,7 @@ internal static partial class Strings
     public static string AboutView_Running => Get(nameof(AboutView_Running));
     public static string AboutView_RunningOnline => Get(nameof(AboutView_RunningOnline));
     public static string Common_Yes => Get(nameof(Common_Yes));
+    public static string Common_Saved => Get(nameof(Common_Saved));
     public static string AgentInfo_UnknownServer => Get(nameof(AgentInfo_UnknownServer));
     public static string AuditText_ConnectionWithConsent => Get(nameof(AuditText_ConnectionWithConsent));
     public static string AuditText_ConnectionWithoutConsent => Get(nameof(AuditText_ConnectionWithoutConsent));
@@ -450,6 +451,9 @@ internal static partial class Strings
     public static string ServerSettingsView_SMTPServer => Get(nameof(ServerSettingsView_SMTPServer));
     public static string ServerSettingsView_TestError => Get(nameof(ServerSettingsView_TestError));
     public static string ServerSettingsView_OwnerName => Get(nameof(ServerSettingsView_OwnerName));
+    public static string ServerSettingsView_MessageLanguage => Get(nameof(ServerSettingsView_MessageLanguage));
+    public static string ServerSettingsView_MessageLanguageInfo => Get(nameof(ServerSettingsView_MessageLanguageInfo));
+    public static string ServerSettingsView_LanguageAuto => Get(nameof(ServerSettingsView_LanguageAuto));
     public static string SettingsView_Theme => Get(nameof(SettingsView_Theme));
     public static string SettingsView_Appearance => Get(nameof(SettingsView_Appearance));
     public static string SettingsView_Light => Get(nameof(SettingsView_Light));

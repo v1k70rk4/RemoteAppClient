@@ -340,5 +340,14 @@ ALTER TABLE `Devices` ADD `LoginLockedAt` datetime(6) NULL;
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260613222040_DeviceLoginLock', '9.0.0');
 
+-- MariaDB: TEXT/longtext cannot have a DEFAULT, so 3 steps (nullable -> backfill -> NOT NULL),
+-- ensuring the existing row gets a value even in strict mode.
+ALTER TABLE `ServerSettings` ADD `Language` longtext CHARACTER SET utf8mb4 NULL;
+UPDATE `ServerSettings` SET `Language` = 'auto' WHERE `Language` IS NULL;
+ALTER TABLE `ServerSettings` MODIFY COLUMN `Language` longtext CHARACTER SET utf8mb4 NOT NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260614115404_ServerLanguage', '9.0.0');
+
 COMMIT;
 
