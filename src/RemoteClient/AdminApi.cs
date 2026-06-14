@@ -152,7 +152,7 @@ public sealed class AdminApi : IDisposable
         string? clientVersion = null, string? channel = null, CancellationToken ct = default)
     {
         using var content = JsonContent.Create(
-            new HelloLoginRequest { Username = username, CredentialId = credentialId, Signature = signatureBase64, ClientVersion = clientVersion, Channel = channel },
+            new HelloLoginRequest { Username = username, CredentialId = credentialId, Signature = signatureBase64, DeviceId = DeviceId, ClientVersion = clientVersion, Channel = channel },
             AgentJsonContext.Default.HelloLoginRequest);
         using var resp = await _http.PostAsync("/auth/hello/login", content, ct);
         if (!resp.IsSuccessStatusCode)

@@ -19,7 +19,10 @@ public static class BootstrapEnroller
         try
         {
             if (File.Exists(Path.Combine(outDir, "enrollment.json")))
+            {
+                CleanupLeftovers(outDir); // remove any stray bootstrap.dat/.used from earlier installs
                 return; // already enrolled
+            }
 
             var bootstrapFile = ResolveBootstrapFile(outDir);
             if (bootstrapFile is null)
@@ -40,8 +43,9 @@ public static class BootstrapEnroller
             if (res.Ok)
             {
                 Console.WriteLine(L.Format(L.BootstrapEnroller_BootstrapSelfEnrollOK, res.DeviceId));
-                // Mark the blob as used. The server-side token has AutoApprove=false, so the device is Pending.
-                TryMarkUsed(bootstrapFile);
+                // Delete the blob once enrolled: enrollment.json already gates re-processing, the file is
+                // no longer needed, it keeps the site token off disk, and it leaves nothing for MSI to orphan.
+                TryDeleteUsed(bootstrapFile);
             }
             else
             {
@@ -95,8 +99,23 @@ public static class BootstrapEnroller
         return null;
     }
 
-    private static void TryMarkUsed(string path)
+    private static void TryDeleteUsed(string path)
     {
-        try { File.Move(path, path + ".used", overwrite: true); } catch { /* best effort */ }
+        try { File.Delete(path); } catch { /* best effort */ }
+        // Clean up the legacy ".used" rename from older agents, if present.
+        try { File.Delete(path + ".used"); } catch { /* best effort */ }
+    }
+
+    /// <summary>Removes leftover bootstrap.dat/.used from both the data dir and the executable dir.</summary>
+    private static void CleanupLeftovers(string outDir)
+    {
+        var dirs = new List<string> { outDir };
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath);
+        if (!string.IsNullOrEmpty(exeDir)) dirs.Add(exeDir);
+        foreach (var dir in dirs)
+            foreach (var name in new[] { "bootstrap.dat", "bootstrap.dat.used" })
+            {
+                try { File.Delete(Path.Combine(dir, name)); } catch { /* best effort */ }
+            }
     }
 }

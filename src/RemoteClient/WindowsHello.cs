@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Security.Credentials;
 using Windows.Security.Cryptography;
@@ -22,6 +23,7 @@ public static class WindowsHello
     /// <summary>Creates a new Hello key for the name and returns the public key as X.509 SPKI base64.</summary>
     public static async Task<string?> CreateAsync(string name)
     {
+        AllowForeground(); // let the Hello credential broker come to the front, not behind our window
         var res = await KeyCredentialManager.RequestCreateAsync(name, KeyCredentialCreationOption.ReplaceExisting);
         if (res.Status != KeyCredentialStatus.Success) return null;
         var pub = res.Credential.RetrievePublicKey(CryptographicPublicKeyBlobType.X509SubjectPublicKeyInfo);
@@ -33,6 +35,7 @@ public static class WindowsHello
     {
         var open = await KeyCredentialManager.OpenAsync(name);
         if (open.Status != KeyCredentialStatus.Success) return null;
+        AllowForeground(); // let the Hello credential broker come to the front, not behind our window
         var sign = await open.Credential.RequestSignAsync(CryptographicBuffer.CreateFromByteArray(challenge));
         if (sign.Status != KeyCredentialStatus.Success) return null;
         return Convert.ToBase64String(sign.Result.ToArray());
@@ -50,4 +53,19 @@ public static class WindowsHello
     {
         try { await KeyCredentialManager.DeleteAsync(name); } catch { /* best effort */ }
     }
+
+    /// <summary>
+    /// The Hello prompt is shown by a separate broker process. Because our window holds the foreground,
+    /// the OS foreground lock can push that prompt behind us; allow any process to take the foreground so
+    /// the credential UI appears on top. Best-effort — ignored if the API is unavailable.
+    /// </summary>
+    private static void AllowForeground()
+    {
+        try { AllowSetForegroundWindow(ASFW_ANY); } catch { /* best effort */ }
+    }
+
+    private const int ASFW_ANY = -1;
+
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int dwProcessId);
 }

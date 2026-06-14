@@ -45,7 +45,10 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
             var wxsPath = Path.Combine(work, "product.wxs");
             await File.WriteAllTextAsync(wxsPath, GenerateWxs(agentExe, updaterExe, clientExe, bootstrapPath, iconPath, SanitizeVersion(version), label, startMenuShortcut, ownerName), ct);
 
-            var fileName = $"RemoteAppClient-{Sanitize(label)}-{SanitizeVersion(version)}.msi";
+            // File name: "{Owner}_RemoteAppClient_{group}.msi", accent-free for portability.
+            var ownerTok = string.IsNullOrWhiteSpace(ownerName) ? "" : FileToken(ownerName) + "_";
+            var groupTok = FileToken(label) is { Length: > 0 } g ? g : "group";
+            var fileName = $"{ownerTok}RemoteAppClient_{groupTok}.msi";
             var outPath = Path.Combine(_opt.PackagesDir, fileName);
 
             var (code, output) = await RunAsync("wixl", ["-o", outPath, wxsPath, "--arch", "x64"], ct);
@@ -94,11 +97,16 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         bool shortcut = startMenuShortcut && hasClient;
         // Important: Windows Installer does not open UTF-8 (65001) MSI databases (error 1620),
         // so use 1252 and fold display names to ASCII for compatibility.
-        var name = AsciiFold($"RemoteAppClient Agent ({label})");
+        // Installed program name: "{Owner} RemoteAppClient ({group})" (owner prefix dropped when unset).
+        var name = AsciiFold(string.IsNullOrWhiteSpace(ownerName)
+            ? $"RemoteAppClient ({label})"
+            : $"{ownerName} RemoteAppClient ({label})");
+        // Publisher (ARP "Manufacturer"): the owner when set, otherwise the product name.
+        var manufacturer = AsciiFold(string.IsNullOrWhiteSpace(ownerName) ? "RemoteAppClient" : ownerName!);
         var sb = new StringBuilder();
         sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
         sb.AppendLine("""<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">""");
-        sb.AppendLine($"""  <Product Name="{X(name)}" Id="*" UpgradeCode="{UpgradeCode}" Language="1033" Codepage="1252" Version="{version}" Manufacturer="RemoteAppClient">""");
+        sb.AppendLine($"""  <Product Name="{X(name)}" Id="*" UpgradeCode="{UpgradeCode}" Language="1033" Codepage="1252" Version="{version}" Manufacturer="{X(manufacturer)}">""");
         sb.AppendLine("""    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Description="RemoteAppClient agent" />""");
         sb.AppendLine("""    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />""");
         sb.AppendLine("""    <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />""");
@@ -108,12 +116,15 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
 
         sb.AppendLine($"""          <Component Id="C.Agent" Guid="{CompAgent}" Win64="yes">""");
         sb.AppendLine($"""            <File Id="F.Agent" Name="RemoteAgent.exe" Source="{X(agentExe)}" KeyPath="yes" />""");
+        // Stop + delete the service on uninstall (declarative, reliable) so the exe is unlocked before RemoveFiles.
+        sb.AppendLine("""            <ServiceControl Id="SC.Agent" Name="RemoteAgent" Stop="uninstall" Remove="uninstall" Wait="yes" />""");
         sb.AppendLine("""          </Component>""");
 
         if (!string.IsNullOrWhiteSpace(updaterExe))
         {
             sb.AppendLine($"""          <Component Id="C.Updater" Guid="{CompUpdater}" Win64="yes">""");
             sb.AppendLine($"""            <File Id="F.Updater" Name="RemoteAgent.Updater.exe" Source="{X(updaterExe)}" KeyPath="yes" />""");
+            sb.AppendLine("""            <ServiceControl Id="SC.Updater" Name="RemoteAgent.Updater" Stop="uninstall" Remove="uninstall" Wait="yes" />""");
             sb.AppendLine("""          </Component>""");
         }
 
@@ -126,6 +137,9 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
 
         sb.AppendLine($"""          <Component Id="C.Bootstrap" Guid="{CompBootstrap}" Win64="yes">""");
         sb.AppendLine($"""            <File Id="F.Bootstrap" Name="bootstrap.dat" Source="{X(bootstrapPath)}" KeyPath="yes" />""");
+        // Remove the (now empty) install folder on uninstall. wixl ignores the Directory attribute and
+        // uses this component's directory (INSTALLDIR).
+        sb.AppendLine("""            <RemoveFolder Id="RF.InstallDir" On="uninstall" />""");
         sb.AppendLine("""          </Component>""");
 
         sb.AppendLine("""        </Directory>""");
@@ -166,16 +180,12 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         var ownerArg = string.IsNullOrWhiteSpace(ownerName) ? "" : $" --owner &quot;{X(AsciiFold(ownerName!))}&quot;";
         var groupArg = $" --group &quot;{X(AsciiFold(label))}&quot;";
         sb.AppendLine($"""    <CustomAction Id="CA.InstallSvc" FileKey="F.Agent" ExeCommand="install-service{ownerArg}{groupArg}" Execute="deferred" Impersonate="no" Return="check" />""");
-        // Uninstall: FileKey type 18 gives 2753 during uninstall ("not marked for installation"),
-        // so pass the exe path through a property (CustomActionData). Quoted path handles spaces.
-        sb.AppendLine("""    <CustomAction Id="CA.SetUninst" Property="CA.UninstallSvc" Value="&quot;[#F.Agent]&quot;" Execute="immediate" />""");
-        sb.AppendLine("""    <CustomAction Id="CA.UninstallSvc" Property="CA.UninstallSvc" ExeCommand="uninstall-service" Execute="deferred" Impersonate="no" Return="ignore" />""");
+        // Uninstall is handled declaratively by ServiceControl (stop + delete both services), which runs
+        // before RemoveFiles and unlocks the executables — no custom action needed (and no 2753 risk).
         sb.AppendLine("""    <InstallExecuteSequence>""");
         // wixl places MajorUpgrade RemoveExistingProducts before InstallInitialize (1401), which
         // causes "transaction not started" (2762) during upgrade. Move it after.
         sb.AppendLine("""      <RemoveExistingProducts After="InstallInitialize" />""");
-        sb.AppendLine("""      <Custom Action="CA.SetUninst" Before="CA.UninstallSvc">Installed AND (REMOVE="ALL")</Custom>""");
-        sb.AppendLine("""      <Custom Action="CA.UninstallSvc" Before="RemoveFiles">Installed AND (REMOVE="ALL")</Custom>""");
         sb.AppendLine("""      <Custom Action="CA.InstallSvc" After="InstallFiles">NOT Installed</Custom>""");
         sb.AppendLine("""    </InstallExecuteSequence>""");
 
@@ -245,11 +255,17 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         return parts.Length == 0 ? "1.0.0" : string.Join('.', parts.Take(4));
     }
 
-    private static string Sanitize(string s)
+    /// <summary>Accent-folded file-name token: keeps letters/digits, turns everything else into single underscores.</summary>
+    private static string FileToken(string s)
     {
-        var arr = s.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_').ToArray();
-        var r = new string(arr);
-        return string.IsNullOrWhiteSpace(r) ? "group" : r;
+        var folded = AsciiFold(s);
+        var sb = new StringBuilder(folded.Length);
+        foreach (var c in folded)
+        {
+            if (char.IsLetterOrDigit(c)) sb.Append(c);
+            else if (sb.Length > 0 && sb[^1] != '_') sb.Append('_');
+        }
+        return sb.ToString().Trim('_');
     }
 
     private static string X(string s) => SecurityElement.Escape(s) ?? s;

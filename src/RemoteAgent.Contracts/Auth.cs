@@ -100,6 +100,9 @@ public sealed class HelloLoginRequest
     [JsonPropertyName("credentialId")] public Guid CredentialId { get; set; }
     [JsonPropertyName("signature")] public string Signature { get; set; } = string.Empty; // base64
 
+    /// <summary>Local device id, so a successful Hello sign-in clears that device's failed-login counter.</summary>
+    [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
+
     /// <summary>Client version and channel for the minimum-version gate; see <see cref="LoginResponse.MustUpdate"/>.</summary>
     [JsonPropertyName("clientVersion")] public string? ClientVersion { get; set; }
     [JsonPropertyName("channel")] public string? Channel { get; set; }

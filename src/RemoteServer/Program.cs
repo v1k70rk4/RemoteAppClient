@@ -195,6 +195,11 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
     if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
         return Results.Json(gate, AgentJsonContext.Default.LoginResponse);
 
+    // Device-level lockout applies to Hello too, otherwise it would bypass the password lock.
+    var device = await FindDeviceAsync(db, req.DeviceId, ct);
+    if (device?.LoginLockedAt is not null)
+        return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
+
     var nonce = challenges.Consume(req.Username.Trim());
     if (nonce is null) return Results.Json(new AuthError { Error = "challenge_expired" }, AgentJsonContext.Default.AuthError, statusCode: 401);
 
@@ -216,6 +221,7 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
     if (!ok) return Results.Json(new AuthError { Error = "hello_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 401);
 
     cred.LastUsedAt = DateTimeOffset.UtcNow;
+    await ResetLoginFailAsync(db, device, ct); // successful Hello sign-in resets the counter
     var token = await auth.CreateSessionAsync(user, ct);
     user.LastLoginAt = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync(ct);
