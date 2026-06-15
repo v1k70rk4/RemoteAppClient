@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace RemoteServer.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class Reset_1_5_0 : Migration
+    public partial class Reset_1_6_0 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

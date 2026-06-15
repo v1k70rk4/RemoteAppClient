@@ -275,7 +275,7 @@ CREATE UNIQUE INDEX `IX_UserSessions_TokenHash` ON `UserSessions` (`TokenHash`);
 CREATE INDEX `IX_UserSessions_UserId` ON `UserSessions` (`UserId`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260615135944_Reset_1_5_0', '9.0.0');
+VALUES ('20260615184020_Reset_1_6_0', '9.0.0');
 
 COMMIT;
 

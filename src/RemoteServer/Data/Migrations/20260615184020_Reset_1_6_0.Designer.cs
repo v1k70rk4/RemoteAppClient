@@ -12,8 +12,8 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260615135944_Reset_1_5_0")]
-    partial class Reset_1_5_0
+    [Migration("20260615184020_Reset_1_6_0")]
+    partial class Reset_1_6_0
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

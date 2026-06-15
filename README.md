@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-1.5.15-2ea44f" alt="version 1.5.15">
+  <img src="https://img.shields.io/badge/version-1.6.0-2ea44f" alt="version 1.6.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 1.6.0](#whats-new-in-160)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
 - [Projects](#projects)
@@ -50,6 +51,45 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 1.6.0
+
+This release consolidates a large round of fleet, security, and UI work since the 1.5 line, and
+unifies the database schema into a single baseline migration.
+
+**Remote sessions**
+- Two operators can share one machine over a single VNC tunnel (the server runs AlwaysShared).
+- A session side panel pinned next to the viewer: an editable device note on top, live-refreshing
+  telemetry below. Three layouts: 80/20 split, 100/20 background, or off.
+- Per-operator, roaming viewer preferences (stored on the account): scale (defaults to fit-to-window)
+  and colour depth, including a 256-colour fast mode.
+
+**Security & access**
+- Device trust ("remember this device"): skip TOTP for 90 days on a trusted machine; the password is
+  always required. Admins can list and revoke a user's trusted devices.
+- Consent model simplified to a single "consent required" switch, with correct detection of the
+  signed-in session over RDP.
+- Availability prompt ("Is your machine free now?") before connecting, with a timed wait.
+
+**Fleet & updates**
+- Auto-converge: an uploaded package becomes the channel's target version, so devices enrolled or
+  approved after a rollout still update; components update one at a time per device in a safe order.
+- Channels view: rollout indicator plus a sortable device component-versions table that auto-refreshes;
+  telemetry interval lowered to one minute.
+- Hardware telemetry: manufacturer, model, and serial number (SMBIOS, with OEM-placeholder handling).
+
+**Admin UI**
+- Users tab: delete user, right-click actions, and a tabbed editor (general, password, permissions,
+  log, Windows Hello, trusted devices).
+- Server settings: owner and support branding plus e-mail sending (SMTP or Microsoft Graph app-only)
+  with a test-send button.
+- Devices search now matches group names; auto-sizing columns; many layout and polish fixes.
+
+**Under the hood**
+- Database schema consolidated into a single 1.6.0 baseline migration and regenerated `schema.sql`.
+- .NET 10, EF Core 9 + Pomelo (MariaDB).
 
 ---
 
@@ -437,8 +477,8 @@ and bastion configuration before printing the first bootstrap blob.
 Typical release:
 
 ```bash
-git tag v1.5.15
-git push origin v1.5.15
+git tag v1.6.0
+git push origin v1.6.0
 ```
 
 The server stores uploaded packages in `Server:PackagesDir`, computes SHA-256, and uses
