@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
 using L = RemoteClient.Localization.Strings;
@@ -344,7 +345,7 @@ public sealed class DevicesView : UserControl, IContentView
             SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
             await Task.Delay(1500);
             var localPort = await _broker.ForwardAsync(result.RemotePort);
-            LaunchViewer(localPort, d.VncSecret!);
+            LaunchViewer(localPort, d);
             SetStatus(L.Format(L.DevicesView_VNCStarted, d.Hostname));
         }
         catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
@@ -428,7 +429,7 @@ public sealed class DevicesView : UserControl, IContentView
     /// <summary>Updates the viewer color depth used for subsequent connections (from the operator's account preference).</summary>
     public void SetViewerColor(string color) => _viewerColor = string.IsNullOrWhiteSpace(color) ? "full" : color;
 
-    private void LaunchViewer(int localPort, string password)
+    private void LaunchViewer(int localPort, DeviceInfo d)
     {
         var viewer = ResolveViewer();
         if (viewer is null)
@@ -459,15 +460,68 @@ public sealed class DevicesView : UserControl, IContentView
             psi.ArgumentList.Add("-host=127.0.0.1");
             psi.ArgumentList.Add($"-port={localPort}");
         }
-        psi.ArgumentList.Add($"-password={password}");
+        psi.ArgumentList.Add($"-password={d.VncSecret}");
         // Per-operator scale (TightVNC: -scale=auto -> fitWindow(true), or a percent); overrides the file.
         psi.ArgumentList.Add($"-scale={_viewerScale}");
-        Process.Start(psi);
+
+        // Open the narrow session panel first (note + telemetry), pinned to the top-right of the
+        // operator's screen at ~20% width / full height; the viewer then opens into the rest.
+        var screen = Screen.FromControl(FindForm() ?? (Control)this);
+        var area = screen.WorkingArea;
+        int panelW = Math.Max(260, (int)(area.Width * 0.20));
+        SessionInfoWindow? info = null;
+        try { info = new SessionInfoWindow(d, area, panelW); info.Show(FindForm()); }
+        catch { info = null; }
+
+        Process? p = null;
+        try { p = Process.Start(psi); }
+        catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
+
+        if (p is not null)
+        {
+            // Best effort: place the viewer to the left of the panel; scale=auto refits the remote view.
+            PositionViewer(p, new Rectangle(area.Left, area.Top, area.Width - panelW, area.Height));
+            // Close the side panel automatically when the viewer is closed.
+            if (info is not null)
+            {
+                try
+                {
+                    p.EnableRaisingEvents = true;
+                    p.Exited += (_, _) => { try { info.BeginInvoke(() => { if (!info.IsDisposed) info.Close(); }); } catch { /* ignore */ } };
+                }
+                catch { /* ignore */ }
+            }
+        }
 
         // The viewer reads the options file at startup; remove it shortly after (best effort; no secret in it).
         if (profile.Length > 0)
             _ = Task.Run(async () => { await Task.Delay(8000); try { File.Delete(profile); } catch { /* ignore */ } });
     }
+
+    // Win32 to nudge the freshly launched viewer window into place beside the session panel (best effort).
+    [DllImport("user32.dll")] private static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    private const int SW_RESTORE = 9;
+
+    private static void PositionViewer(Process p, Rectangle target) => _ = Task.Run(async () =>
+    {
+        try
+        {
+            IntPtr h = IntPtr.Zero;
+            for (int i = 0; i < 40 && h == IntPtr.Zero; i++)
+            {
+                await Task.Delay(250);
+                if (p.HasExited) return;
+                p.Refresh();
+                h = p.MainWindowHandle;
+            }
+            if (h == IntPtr.Zero) return;
+            await Task.Delay(400);              // let the viewer finish opening before moving it
+            ShowWindow(h, SW_RESTORE);          // un-maximize so the new bounds take effect
+            MoveWindow(h, target.X, target.Y, target.Width, target.Height, true);
+        }
+        catch { /* best effort */ }
+    });
 
     /// <summary>Locates the TightVNC viewer: configured path first, then standard install dirs and a copy next to the client.</summary>
     private string? ResolveViewer()
