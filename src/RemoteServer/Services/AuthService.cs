@@ -14,6 +14,9 @@ public sealed class AuthService(AppDbContext db)
 {
     public static readonly TimeSpan SessionTtl = TimeSpan.FromHours(12);
 
+    /// <summary>How long a "remember this device" 2FA trust stays valid before TOTP is required again.</summary>
+    public static readonly TimeSpan TrustTtl = TimeSpan.FromDays(90);
+
     public async Task<string> CreateSessionAsync(User user, CancellationToken ct)
     {
         var raw = Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -22,6 +25,31 @@ public sealed class AuthService(AppDbContext db)
             UserId = user.Id,
             TokenHash = HashToken(raw),
             ExpiresAt = DateTimeOffset.UtcNow + SessionTtl,
+        });
+        await db.SaveChangesAsync(ct);
+        return raw;
+    }
+
+    /// <summary>True if the raw token matches a live (not revoked/expired) device trust for the user; updates last-used.</summary>
+    public async Task<bool> IsDeviceTrustedAsync(string? rawToken, Guid userId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(rawToken)) return false;
+        var hash = HashToken(rawToken);
+        var trust = await db.DeviceTrusts.FirstOrDefaultAsync(t => t.TokenHash == hash && t.UserId == userId, ct);
+        if (trust is null || trust.RevokedAt is not null || trust.ExpiresAt < DateTimeOffset.UtcNow) return false;
+        trust.LastUsedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    /// <summary>Issues a "remember this device" trust token (raw goes to the client; DB stores only its hash).</summary>
+    public async Task<string> IssueDeviceTrustAsync(Guid userId, string? deviceName, CancellationToken ct)
+    {
+        var raw = Base64Url(RandomNumberGenerator.GetBytes(32));
+        db.DeviceTrusts.Add(new DeviceTrust
+        {
+            UserId = userId, TokenHash = HashToken(raw), DeviceName = deviceName,
+            ExpiresAt = DateTimeOffset.UtcNow + TrustTtl,
         });
         await db.SaveChangesAsync(ct);
         return raw;
@@ -64,6 +92,11 @@ public sealed class AuthService(AppDbContext db)
     {
         var live = await db.UserSessions.Where(s => s.UserId == userId && s.RevokedAt == null).ToListAsync(ct);
         foreach (var s in live) s.RevokedAt = DateTimeOffset.UtcNow;
+
+        // A full sign-out also drops "remember this device" trusts, so TOTP is required again next time.
+        var trusts = await db.DeviceTrusts.Where(t => t.UserId == userId && t.RevokedAt == null).ToListAsync(ct);
+        foreach (var t in trusts) t.RevokedAt = DateTimeOffset.UtcNow;
+
         await db.SaveChangesAsync(ct);
     }
 

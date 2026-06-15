@@ -333,6 +333,33 @@ namespace RemoteServer.Data.Migrations
                 .Annotation("MySql:CharSet", "utf8mb4");
 
             migrationBuilder.CreateTable(
+                name: "DeviceTrusts",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "char(36)", nullable: false, collation: "ascii_general_ci"),
+                    UserId = table.Column<Guid>(type: "char(36)", nullable: false, collation: "ascii_general_ci"),
+                    TokenHash = table.Column<string>(type: "varchar(255)", nullable: false)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
+                    DeviceName = table.Column<string>(type: "longtext", nullable: true)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: false),
+                    ExpiresAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: false),
+                    RevokedAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: true),
+                    LastUsedAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DeviceTrusts", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_DeviceTrusts_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                })
+                .Annotation("MySql:CharSet", "utf8mb4");
+
+            migrationBuilder.CreateTable(
                 name: "HelloCredentials",
                 columns: table => new
                 {
@@ -468,6 +495,17 @@ namespace RemoteServer.Data.Migrations
                 columns: new[] { "DeviceId", "CollectedAt" });
 
             migrationBuilder.CreateIndex(
+                name: "IX_DeviceTrusts_TokenHash",
+                table: "DeviceTrusts",
+                column: "TokenHash",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeviceTrusts_UserId",
+                table: "DeviceTrusts",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_EnrollmentTokens_TokenHash",
                 table: "EnrollmentTokens",
                 column: "TokenHash",
@@ -536,6 +574,9 @@ namespace RemoteServer.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "DeviceTelemetry");
+
+            migrationBuilder.DropTable(
+                name: "DeviceTrusts");
 
             migrationBuilder.DropTable(
                 name: "EnrollmentTokens");

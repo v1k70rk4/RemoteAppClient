@@ -12,7 +12,7 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260615084558_Reset_1_5_0")]
+    [Migration("20260615135944_Reset_1_5_0")]
     partial class Reset_1_5_0
     {
         /// <inheritdoc />
@@ -279,6 +279,44 @@ namespace RemoteServer.Data.Migrations
                     b.HasIndex("DeviceId", "CollectedAt");
 
                     b.ToTable("DeviceTelemetry");
+                });
+
+            modelBuilder.Entity("RemoteServer.Data.Entities.DeviceTrust", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("DeviceName")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTimeOffset>("LastUsedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("DeviceTrusts");
                 });
 
             modelBuilder.Entity("RemoteServer.Data.Entities.EnrollmentToken", b =>
@@ -664,6 +702,17 @@ namespace RemoteServer.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("RemoteServer.Data.Entities.DeviceTrust", b =>
+                {
+                    b.HasOne("RemoteServer.Data.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("RemoteServer.Data.Entities.HelloCredential", b =>

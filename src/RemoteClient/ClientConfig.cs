@@ -31,6 +31,12 @@ public sealed class ClientConfig
     /// <summary>Username associated with Hello for passwordless sign-in.</summary>
     public string? HelloUsername { get; set; }
 
+    /// <summary>"Remember this device" 2FA-trust token: lets the server skip TOTP for ~90 days. Useless without the password.</summary>
+    public string? TrustToken { get; set; }
+
+    /// <summary>The username the trust token belongs to (prefilled on the login screen and matched before sending the token).</summary>
+    public string? TrustUsername { get; set; }
+
     public bool IsComplete =>
         !string.IsNullOrWhiteSpace(SshHost) &&
         !string.IsNullOrWhiteSpace(SshUser) &&

@@ -278,6 +278,44 @@ namespace RemoteServer.Data.Migrations
                     b.ToTable("DeviceTelemetry");
                 });
 
+            modelBuilder.Entity("RemoteServer.Data.Entities.DeviceTrust", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("DeviceName")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTimeOffset>("LastUsedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("DeviceTrusts");
+                });
+
             modelBuilder.Entity("RemoteServer.Data.Entities.EnrollmentToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -661,6 +699,17 @@ namespace RemoteServer.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("RemoteServer.Data.Entities.DeviceTrust", b =>
+                {
+                    b.HasOne("RemoteServer.Data.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("RemoteServer.Data.Entities.HelloCredential", b =>

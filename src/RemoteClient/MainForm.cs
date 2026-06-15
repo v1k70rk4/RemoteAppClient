@@ -43,6 +43,7 @@ public sealed class MainForm : MaterialForm
     private readonly MaterialTextBox2 _user = new() { Hint = L.CredentialDialog_User };
     private readonly MaterialTextBox2 _pass = new() { Hint = L.MainForm_Password, UseSystemPasswordChar = true };
     private readonly MaterialTextBox2 _totp = new() { Hint = L.MainForm_TOTPIfAny };
+    private readonly MaterialSwitch _remember = new() { Text = L.MainForm_RememberDevice, AutoSize = false };
     private readonly MaterialButton _loginBtn = new() { Text = L.MainForm_SignIn };
     private readonly MaterialButton _helloBtn = new() { Text = L.MainForm_SignInWithWindowsHello, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false, Visible = false };
     private readonly MaterialLabel _loginStatus = new() { Visible = true };
@@ -335,19 +336,21 @@ public sealed class MainForm : MaterialForm
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _loginCard.Anchor = AnchorStyles.None;
         _setupCard.Anchor = AnchorStyles.None;
-        _loginCard.Size = new Size(360, 420);
         var lt = new MaterialLabel { Text = L.MainForm_SignIn_2, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Location = new Point(20, 16) };
         _user.SetBounds(20, 56, 320, 48);
         _pass.SetBounds(20, 110, 320, 48);
         _totp.SetBounds(20, 164, 320, 48);
-        _loginBtn.SetBounds(20, 222, 320, 40);
+        _remember.Checked = !string.IsNullOrEmpty(_cfg.TrustToken);
+        _user.Text = _cfg.TrustUsername ?? "";
         _loginBtn.Click += async (_, _) => await DoLoginAsync();
-        _helloBtn.SetBounds(20, 268, 320, 40);
         _helloBtn.Click += async (_, _) => await DoHelloLoginAsync();
-        _forgotLink.Location = new Point(20, 316);
         _forgotLink.Click += (_, _) => OpenForgotPassword();
-        _loginStatus.SetBounds(20, 344, 320, 60); _loginStatus.ForeColor = Color.IndianRed;
-        _loginCard.Controls.AddRange([lt, _user, _pass, _totp, _loginBtn, _helloBtn, _forgotLink, _loginStatus]);
+        _loginStatus.ForeColor = Color.IndianRed;
+        // Trusted device: hide the TOTP field (90-day skip). It reappears if the typed username
+        // is not the trusted one, or if the server still demands a code (expired/revoked trust).
+        _user.TextChanged += (_, _) => LayoutAuthCard(!IsTrustedUser(_user.Text.Trim()));
+        LayoutAuthCard(!IsTrustedUser(_user.Text.Trim()));
+        _loginCard.Controls.AddRange([lt, _user, _pass, _totp, _remember, _loginBtn, _helloBtn, _forgotLink, _loginStatus]);
         AcceptButton = _loginBtn;
 
         // Setup card for first sign-in, hidden initially.
@@ -366,6 +369,24 @@ public sealed class MainForm : MaterialForm
         center.Controls.Add(_loginCard, 0, 0);
         center.Controls.Add(_setupCard, 0, 0); // same cell, overlapped; only one visible at a time
         _authView.Controls.AddRange([center, header]); // center fills, header docks top
+    }
+
+    /// <summary>True when a device-trust token is stored for this username (TOTP can be skipped).</summary>
+    private bool IsTrustedUser(string user) =>
+        !string.IsNullOrEmpty(_cfg.TrustToken) &&
+        string.Equals(_cfg.TrustUsername, user, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Positions the login controls, collapsing the TOTP row when it is hidden.</summary>
+    private void LayoutAuthCard(bool totpVisible)
+    {
+        _totp.Visible = totpVisible;
+        int shift = totpVisible ? 0 : 54;
+        _remember.SetBounds(20, 216 - shift, 320, 30);
+        _loginBtn.SetBounds(20, 252 - shift, 320, 40);
+        _helloBtn.SetBounds(20, 298 - shift, 320, 40);
+        _forgotLink.Location = new Point(20, 346 - shift);
+        _loginStatus.SetBounds(20, 376 - shift, 320, 56);
+        _loginCard.Size = new Size(360, 452 - shift);
     }
 
     private void BuildMainView()
@@ -484,9 +505,16 @@ public sealed class MainForm : MaterialForm
         {
             _loginBtn.Enabled = false;
             _username = _user.Text.Trim();
+            var trust = string.Equals(_cfg.TrustUsername, _username, StringComparison.OrdinalIgnoreCase) ? _cfg.TrustToken : null;
             _login = await _api.LoginAsync(_username, _pass.Text, string.IsNullOrWhiteSpace(_totp.Text) ? null : _totp.Text.Trim(),
-                ClientUpdater.RunningVersionString(), _cfg.Channel);
+                ClientUpdater.RunningVersionString(), _cfg.Channel, trust, _remember.Checked);
             if (await HandleMandatoryUpdateAsync(_login)) return;
+            // Persist a newly issued device-trust token so next time TOTP can be skipped (90 days).
+            if (!string.IsNullOrEmpty(_login.TrustToken))
+            {
+                _cfg.TrustToken = _login.TrustToken; _cfg.TrustUsername = _username;
+                try { _cfg.Save(); } catch { /* best effort */ }
+            }
             _api.SetToken(_login.Token);
             _role = _login.Role;
 
@@ -495,6 +523,18 @@ public sealed class MainForm : MaterialForm
         }
         catch (AuthException ex)
         {
+            if (ex.Code is "totp_required" or "totp_invalid")
+            {
+                // A code is demanded but the device was treated as trusted: the stored trust is
+                // stale (expired/revoked). Drop it and reveal the TOTP field so the user can sign in.
+                if (!string.IsNullOrEmpty(_cfg.TrustToken))
+                {
+                    _cfg.TrustToken = null; _cfg.TrustUsername = null;
+                    try { _cfg.Save(); } catch { /* best effort */ }
+                }
+                LayoutAuthCard(true);
+                _totp.Focus();
+            }
             SetLoginStatus(ex.Code switch
             {
                 "totp_required" => L.MainForm_EnterTheTOTPCode,

@@ -15,6 +15,12 @@ public sealed class LoginRequest
     [JsonPropertyName("channel")] public string? Channel { get; set; }
     /// <summary>Local agent device ID from the status pipe; used for the device-level failure counter.</summary>
     [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
+
+    /// <summary>"Remember this device" trust token from a previous login; lets the server skip TOTP when still valid.</summary>
+    [JsonPropertyName("trustToken")] public string? TrustToken { get; set; }
+
+    /// <summary>When true and full 2FA succeeds, the server issues a device-trust token so TOTP can be skipped next time.</summary>
+    [JsonPropertyName("rememberDevice")] public bool RememberDevice { get; set; }
 }
 
 /// <summary>
@@ -47,6 +53,9 @@ public sealed class LoginResponse
 
     /// <summary>Per-operator TightVNC viewer color depth ("full" or "256"). Roams with the account.</summary>
     [JsonPropertyName("viewerColor")] public string? ViewerColor { get; set; }
+
+    /// <summary>Newly issued "remember this device" token (only when rememberDevice was set and 2FA passed). Store client-side.</summary>
+    [JsonPropertyName("trustToken")] public string? TrustToken { get; set; }
 }
 
 /// <summary>Error code returned with login or authorization rejection (HTTP 401/403).</summary>

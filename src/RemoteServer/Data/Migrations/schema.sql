@@ -181,6 +181,19 @@ CREATE TABLE `Devices` (
     CONSTRAINT `FK_Devices_DeviceGroups_GroupId` FOREIGN KEY (`GroupId`) REFERENCES `DeviceGroups` (`Id`) ON DELETE SET NULL
 ) CHARACTER SET=utf8mb4;
 
+CREATE TABLE `DeviceTrusts` (
+    `Id` char(36) COLLATE ascii_general_ci NOT NULL,
+    `UserId` char(36) COLLATE ascii_general_ci NOT NULL,
+    `TokenHash` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+    `DeviceName` longtext CHARACTER SET utf8mb4 NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    `ExpiresAt` datetime(6) NOT NULL,
+    `RevokedAt` datetime(6) NULL,
+    `LastUsedAt` datetime(6) NOT NULL,
+    CONSTRAINT `PK_DeviceTrusts` PRIMARY KEY (`Id`),
+    CONSTRAINT `FK_DeviceTrusts_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
+) CHARACTER SET=utf8mb4;
+
 CREATE TABLE `HelloCredentials` (
     `Id` char(36) COLLATE ascii_general_ci NOT NULL,
     `UserId` char(36) COLLATE ascii_general_ci NOT NULL,
@@ -237,6 +250,10 @@ CREATE UNIQUE INDEX `IX_Devices_TunnelPort` ON `Devices` (`TunnelPort`);
 
 CREATE INDEX `IX_DeviceTelemetry_DeviceId_CollectedAt` ON `DeviceTelemetry` (`DeviceId`, `CollectedAt`);
 
+CREATE UNIQUE INDEX `IX_DeviceTrusts_TokenHash` ON `DeviceTrusts` (`TokenHash`);
+
+CREATE INDEX `IX_DeviceTrusts_UserId` ON `DeviceTrusts` (`UserId`);
+
 CREATE UNIQUE INDEX `IX_EnrollmentTokens_TokenHash` ON `EnrollmentTokens` (`TokenHash`);
 
 CREATE INDEX `IX_HelloCredentials_UserId` ON `HelloCredentials` (`UserId`);
@@ -258,7 +275,7 @@ CREATE UNIQUE INDEX `IX_UserSessions_TokenHash` ON `UserSessions` (`TokenHash`);
 CREATE INDEX `IX_UserSessions_UserId` ON `UserSessions` (`UserId`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260615084558_Reset_1_5_0', '9.0.0');
+VALUES ('20260615135944_Reset_1_5_0', '9.0.0');
 
 COMMIT;
 

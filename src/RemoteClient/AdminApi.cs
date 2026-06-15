@@ -101,10 +101,10 @@ public sealed class AdminApi : IDisposable
 
     /// <summary>Signs in. On failure, throws AuthException with the server error code.</summary>
     public async Task<LoginResponse> LoginAsync(string username, string password, string? totp,
-        string? clientVersion = null, string? channel = null, CancellationToken ct = default)
+        string? clientVersion = null, string? channel = null, string? trustToken = null, bool rememberDevice = false, CancellationToken ct = default)
     {
         using var content = JsonContent.Create(
-            new LoginRequest { Username = username, Password = password, Totp = totp, ClientVersion = clientVersion, Channel = channel, DeviceId = DeviceId },
+            new LoginRequest { Username = username, Password = password, Totp = totp, ClientVersion = clientVersion, Channel = channel, DeviceId = DeviceId, TrustToken = trustToken, RememberDevice = rememberDevice },
             AgentJsonContext.Default.LoginRequest);
         using var resp = await _http.PostAsync("/auth/login", content, ct);
         if (!resp.IsSuccessStatusCode)

@@ -124,3 +124,26 @@ public sealed class UserSession
     public DateTimeOffset? RevokedAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; } = DateTimeOffset.UtcNow;
 }
+
+/// <summary>
+/// "Remember this device" 2FA trust: lets the user skip TOTP on this device for a bounded period after a
+/// full 2FA sign-in. The password is still required every login — only the second factor is remembered.
+/// The raw token lives only on the client (DPAPI); the DB stores its hash. Revoked on password change.
+/// </summary>
+public sealed class DeviceTrust
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public User User { get; set; } = null!;
+
+    /// <summary>Trust token SHA-256 hash (hex). The raw token is never stored server-side.</summary>
+    public string TokenHash { get; set; } = string.Empty;
+
+    /// <summary>Device label (hostname) for display when listing/revoking.</summary>
+    public string? DeviceName { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public DateTimeOffset LastUsedAt { get; set; } = DateTimeOffset.UtcNow;
+}

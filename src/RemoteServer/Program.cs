@@ -142,8 +142,10 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
     }
 
-    // If TOTP is already configured, the code is mandatory.
-    if (user.TotpConfirmed)
+    // If TOTP is configured, the code is mandatory — unless this device is remembered (trusted).
+    // The password was already verified above; trust only skips the second factor.
+    bool deviceTrusted = await auth.IsDeviceTrustedAsync(req.TrustToken, user.Id, ct);
+    if (user.TotpConfirmed && !deviceTrusted)
     {
         var secret = protector.TryUnprotect(user.TotpSecret);
         if (secret is null || !TotpService.Verify(secret, req.Totp ?? ""))
@@ -169,6 +171,11 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         ViewerScale = user.ViewerScale,
         ViewerColor = user.ViewerColor,
     };
+
+    // "Remember this device": issue a trust token after a real 2FA login (not when the device was already
+    // trusted, so a stolen trust cannot perpetually renew itself). The password is still required next time.
+    if (user.TotpConfirmed && !deviceTrusted && req.RememberDevice)
+        resp.TrustToken = await auth.IssueDeviceTrustAsync(user.Id, device?.Hostname, ct);
 
     // First sign-in or no TOTP yet: generate an enrollment secret, store encrypted and unconfirmed.
     if (!user.TotpConfirmed)

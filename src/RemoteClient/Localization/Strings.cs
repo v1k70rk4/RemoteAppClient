@@ -442,6 +442,7 @@ internal static partial class Strings
     public static string MainForm_About => Get(nameof(MainForm_About));
     public static string MainForm_SigningOut => Get(nameof(MainForm_SigningOut));
     public static string MainForm_TOTPIfAny => Get(nameof(MainForm_TOTPIfAny));
+    public static string MainForm_RememberDevice => Get(nameof(MainForm_RememberDevice));
     public static string MainForm_ServerNoConnection => Get(nameof(MainForm_ServerNoConnection));
     public static string MainForm_Server => Get(nameof(MainForm_Server));
     public static string MainForm_ChannelError => Get(nameof(MainForm_ChannelError));
