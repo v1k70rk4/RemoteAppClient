@@ -1449,6 +1449,27 @@ app.MapPost("/admin/users/{id:guid}/hello/{credId:guid}/revoke", async (Guid id,
     return Results.NoContent();
 });
 
+// User trusted ("remember this device") machines (admin): list currently-valid ones + revoke.
+app.MapGet("/admin/users/{id:guid}/trusts", async (Guid id, AppDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Users.AnyAsync(u => u.Id == id, ct)) return Results.NotFound();
+    var now = DateTimeOffset.UtcNow;
+    var list = await db.DeviceTrusts.Where(t => t.UserId == id && t.RevokedAt == null && t.ExpiresAt > now)
+        .OrderByDescending(t => t.CreatedAt)
+        .Select(t => new TrustedDeviceInfo { Id = t.Id, DeviceName = t.DeviceName, CreatedAt = t.CreatedAt, ExpiresAt = t.ExpiresAt, LastUsedAt = t.LastUsedAt })
+        .ToListAsync(ct);
+    return Results.Json(list, AgentJsonContext.Default.ListTrustedDeviceInfo);
+});
+
+app.MapPost("/admin/users/{id:guid}/trusts/{trustId:guid}/revoke", async (Guid id, Guid trustId, AppDbContext db, CancellationToken ct) =>
+{
+    var t = await db.DeviceTrusts.FirstOrDefaultAsync(x => x.Id == trustId && x.UserId == id, ct);
+    if (t is null) return Results.NotFound();
+    t.RevokedAt ??= DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+});
+
 app.MapGet("/admin/users/{id:guid}/grants", async (Guid id, AppDbContext db, CancellationToken ct) =>
 {
     var grants = await db.UserGrants.Where(g => g.UserId == id).ToListAsync(ct);

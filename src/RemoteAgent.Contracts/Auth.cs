@@ -97,6 +97,16 @@ public sealed class HelloCredentialInfo
     [JsonPropertyName("lastUsedAt")] public DateTimeOffset? LastUsedAt { get; set; }
 }
 
+/// <summary>A remembered (device-trust) machine for admin listing or revocation, with its expiry.</summary>
+public sealed class TrustedDeviceInfo
+{
+    [JsonPropertyName("id")] public Guid Id { get; set; }
+    [JsonPropertyName("deviceName")] public string? DeviceName { get; set; }
+    [JsonPropertyName("createdAt")] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyName("expiresAt")] public DateTimeOffset ExpiresAt { get; set; }
+    [JsonPropertyName("lastUsedAt")] public DateTimeOffset LastUsedAt { get; set; }
+}
+
 /// <summary>Sign-in step 1: request a challenge before a session exists.</summary>
 public sealed class HelloChallengeRequest
 {

@@ -518,6 +518,16 @@ public sealed class AdminApi : IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>Trusted ("remember this device") machines for a user (admin).</summary>
+    public async Task<List<TrustedDeviceInfo>> GetUserTrustsAsync(Guid userId, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync($"/admin/users/{userId}/trusts", AgentJsonContext.Default.ListTrustedDeviceInfo, ct) ?? [];
+
+    public async Task RevokeUserTrustAsync(Guid userId, Guid trustId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/users/{userId}/trusts/{trustId}/revoke", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public void Dispose()
     {
         try { _http.Dispose(); } catch { /* best effort */ }

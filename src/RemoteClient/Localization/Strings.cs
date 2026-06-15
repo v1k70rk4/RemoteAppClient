@@ -356,6 +356,12 @@ internal static partial class Strings
     public static string GroupsView_Group => Get(nameof(GroupsView_Group));
     public static string HelloDevicesPanel_Device => Get(nameof(HelloDevicesPanel_Device));
     public static string HelloDevicesPanel_LastUsed => Get(nameof(HelloDevicesPanel_LastUsed));
+    public static string TrustedDevicesPanel_Title => Get(nameof(TrustedDevicesPanel_Title));
+    public static string TrustedDevicesPanel_Expires => Get(nameof(TrustedDevicesPanel_Expires));
+    public static string TrustedDevicesPanel_NoTrustedDevices => Get(nameof(TrustedDevicesPanel_NoTrustedDevices));
+    public static string TrustedDevicesPanel_TrustedDevice => Get(nameof(TrustedDevicesPanel_TrustedDevice));
+    public static string TrustedDevicesPanel_RevokeThisTrustedDevice => Get(nameof(TrustedDevicesPanel_RevokeThisTrustedDevice));
+    public static string TrustedDevicesPanel_RevokeTrust => Get(nameof(TrustedDevicesPanel_RevokeTrust));
     public static string HelloDevicesPanel_NoWindowsHelloDevicesFor => Get(nameof(HelloDevicesPanel_NoWindowsHelloDevicesFor));
     public static string HelloDevicesPanel_HelloDevice => Get(nameof(HelloDevicesPanel_HelloDevice));
     public static string HelloDevicesPanel_RevokeThisWindowsHelloDevice => Get(nameof(HelloDevicesPanel_RevokeThisWindowsHelloDevice));

@@ -28,6 +28,7 @@ public sealed class UsersView : UserControl, IContentView
     private readonly MaterialButton _tabPassword = TabBtn(L.MainForm_Password);
     private readonly MaterialButton _tabGrants = TabBtn(L.UsersView_Permissions);
     private readonly MaterialButton _tabHello = TabBtn("Windows Hello");
+    private readonly MaterialButton _tabTrusts = TabBtn(L.TrustedDevicesPanel_Title);
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
 
     // General tab
@@ -46,6 +47,7 @@ public sealed class UsersView : UserControl, IContentView
     // Per-user tabs rebuilt for the selected user.
     private GrantsPanel? _grantsPanel;
     private HelloDevicesPanel? _helloPanel;
+    private TrustedDevicesPanel? _trustsPanel;
     private LogPanel? _logPanel;
 
     private UserInfo? _editing;
@@ -112,9 +114,10 @@ public sealed class UsersView : UserControl, IContentView
         _tabPassword.Click += async (_, _) => await SelectTabAsync("password");
         _tabGrants.Click += async (_, _) => await SelectTabAsync("grants");
         _tabHello.Click += async (_, _) => await SelectTabAsync("hello");
+        _tabTrusts.Click += async (_, _) => await SelectTabAsync("trusts");
 
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabLog, _tabPassword, _tabGrants, _tabHello]);
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabLog, _tabPassword, _tabGrants, _tabHello, _tabTrusts]);
 
         _generalPanel = BuildGeneralPanel();
         _passwordPanel = BuildPasswordPanel();
@@ -238,9 +241,10 @@ public sealed class UsersView : UserControl, IContentView
         _generalStatus.Text = ""; _passwordStatus.Text = "";
 
         // Rebuild per-user tabs.
-        _grantsPanel?.Dispose(); _helloPanel?.Dispose(); _logPanel?.Dispose();
+        _grantsPanel?.Dispose(); _helloPanel?.Dispose(); _trustsPanel?.Dispose(); _logPanel?.Dispose();
         _grantsPanel = new GrantsPanel(_api, u.Id);
         _helloPanel = new HelloDevicesPanel(_api, u.Id);
+        _trustsPanel = new TrustedDevicesPanel(_api, u.Id);
         _logPanel = new LogPanel(_api, actor: u.Username);
 
         ShowEditor();
@@ -249,7 +253,7 @@ public sealed class UsersView : UserControl, IContentView
 
     private async Task SelectTabAsync(string tab)
     {
-        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabLog, "log"), (_tabPassword, "password"), (_tabGrants, "grants"), (_tabHello, "hello") })
+        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabLog, "log"), (_tabPassword, "password"), (_tabGrants, "grants"), (_tabHello, "hello"), (_tabTrusts, "trusts") })
             b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
 
         _tabContent.Controls.Clear();
@@ -260,6 +264,7 @@ public sealed class UsersView : UserControl, IContentView
             case "password": _tabContent.Controls.Add(_passwordPanel); break;
             case "grants" when _grantsPanel is not null: _tabContent.Controls.Add(_grantsPanel); await _grantsPanel.ShownAsync(); break;
             case "hello" when _helloPanel is not null: _tabContent.Controls.Add(_helloPanel); await _helloPanel.ShownAsync(); break;
+            case "trusts" when _trustsPanel is not null: _tabContent.Controls.Add(_trustsPanel); await _trustsPanel.ShownAsync(); break;
         }
     }
 
