@@ -445,7 +445,9 @@ public sealed class DevicesView : UserControl, IContentView
         {
             File.WriteAllText(profile,
                 "[connection]\r\nhost=127.0.0.1\r\n" + $"port={localPort}\r\n" +
-                "[options]\r\n" + $"8bit={(_viewerColor == "256" ? 1 : 0)}\r\n");
+                // shared=1: request a shared session so two operators can view the same machine at once
+                // (the device's TightVNC runs AlwaysShared).
+                "[options]\r\n" + $"8bit={(_viewerColor == "256" ? 1 : 0)}\r\nshared=1\r\n");
         }
         catch { profile = ""; }
 

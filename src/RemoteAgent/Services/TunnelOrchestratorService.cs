@@ -23,6 +23,7 @@ public sealed class TunnelOrchestratorService(
 {
     private readonly TunnelOptions _opt = options.Value.Tunnel;
     private SshReverseTunnel? _tunnel;
+    private int _tunnelPort;
     private DateTimeOffset _lastActivity;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -101,13 +102,22 @@ public sealed class TunnelOrchestratorService(
         if (outcome is not ("auto" or "granted"))
             return; // denied / timeout / no user; tunnel stays closed
 
-        // Each open-tunnel can get a fresh server-assigned random port, so close the existing
-        // tunnel and open a new one to avoid keeping the old port stuck.
+        // Reuse an existing tunnel on the same port so a second operator can join the session:
+        // TightVNC runs shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer.
+        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort)
+        {
+            _lastActivity = DateTimeOffset.UtcNow;
+            state.Set(true);
+            return;
+        }
+
+        // Different port (or no tunnel): replace the existing one.
         if (_tunnel is not null)
             await _tunnel.StopAsync();
 
         _tunnel = new SshReverseTunnel(_opt, loggerFactory.CreateLogger<SshReverseTunnel>());
         await _tunnel.StartAsync(remotePort, ct);
+        _tunnelPort = remotePort;
         state.Set(_tunnel.IsRunning);
         _lastActivity = DateTimeOffset.UtcNow;
     }
@@ -215,6 +225,7 @@ public sealed class TunnelOrchestratorService(
     {
         if (_tunnel is null) return;
         await _tunnel.StopAsync();
+        _tunnelPort = 0;
         state.Set(false);
     }
 

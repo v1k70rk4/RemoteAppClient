@@ -162,7 +162,8 @@ public static class VncProvisioner
             if (key is null) return false;
             bool Dword(string n, int v) => key.GetValue(n) is int x && x == v;
             if (!(Dword("RfbPort", 5900) && Dword("LoopbackOnly", 1)
-                  && Dword("AcceptHttpConnections", 0) && Dword("UseVncAuthentication", 1)))
+                  && Dword("AcceptHttpConnections", 0) && Dword("UseVncAuthentication", 1)
+                  && Dword("AlwaysShared", 1) && Dword("DisconnectClients", 0)))
                 return false;
             return key.GetValue("Password") is byte[] p && p.AsSpan().SequenceEqual(enc);
         }
@@ -192,6 +193,8 @@ public static class VncProvisioner
         key.SetValue("LoopbackOnly", 1, RegistryValueKind.DWord);          // csak 127.0.0.1
         key.SetValue("AcceptHttpConnections", 0, RegistryValueKind.DWord); // 5800-as web/Java port ki
         key.SetValue("UseVncAuthentication", 1, RegistryValueKind.DWord);
+        key.SetValue("AlwaysShared", 1, RegistryValueKind.DWord);          // több néző egyszerre (megosztott)
+        key.SetValue("DisconnectClients", 0, RegistryValueKind.DWord);     // új kapcsolat ne bontsa a meglévőt
         key.SetValue("Password", encryptedPassword, RegistryValueKind.Binary);
     }
 

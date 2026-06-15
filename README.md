@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-1.5.10-2ea44f" alt="version 1.5.10">
+  <img src="https://img.shields.io/badge/version-1.5.11-2ea44f" alt="version 1.5.11">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -437,8 +437,8 @@ and bastion configuration before printing the first bootstrap blob.
 Typical release:
 
 ```bash
-git tag v1.5.10
-git push origin v1.5.10
+git tag v1.5.11
+git push origin v1.5.11
 ```
 
 The server stores uploaded packages in `Server:PackagesDir`, computes SHA-256, and uses
