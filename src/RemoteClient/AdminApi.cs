@@ -492,6 +492,12 @@ public sealed class AdminApi : IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
+    public async Task DeleteUserAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.DeleteAsync($"/admin/users/{id}", ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public async Task<List<GrantInfo>> GetGrantsAsync(Guid id, CancellationToken ct = default) =>
         await _http.GetFromJsonAsync($"/admin/users/{id}/grants", AgentJsonContext.Default.ListGrantInfo, ct) ?? [];
 

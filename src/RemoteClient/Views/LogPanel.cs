@@ -77,6 +77,7 @@ public sealed class LogPanel : UserControl
                 else if (AuditText.IsNoConsent(e.Action)) item.ForeColor = Color.DarkOrange;
                 _list.Items.Add(item);
             }
+            ViewUi.AutoSizeColumns(_list);
             _status.Text = L.Format(L.LogPanel_Entry, rows.Count);
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }

@@ -209,6 +209,7 @@ internal static partial class Strings
     public static string ChannelsView_ExeUpload => Get(nameof(ChannelsView_ExeUpload));
     public static string ChannelsView_Back => Get(nameof(ChannelsView_Back));
     public static string ChannelsView_Component => Get(nameof(ChannelsView_Component));
+    public static string ChannelsView_DeviceVersions => Get(nameof(ChannelsView_DeviceVersions));
     public static string ChannelsView_Released => Get(nameof(ChannelsView_Released));
     public static string ChannelsView_RTMBETAComponents => Get(nameof(ChannelsView_RTMBETAComponents));
     public static string ChannelsView_X => Get(nameof(ChannelsView_X));
@@ -547,6 +548,8 @@ internal static partial class Strings
     public static string UsersView_DisplayNameForExampleJohn => Get(nameof(UsersView_DisplayNameForExampleJohn));
     public static string UsersView_Name => Get(nameof(UsersView_Name));
     public static string UsersView_LastUsed => Get(nameof(UsersView_LastUsed));
+    public static string UsersView_DeleteUserConfirm => Get(nameof(UsersView_DeleteUserConfirm));
+    public static string UsersView_UserDeleted => Get(nameof(UsersView_UserDeleted));
     public static string UsersView_AddNewUser => Get(nameof(UsersView_AddNewUser));
     public static string UsersView_ForceSignOut => Get(nameof(UsersView_ForceSignOut));
     public static string UsersView_AlsoClearTOTPAuthenticatorUser => Get(nameof(UsersView_AlsoClearTOTPAuthenticatorUser));

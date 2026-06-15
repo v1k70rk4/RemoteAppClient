@@ -15,7 +15,7 @@ public sealed class SettingsView : UserControl, IContentView
     private readonly MaterialLabel _languageStatus = new() { AutoSize = false, Width = 560, Height = 44, Margin = new Padding(0, 6, 0, 0) };
     private readonly MaterialComboBox _viewerScaleCombo = new() { Hint = L.SettingsView_ViewerScale, Width = 260 };
     private readonly MaterialComboBox _viewerColorCombo = new() { Hint = L.SettingsView_ViewerColor, Width = 260 };
-    private readonly MaterialComboBox _vncPanelCombo = new() { Hint = L.SettingsView_VncPanel, Width = 300 };
+    private readonly MaterialComboBox _vncPanelCombo = new() { Hint = L.SettingsView_VncPanel, Width = 260 };
     private readonly MaterialLabel _viewerScaleStatus = new() { AutoSize = false, Width = 560, Height = 28, Margin = new Padding(0, 6, 0, 0) };
     private readonly Action<string> _onTheme;
     private readonly Action<string, string> _onViewerPrefs;
@@ -97,7 +97,11 @@ public sealed class SettingsView : UserControl, IContentView
         {
             root.Controls.Add(new MaterialDivider { Width = 460, Margin = new Padding(0, 16, 0, 8) });
             _lock.Dock = DockStyle.None;
-            _lock.Size = new Size(820, 320);
+            // Auto-fit the height (no empty area / scrollbar) but keep a fixed width: the inner labels
+            // are top-docked, so without a width floor AutoSize collapses the control and clips them.
+            _lock.AutoSize = true;
+            _lock.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            _lock.MinimumSize = new Size(738, 0);
             root.Controls.Add(_lock);
         }
 

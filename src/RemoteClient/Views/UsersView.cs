@@ -87,6 +87,25 @@ public sealed class UsersView : UserControl, IContentView
         _list.Columns.Add("Hello", 55);
         _list.Columns.Add(L.UsersView_LastUsed, 140);
         _list.DoubleClick += (_, _) => EditSelected();
+        // Right-click selects the row and opens the editor at a chosen tab (like Devices), plus Delete.
+        var menu = new ContextMenuStrip();
+        void MenuTab(string text, string tab) => menu.Items.Add(text, null, (_, _) => EditSelected(tab));
+        MenuTab(L.DevicesView_Properties, "general");
+        MenuTab(L.MainForm_Password, "password");
+        MenuTab(L.UsersView_Permissions, "grants");
+        MenuTab("Log", "log");
+        MenuTab("Windows Hello", "hello");
+        MenuTab(L.TrustedDevicesPanel_Title, "trusts");
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L.DevicesView_Delete, null, async (_, _) => await DeleteSelectedAsync());
+        _list.MouseUp += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Right) return;
+            var hit = _list.GetItemAt(e.X, e.Y);
+            if (hit is null) return;
+            hit.Selected = true;
+            menu.Show(_list, e.Location);
+        };
 
         // Below table on the right: Properties; next row below: New User.
         var editRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
@@ -94,6 +113,10 @@ public sealed class UsersView : UserControl, IContentView
         edit.Margin = new Padding(4, 0, 4, 0);
         edit.Click += (_, _) => EditSelected();
         editRow.Controls.Add(edit);
+        var del = ViewUi.ToolbarButton(L.DevicesView_Delete, primary: false);
+        del.Margin = new Padding(4, 0, 4, 0);
+        del.Click += async (_, _) => await DeleteSelectedAsync();
+        editRow.Controls.Add(del);
 
         // New User on the left: list-level action independent of selection.
         var newRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
@@ -117,7 +140,7 @@ public sealed class UsersView : UserControl, IContentView
         _tabTrusts.Click += async (_, _) => await SelectTabAsync("trusts");
 
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabLog, _tabPassword, _tabGrants, _tabHello, _tabTrusts]);
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabPassword, _tabGrants, _tabLog, _tabHello, _tabTrusts]);
 
         _generalPanel = BuildGeneralPanel();
         _passwordPanel = BuildPasswordPanel();
@@ -199,6 +222,7 @@ public sealed class UsersView : UserControl, IContentView
             var users = await _api.GetUsersAsync();
             _users.Clear(); _users.AddRange(users);
             RenderList();
+            ViewUi.AutoSizeColumns(_list);
             _status.Text = L.Format(L.UsersView_User, users.Count);
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
@@ -229,7 +253,7 @@ public sealed class UsersView : UserControl, IContentView
         _list.EndUpdate();
     }
 
-    private void EditSelected()
+    private void EditSelected(string initialTab = "general")
     {
         if (Selected() is not { } u) { _status.Text = L.UsersView_SelectAUser; return; }
         _editing = u;
@@ -248,7 +272,7 @@ public sealed class UsersView : UserControl, IContentView
         _logPanel = new LogPanel(_api, actor: u.Username);
 
         ShowEditor();
-        _ = SelectTabAsync("general");
+        _ = SelectTabAsync(initialTab);
     }
 
     private async Task SelectTabAsync(string tab)
@@ -334,5 +358,14 @@ public sealed class UsersView : UserControl, IContentView
         if (MessageBox.Show(L.Format(L.UsersView_TerminateAllSessionsForImmediate, u.Username), L.UsersView_SignOutSessions, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try { await _api.RevokeSessionsAsync(u.Id); _generalStatus.Text = L.Format(L.UsersView_SignedOut, u.Username); }
         catch (Exception ex) { _generalStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (Selected() is not { } u) { _status.Text = L.UsersView_SelectAUser; return; }
+        if (BlockSelf(u, L.DevicesView_Delete)) return;
+        if (MessageBox.Show(L.Format(L.UsersView_DeleteUserConfirm, u.Username), L.DevicesView_Delete, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.DeleteUserAsync(u.Id); _status.Text = L.Format(L.UsersView_UserDeleted, u.Username); await RefreshAsync(); }
+        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 }

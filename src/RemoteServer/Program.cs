@@ -1373,6 +1373,22 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
     return Results.NoContent();
 });
 
+// Delete a user (admin). Self-delete is blocked, which also guarantees at least one admin remains
+// (you can only delete another admin, so the deleting admin survives). Sessions/grants/roles/Hello/
+// trusts are removed by the ON DELETE CASCADE foreign keys.
+app.MapDelete("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var me = (User)ctx.Items["user"]!;
+    if (id == me.Id) return Results.BadRequest(new { error = "self_delete" });
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+    if (user is null) return Results.NotFound();
+    var uname = user.Username;
+    db.Users.Remove(user);
+    await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "user-delete", null, uname);
+    return Results.NoContent();
+});
+
 // Unlock device login lockout (admin): reset counter and clear lock.
 app.MapPost("/admin/devices/{deviceId}/unlock", async (string deviceId, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
 {

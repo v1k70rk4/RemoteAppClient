@@ -83,7 +83,6 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Columns.Add(L.CredentialDialog_User, 150);
         _list.Columns.Add(L.DevicesView_LastOnline, 140);
         _list.Columns.Add(L.DeviceTelemetryPanel_PublicIP, 120);
-        _list.Columns.Add(L.DevicesView_Update, 150);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
         // Right-click selects the row under the cursor and opens a context menu of editor tabs.
         if (_isAdmin)
@@ -179,6 +178,7 @@ public sealed class DevicesView : UserControl, IContentView
         if (q.Length > 0)
             items = _devices.Where(d =>
                 (d.Hostname?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (d.GroupName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (d.Note?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
 
         items = SortItems(items);
@@ -187,7 +187,7 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Items.Clear();
         foreach (var d in items)
         {
-            // Column order: Device | Group | Note | Online | User | Last seen | Public IP | Update.
+            // Column order: Device | Group | Note | Online | User | Last seen | Public IP.
             var name = string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname;
             if (d.LoginLocked) name = "🔒 " + name;
             var item = new ListViewItem(name) { Tag = d, UseItemStyleForSubItems = false };
@@ -202,9 +202,6 @@ public sealed class DevicesView : UserControl, IContentView
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
             item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.PublicIpAddress) ? "—" : d.PublicIpAddress);
-            // Rollout indicator: grey check + target while an update command is in flight; "—" once applied.
-            var upd = item.SubItems.Add(d.UpdatePending ? "✓ " + (d.UpdatePendingInfo ?? "") : "—");
-            if (d.UpdatePending) upd.ForeColor = Color.Gray;
             if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
         }
@@ -480,7 +477,7 @@ public sealed class DevicesView : UserControl, IContentView
         SessionInfoWindow? info = null;
         if (showPanel)
         {
-            try { info = new SessionInfoWindow(d, area, panelW, keepOnTop: split); info.Show(FindForm()); }
+            try { info = new SessionInfoWindow(_api, d, area, panelW, keepOnTop: split); info.Show(FindForm()); }
             catch { info = null; }
         }
 

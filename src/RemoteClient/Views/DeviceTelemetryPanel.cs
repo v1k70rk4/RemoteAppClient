@@ -6,18 +6,35 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Read-only device telemetry/details for the editor Telemetry tab.</summary>
+/// <summary>Read-only device telemetry/details. Used both in the editor Telemetry tab and in the
+/// live VNC session panel, where <see cref="Update"/> re-renders it from a fresh snapshot.</summary>
 public sealed class DeviceTelemetryPanel : UserControl
 {
+    private readonly FlowLayoutPanel _flow = new()
+    {
+        Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false,
+        AutoScroll = true, Padding = new Padding(12, 10, 8, 8),
+    };
+
     public DeviceTelemetryPanel(DeviceInfo d)
     {
         Dock = DockStyle.Fill;
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 8, 8) };
+        Controls.Add(_flow);
+        Build(d);
+    }
+
+    /// <summary>Re-renders all rows for a refreshed snapshot (used by the live session panel).</summary>
+    public void Update(DeviceInfo d) => Build(d);
+
+    private void Build(DeviceInfo d)
+    {
+        _flow.SuspendLayout();
+        _flow.Controls.Clear();
 
         void Row(string caption, string? value)
         {
-            flow.Controls.Add(new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 8, 0, 0) });
-            flow.Controls.Add(new MaterialLabel { Text = string.IsNullOrWhiteSpace(value) ? "—" : value, AutoSize = true, MaximumSize = new Size(420, 0) });
+            _flow.Controls.Add(new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 8, 0, 0) });
+            _flow.Controls.Add(new MaterialLabel { Text = string.IsNullOrWhiteSpace(value) ? "—" : value, AutoSize = true, MaximumSize = new Size(420, 0) });
         }
 
         Row(L.DevicesView_Device, d.Hostname);
@@ -32,17 +49,17 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row("VPN", d.VpnActive ? L.DeviceTelemetryPanel_Active : L.DeviceTelemetryPanel_No);
         Row(L.DeviceTelemetryPanel_BootTime, d.BootTimeUtc?.LocalDateTime.ToString("g"));
         Row(L.DeviceTelemetryPanel_Uptime, Uptime(d.BootTimeUtc));
+        Row(L.DeviceTelemetryPanel_MakeModel, $"{(string.IsNullOrWhiteSpace(d.Manufacturer) ? "OEM" : d.Manufacturer)} / {S(d.Model)}");
+        Row(L.DeviceTelemetryPanel_Serial, d.SerialNumber);
         Row(L.DeviceTelemetryPanel_LocalLock, d.VncLocked ? L.DeviceTelemetryPanel_DISABLED : "—");
         Row(L.DeviceTelemetryPanel_SignInLock, d.LoginLocked ? L.Format(L.DeviceTelemetryPanel_LOCKEDFailed, d.LoginFailCount) : (d.LoginFailCount > 0 ? L.Format(L.DeviceTelemetryPanel_FailedAttempt, d.LoginFailCount) : "—"));
         Row("Agent / Helper / VNC", $"{S(d.AgentVersion)} / {S(d.HelperVersion)} / {S(d.VncVersion)}");
         Row(L.DeviceTelemetryPanel_ClientOS, $"{S(d.ClientVersion)} / {S(d.OsVersion)}");
-        Row(L.DeviceTelemetryPanel_MakeModel, $"{(string.IsNullOrWhiteSpace(d.Manufacturer) ? "OEM" : d.Manufacturer)} / {S(d.Model)}");
-        Row(L.DeviceTelemetryPanel_Serial, d.SerialNumber);
         Row(L.DeviceTelemetryPanel_AgentRestarts, d.AgentRestarts.ToString());
         if (!string.IsNullOrWhiteSpace(d.LastIncident)) Row(L.DeviceTelemetryPanel_LastIncident, d.LastIncident);
         Row("deviceId", d.DeviceId);
 
-        Controls.Add(flow);
+        _flow.ResumeLayout();
     }
 
     private static string S(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;

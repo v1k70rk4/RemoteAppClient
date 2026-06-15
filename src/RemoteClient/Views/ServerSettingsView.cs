@@ -92,13 +92,13 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private void BuildSmtpBox()
     {
         var f = new FlowLayoutPanel { Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
-        void Lbl(string t) => f.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
-        Lbl(L.ServerSettingsView_SMTPServer); f.Controls.Add(_smtpHost);
-        Lbl("Port"); f.Controls.Add(_smtpPort);
-        f.Controls.Add(_smtpTls);
-        Lbl(L.CredentialDialog_User); f.Controls.Add(_smtpUser);
-        Lbl(L.ServerSettingsView_SenderFrom); f.Controls.Add(_smtpFrom);
-        Lbl(L.MainForm_Password); f.Controls.Add(_smtpPass);
+        void Add(Control c) { c.Margin = new Padding(4, 10, 0, 4); f.Controls.Add(c); }
+        Add(_smtpHost);
+        Add(_smtpPort);
+        Add(_smtpTls);
+        Add(_smtpUser);
+        Add(_smtpFrom);
+        Add(_smtpPass);
         _smtpBox.Dock = DockStyle.Top; _smtpBox.Controls.Add(f);
     }
 
@@ -107,22 +107,20 @@ public sealed class ServerSettingsView : UserControl, IContentView
         var f = new FlowLayoutPanel { Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         void Lbl(string t) => f.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
         void Help(string t) => f.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(4, 2, 0, 0), ForeColor = Color.Gray });
+        void Add(Control c) { c.Margin = new Padding(4, 10, 0, 4); f.Controls.Add(c); }
 
-        Lbl("Azure Tenant ID");
-        f.Controls.Add(HRow(_graphTenant, InfoIcon(
-            L.ServerSettingsView_WhereDoIFindThe, TenantUrl)));
-
-        Lbl("Client (App) ID");
-        f.Controls.Add(HRow(_graphClient, InfoIcon(
+        // Fields keep their floating Hint and the info icons; only the redundant captions are gone.
+        Add(HRow(_graphTenant, InfoIcon(L.ServerSettingsView_WhereDoIFindThe, TenantUrl)));
+        Add(HRow(_graphClient, InfoIcon(
             L.ServerSettingsView_RegisterANewApplicationEntra +
             L.ServerSettingsView_SupportedAccountTypeSingleTenant +
             L.ServerSettingsView_CertificatesAndSecretsNewClient +
             L.ServerSettingsView_APIPermissionsMicrosoftGraphApplication +
             L.ServerSettingsView_IfNeededSendingCanBe +
             L.ServerSettingsView_ClickTheIconToOpen, AppRegUrl)));
-
-        Lbl(L.ServerSettingsView_SenderMailboxUPNEmail); f.Controls.Add(_graphSender);
-        Lbl("Client secret"); f.Controls.Add(_graphSecret);
+        Add(_graphSender);
+        Add(_graphSecret);
+        // The expiry is a DateTimePicker (no floating hint), so it keeps its caption.
         Lbl(L.ServerSettingsView_SecretExpiryMax2Years);
         _graphExpiry.MinDate = DateTime.Today;
         _graphExpiry.MaxDate = DateTime.Today.AddYears(2);
@@ -177,20 +175,20 @@ public sealed class ServerSettingsView : UserControl, IContentView
 
     private Control BuildGeneralTab()
     {
-        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
-        void Lbl(string t) => body.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
-        Lbl(L.ServerSettingsView_OwnerName); body.Controls.Add(_owner);
-        Lbl(L.ServerSettingsView_SupportPhoneNumber); body.Controls.Add(_phone);
-        Lbl(L.ServerSettingsView_SupportEmail); body.Controls.Add(_email);
-        Lbl(L.ServerSettingsView_MessageLanguage);
-        body.Controls.Add(HRow(_language, InfoTip(L.ServerSettingsView_MessageLanguageInfo)));
+        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 12, 12, 8) };
+        // No captions above the fields: each control's floating Hint already labels it.
+        void Add(Control c) { c.Margin = new Padding(4, 10, 0, 4); body.Controls.Add(c); }
+        Add(_owner);
+        Add(_phone);
+        Add(_email);
+        Add(HRow(_language, InfoTip(L.ServerSettingsView_MessageLanguageInfo)));
         return body;
     }
 
     private Control BuildEmailTab()
     {
-        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
-        body.Controls.Add(new MaterialLabel { Text = L.ServerSettingsView_ActiveProvider, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 4, 0, 0) });
+        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 12, 12, 8) };
+        _provider.Margin = new Padding(4, 10, 0, 4);
         body.Controls.Add(_provider);
         body.Controls.Add(_smtpBox);
         body.Controls.Add(_graphBox);
@@ -247,7 +245,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
             var d = s.GraphSecretExpiresAt?.LocalDateTime.Date ?? _graphExpiry.MaxDate;
             _graphExpiry.Value = d < _graphExpiry.MinDate ? _graphExpiry.MinDate : (d > _graphExpiry.MaxDate ? _graphExpiry.MaxDate : d);
 
-            _status.Text = L.AboutView_Upd;
+            _status.Text = ""; // settings loaded; the filled form is the confirmation, no status text needed
         }
         catch (Exception ex) { _status.Text = L.ServerSettingsView_FetchError + ex.Message; }
     }

@@ -18,6 +18,25 @@ internal static class ViewUi
     public static FlowLayoutPanel Toolbar() =>
         new() { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(6, 8, 6, 4) };
 
+    /// <summary>
+    /// Auto-sizes every column to the larger of its header text and its content, capped so a long
+    /// value cannot stretch the table into a horizontal scrollbar. Call after the list is populated.
+    /// For selective sizing, set an individual column's Width = -1 (content) or -2 (header) instead.
+    /// </summary>
+    public static void AutoSizeColumns(ListView list, int max = 600)
+    {
+        if (list.Columns.Count == 0) return;
+        list.BeginUpdate();
+        foreach (ColumnHeader col in list.Columns)
+        {
+            col.Width = -2; int header = col.Width;   // fit the header text
+            col.Width = -1; int content = col.Width;  // fit the widest item
+            int w = Math.Max(header, content);
+            col.Width = max > 0 ? Math.Min(w, max) : w;
+        }
+        list.EndUpdate();
+    }
+
     /// <summary>AutoSize status row around a MaterialLabel, with height scaling by DPI.</summary>
     public static Panel StatusHost(MaterialLabel status)
     {

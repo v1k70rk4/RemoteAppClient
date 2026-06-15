@@ -17,6 +17,12 @@ public sealed class ChannelsView : UserControl, IContentView
     private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly ListView _rtmList = NewList();
     private readonly ListView _betaList = NewList();
+    private readonly ListView _deviceVerList = NewDeviceList();
+    private readonly List<DeviceInfo> _devices = new();
+    private int _devSortCol = -1;
+    private bool _devSortAsc = true;
+    private readonly System.Windows.Forms.Timer _devTimer = new() { Interval = 30000 };
+    private bool _devRefreshing;
     private readonly MaterialLabel _status = new();
 
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
@@ -32,6 +38,16 @@ public sealed class ChannelsView : UserControl, IContentView
         Controls.Add(_editorHost);
         Controls.Add(_mainHost);
         ApplyTheme();
+
+        // Keep the device component-versions table current while this view's main page is shown.
+        _devTimer.Tick += async (_, _) => { if (_mainHost.Visible) await RefreshDevicesAsync(); };
+        _devTimer.Start();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _devTimer.Dispose();
+        base.Dispose(disposing);
     }
 
     private void BuildMain()
@@ -61,7 +77,28 @@ public sealed class ChannelsView : UserControl, IContentView
         msi.Click += async (_, _) => await OpenMsiAsync();
         bottom.Controls.AddRange([upload, msi]);
 
-        _mainHost.Controls.Add(ViewUi.Rows(0, grid, bottom, ViewUi.StatusHost(_status)));
+        // Device versions table (wide, sortable) under the channel tables.
+        _deviceVerList.ColumnClick += (_, e) => { if (_devSortCol == e.Column) _devSortAsc = !_devSortAsc; else { _devSortCol = e.Column; _devSortAsc = true; } FillDevices(); };
+        var devCard = new MaterialCard { Dock = DockStyle.Fill, Margin = new Padding(6), Padding = new Padding(0) };
+        var devHead = new MaterialLabel { Text = L.ChannelsView_DeviceVersions, Font = new Font("Segoe UI", 12F, FontStyle.Bold), Dock = DockStyle.Top, Height = 30, Padding = new Padding(12, 6, 0, 0) };
+        devCard.Controls.Add(_deviceVerList);
+        devCard.Controls.Add(devHead);
+
+        // Channel tables fixed (~5 rows) on top; the wide device table fills the rest; buttons/status below.
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = new Padding(0), Padding = new Padding(0) };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 200));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.Dock = DockStyle.Fill;
+        bottom.Dock = DockStyle.Fill;
+        var statusHost = ViewUi.StatusHost(_status); statusHost.Dock = DockStyle.Fill;
+        root.Controls.Add(grid, 0, 0);
+        root.Controls.Add(devCard, 0, 1);
+        root.Controls.Add(bottom, 0, 2);
+        root.Controls.Add(statusHost, 0, 3);
+        _mainHost.Controls.Add(root);
     }
 
     private void BuildEditor()
@@ -77,10 +114,23 @@ public sealed class ChannelsView : UserControl, IContentView
     private static ListView NewList()
     {
         var l = new ListView { View = View.Details, FullRowSelect = true, MultiSelect = false, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill };
-        l.Columns.Add(L.ChannelsView_Component, 85);
+        l.Columns.Add(L.ChannelsView_Component, 100);
         l.Columns.Add(L.ChannelsView_Version, 65);
         l.Columns.Add(L.ChannelsView_Uploaded, 125);
-        l.Columns.Add(L.ChannelsView_Released, 50);
+        l.Columns.Add(L.ChannelsView_Released, 70);
+        return l;
+    }
+
+    private static ListView NewDeviceList()
+    {
+        var l = new ListView { View = View.Details, FullRowSelect = true, MultiSelect = false, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill };
+        l.Columns.Add(L.DevicesView_Device, 170);
+        l.Columns.Add(L.DeviceTelemetryPanel_Channel, 80);
+        l.Columns.Add(L.DevicesView_Update, 150);
+        l.Columns.Add("Agent", 80);
+        l.Columns.Add("Client", 80);
+        l.Columns.Add("Updater", 80);
+        l.Columns.Add("VNC", 70);
         return l;
     }
 
@@ -95,7 +145,7 @@ public sealed class ChannelsView : UserControl, IContentView
         return card;
     }
 
-    public void ApplyTheme() { ThemeManager.StyleView(this, _rtmList); ThemeManager.StyleList(_betaList); }
+    public void ApplyTheme() { ThemeManager.StyleView(this, _rtmList); ThemeManager.StyleList(_betaList); ThemeManager.StyleList(_deviceVerList); }
 
     public async Task OnShownAsync() { ShowMain(); await RefreshAsync(); }
 
@@ -108,11 +158,28 @@ public sealed class ChannelsView : UserControl, IContentView
         {
             var ch = await _api.GetChannelsAsync();
             var devices = await _api.GetDevicesAsync();
+            _devices.Clear(); _devices.AddRange(devices);
             Fill(_rtmList, ch.Where(p => string.Equals(p.Channel, "rtm", StringComparison.OrdinalIgnoreCase)), devices);
             Fill(_betaList, ch.Where(p => string.Equals(p.Channel, "beta", StringComparison.OrdinalIgnoreCase)), devices);
+            FillDevices();
             _status.Text = ch.Count == 0 ? L.ChannelsView_NoPackagesHaveBeenUploaded : L.Format(L.ChannelsView_RTMBETAComponents, _rtmList.Items.Count, _betaList.Items.Count);
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    /// <summary>Re-fetches devices and refills only the versions table (leaves the RTM/BETA selection intact).</summary>
+    private async Task RefreshDevicesAsync()
+    {
+        if (_devRefreshing) return;
+        _devRefreshing = true;
+        try
+        {
+            var devices = await _api.GetDevicesAsync();
+            _devices.Clear(); _devices.AddRange(devices);
+            FillDevices();
+        }
+        catch { /* transient; refreshed again on the next tick */ }
+        finally { _devRefreshing = false; }
     }
 
     private static void Fill(ListView list, IEnumerable<ChannelPackageInfo> items, List<DeviceInfo> devices)
@@ -130,6 +197,45 @@ public sealed class ChannelsView : UserControl, IContentView
         }
         list.EndUpdate();
     }
+
+    private void FillDevices()
+    {
+        IEnumerable<DeviceInfo> items = _devices;
+        if (_devSortCol >= 0)
+        {
+            Func<DeviceInfo, string> key = _devSortCol switch
+            {
+                1 => d => d.Channel ?? "",
+                2 => d => d.UpdatePending ? (d.UpdatePendingInfo ?? "~") : "",
+                3 => d => d.AgentVersion ?? "",
+                4 => d => d.ClientVersion ?? "",
+                5 => d => d.HelperVersion ?? "",
+                6 => d => d.VncVersion ?? "",
+                _ => d => d.Hostname ?? "",
+            };
+            items = _devSortAsc
+                ? _devices.OrderBy(key, StringComparer.OrdinalIgnoreCase)
+                : _devices.OrderByDescending(key, StringComparer.OrdinalIgnoreCase);
+        }
+
+        _deviceVerList.BeginUpdate();
+        _deviceVerList.Items.Clear();
+        foreach (var d in items)
+        {
+            var it = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname) { Tag = d, UseItemStyleForSubItems = false };
+            it.SubItems.Add(string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
+            var upd = it.SubItems.Add(d.UpdatePending ? "✓ " + (d.UpdatePendingInfo ?? "") : "—");
+            if (d.UpdatePending) upd.ForeColor = Color.Gray;
+            it.SubItems.Add(S(d.AgentVersion));
+            it.SubItems.Add(S(d.ClientVersion));
+            it.SubItems.Add(S(d.HelperVersion));
+            it.SubItems.Add(S(d.VncVersion));
+            _deviceVerList.Items.Add(it);
+        }
+        _deviceVerList.EndUpdate();
+    }
+
+    private static string S(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
 
     /// <summary>Whether all updatable approved devices on the channel are on the package version (= released).</summary>
     private static bool RolledOut(string channel, string comp, string version, List<DeviceInfo> devices)
