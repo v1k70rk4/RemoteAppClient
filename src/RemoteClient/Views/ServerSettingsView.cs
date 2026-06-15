@@ -16,8 +16,16 @@ public sealed class ServerSettingsView : UserControl, IContentView
 
     private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_General);
     private readonly MaterialButton _tabEmail = TabBtn(L.ServerSettingsView_EmailDelivery);
+    private readonly MaterialButton _tabServerUpdate = TabBtn(L.ServerSettingsView_ServerUpdate);
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
+    private FlowLayoutPanel _saveRow = null!;
     private readonly MaterialLabel _status = new();
+
+    // Server update tab
+    private readonly MaterialLabel _updVersion = new() { AutoSize = true, Margin = new Padding(4, 6, 0, 0) };
+    private readonly TextBox _updResult = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9F) };
+    private MaterialButton _updBtn = null!;
+    private MaterialButton _rbBtn = null!;
 
     // General
     private readonly MaterialTextBox2 _owner = new() { Hint = L.ServerSettingsView_OwnerName, Width = 360 };
@@ -58,13 +66,14 @@ public sealed class ServerSettingsView : UserControl, IContentView
 
         _tabGeneral.Click += (_, _) => SelectTab("general");
         _tabEmail.Click += (_, _) => SelectTab("email");
+        _tabServerUpdate.Click += (_, _) => SelectTab("update");
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([_tabGeneral, _tabEmail]);
+        tabbar.Controls.AddRange([_tabGeneral, _tabEmail, _tabServerUpdate]);
 
         var save = ViewUi.ToolbarButton(L.EditTokenForm_Save);
         save.Click += async (_, _) => await SaveAsync();
-        var saveRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
-        saveRow.Controls.Add(save);
+        _saveRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 6) };
+        _saveRow.Controls.Add(save);
 
         _provider.Items.AddRange([L.DeviceTelemetryPanel_No, "SMTP", "MS Graph (O365)"]);
         _provider.SelectedIndexChanged += (_, _) => ApplyProviderVisibility();
@@ -75,7 +84,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
         BuildSmtpBox();
         BuildGraphBox();
 
-        Controls.Add(ViewUi.Rows(1, tabbar, _tabContent, saveRow, ViewUi.StatusHost(_status)));
+        Controls.Add(ViewUi.Rows(1, tabbar, _tabContent, _saveRow, ViewUi.StatusHost(_status)));
     }
 
     public void ApplyTheme() => ThemeManager.StyleView(this);
@@ -168,9 +177,135 @@ public sealed class ServerSettingsView : UserControl, IContentView
     {
         _tabGeneral.Type = tab == "general" ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
         _tabEmail.Type = tab == "email" ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
+        _tabServerUpdate.Type = tab == "update" ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
+
+        // The "Save" (settings) button is irrelevant on the server-update tab.
+        _saveRow.Visible = tab != "update";
 
         _tabContent.Controls.Clear();
-        _tabContent.Controls.Add(tab == "email" ? BuildEmailTab() : BuildGeneralTab());
+        _tabContent.Controls.Add(tab switch
+        {
+            "email" => BuildEmailTab(),
+            "update" => BuildServerUpdateTab(),
+            _ => BuildGeneralTab(),
+        });
+    }
+
+    private Control BuildServerUpdateTab()
+    {
+        var root = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 12, 12, 8) };
+
+        var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        top.Controls.Add(_updVersion);
+        top.Controls.Add(new MaterialLabel
+        {
+            Text = L.ServerSettingsView_ServerUpdateHelp, AutoSize = true, MaximumSize = new Size(760, 0),
+            FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, ForeColor = Color.Gray, Margin = new Padding(4, 6, 0, 8),
+        });
+
+        var pickRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Margin = new Padding(0, 4, 0, 4) };
+        var tarBtn = ViewUi.ToolbarButton(L.ServerSettingsView_SelectTar, primary: false);
+        tarBtn.Click += async (_, _) => await UploadServerArtifactAsync("tar");
+        var sqlBtn = ViewUi.ToolbarButton(L.ServerSettingsView_SelectSql, primary: false);
+        sqlBtn.Click += async (_, _) => await UploadServerArtifactAsync("sql");
+        var refreshBtn = ViewUi.ToolbarButton(L.AboutView_Refresh, primary: false);
+        refreshBtn.Click += async (_, _) => await RefreshUpdateStatusAsync();
+        pickRow.Controls.AddRange([tarBtn, sqlBtn, refreshBtn]);
+        top.Controls.Add(pickRow);
+
+        var actionRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Margin = new Padding(0, 4, 0, 4) };
+        _updBtn = ViewUi.ToolbarButton(L.ServerSettingsView_UpdateServer);
+        _updBtn.Click += async (_, _) => await DoServerUpdateAsync();
+        _rbBtn = ViewUi.ToolbarButton(L.ServerSettingsView_Rollback, primary: false);
+        _rbBtn.Click += async (_, _) => await DoServerRollbackAsync();
+        actionRow.Controls.AddRange([_updBtn, _rbBtn]);
+        top.Controls.Add(actionRow);
+
+        _updResult.Dock = DockStyle.Fill;   // fills the rest of the tab, so it grows with the window
+        _updResult.BackColor = ThemeManager.IsDark ? Color.FromArgb(45, 45, 48) : Color.White;
+        _updResult.ForeColor = ThemeManager.IsDark ? Color.Gainsboro : Color.Black;
+
+        root.Controls.Add(_updResult);   // Fill (added first)
+        root.Controls.Add(top);          // Top (added after) -> header above, log fills the rest
+
+        _ = RefreshUpdateStatusAsync();
+        return root;
+    }
+
+    private async Task RefreshUpdateStatusAsync()
+    {
+        try
+        {
+            var s = await _api.GetServerUpdateStatusAsync();
+            var head = L.Format(L.ServerSettingsView_CurrentServerVersion, s.Version) + "    "
+                + L.Format(L.ServerSettingsView_Staged, s.StagedTar ? $"tar ({s.StagedTarSize / 1024 / 1024} MB)" : "—", s.StagedSql ? "sql" : "—");
+            if (!s.HelperReady) head += "    " + L.ServerSettingsView_HelperMissing;
+            _updVersion.Text = head;
+            _updBtn.Enabled = s.HelperReady && s.StagedTar;       // need the helper installed + a staged package
+            _rbBtn.Enabled = s.HelperReady && s.BackupAvailable;  // need the helper + a backup to restore
+            _updResult.Text = s.LastResult is { } r ? (r.Ok ? "✓ " : "✗ ") + r.At + "\r\n" + Crlf(r.Message) : "";
+        }
+        catch (Exception ex) { _updResult.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    // The Linux server log uses LF line endings; a WinForms TextBox only breaks lines on CRLF.
+    private static string Crlf(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n");
+
+    private async Task UploadServerArtifactAsync(string kind)
+    {
+        using var d = new OpenFileDialog
+        {
+            Filter = kind == "tar"
+                ? "Server package (*.tar.gz;*.tgz)|*.tar.gz;*.tgz|All files (*.*)|*.*"
+                : "SQL (*.sql)|*.sql|All files (*.*)|*.*",
+        };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            Enabled = false;
+            _status.Text = L.ServerSettingsView_Uploading;
+            await _api.UploadServerPackageAsync(kind, d.FileName);
+            _status.Text = L.ServerSettingsView_Uploaded;
+            Enabled = true;
+            await RefreshUpdateStatusAsync();
+        }
+        catch (Exception ex) { Enabled = true; _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    private async Task DoServerUpdateAsync()
+    {
+        if (MessageBox.Show(L.ServerSettingsView_UpdateConfirm, L.ServerSettingsView_ServerUpdate, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.TriggerServerUpdateAsync(); await PollResultAsync(); }
+        catch (Exception ex) { _updResult.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    private async Task DoServerRollbackAsync()
+    {
+        if (MessageBox.Show(L.ServerSettingsView_RollbackConfirm, L.ServerSettingsView_Rollback, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.RollbackServerAsync(); await PollResultAsync(); }
+        catch (Exception ex) { _updResult.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    /// <summary>Polls status across the server restart gap until a fresh result appears (or times out).</summary>
+    private async Task PollResultAsync()
+    {
+        _updResult.Text = L.ServerSettingsView_UpdateInProgress;
+        for (int i = 0; i < 60; i++) // ~3 minutes at 3s
+        {
+            await Task.Delay(3000);
+            try
+            {
+                var s = await _api.GetServerUpdateStatusAsync();
+                if (s.LastResult is { } r)
+                {
+                    _updVersion.Text = L.Format(L.ServerSettingsView_CurrentServerVersion, s.Version);
+                    _updResult.Text = (r.Ok ? "✓ " : "✗ ") + r.At + "\r\n" + Crlf(r.Message);
+                    return;
+                }
+            }
+            catch { /* server restarting; keep waiting */ }
+        }
+        _updResult.Text = L.ServerSettingsView_UpdateTimeout;
     }
 
     private Control BuildGeneralTab()

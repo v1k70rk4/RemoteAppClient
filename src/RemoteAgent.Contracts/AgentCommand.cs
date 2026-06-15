@@ -142,6 +142,8 @@ public static class CommandTypes
 [JsonSerializable(typeof(Admin.HelloRegisterResponse))]
 [JsonSerializable(typeof(Admin.HelloCredentialInfo))]
 [JsonSerializable(typeof(Admin.TrustedDeviceInfo))]
+[JsonSerializable(typeof(Admin.ServerUpdateStatus))]
+[JsonSerializable(typeof(Admin.ServerUpdateResult))]
 [JsonSerializable(typeof(Admin.HelloChallengeRequest))]
 [JsonSerializable(typeof(Admin.HelloChallengeResponse))]
 [JsonSerializable(typeof(Admin.HelloLoginRequest))]

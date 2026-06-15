@@ -1,0 +1,5 @@
+# Server-side helper scripts and systemd units must stay LF so they run on Linux
+# even when the repo is edited or synced on Windows (OneDrive / Git autocrlf).
+ops/server-update/*.sh      text eol=lf
+ops/server-update/*.path    text eol=lf
+ops/server-update/*.service text eol=lf

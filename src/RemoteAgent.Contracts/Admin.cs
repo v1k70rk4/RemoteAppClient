@@ -153,6 +153,28 @@ public sealed class ChannelPackageInfo
     public DateTimeOffset UploadedAt { get; set; }
 }
 
+/// <summary>Outcome of the last server self-update or rollback (written by the privileged helper).</summary>
+public sealed class ServerUpdateResult
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("message")] public string Message { get; set; } = string.Empty;
+    [JsonPropertyName("at")] public string At { get; set; } = string.Empty;
+}
+
+/// <summary>Server self-update state for the "Server update" tab: running version, staged artifacts,
+/// last result, and whether a backup exists to roll back to.</summary>
+public sealed class ServerUpdateStatus
+{
+    [JsonPropertyName("version")] public string Version { get; set; } = string.Empty;
+    [JsonPropertyName("stagedTar")] public bool StagedTar { get; set; }
+    [JsonPropertyName("stagedTarSize")] public long StagedTarSize { get; set; }
+    [JsonPropertyName("stagedSql")] public bool StagedSql { get; set; }
+    [JsonPropertyName("lastResult")] public ServerUpdateResult? LastResult { get; set; }
+    [JsonPropertyName("backupAvailable")] public bool BackupAvailable { get; set; }
+    /// <summary>Whether the privileged self-update helper (deploy.sh + systemd path units) is installed.</summary>
+    [JsonPropertyName("helperReady")] public bool HelperReady { get; set; }
+}
+
 /// <summary>Device group for the admin list.</summary>
 public sealed class GroupInfo
 {

@@ -403,6 +403,34 @@ public sealed class AdminApi : IDisposable
         return await resp.Content.ReadAsStringAsync(ct);
     }
 
+    /// <summary>Uploads a server self-update artifact: kind "tar" (RemoteServer tar.gz) or "sql" (optional schema upgrade).</summary>
+    public async Task UploadServerPackageAsync(string kind, string filePath, CancellationToken ct = default)
+    {
+        await using var fs = File.OpenRead(filePath);
+        using var content = new StreamContent(fs);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        using var resp = await _http.PostAsync($"/admin/server/package?kind={kind}", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Triggers the staged server update; the privileged helper applies it and the server restarts.</summary>
+    public async Task TriggerServerUpdateAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync("/admin/server/update", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Triggers a rollback to the last server backup (binaries + DB).</summary>
+    public async Task RollbackServerAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync("/admin/server/rollback", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Server self-update status: running version, staged artifacts, last result, backup availability.</summary>
+    public async Task<ServerUpdateStatus> GetServerUpdateStatusAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync("/admin/server/status", AgentJsonContext.Default.ServerUpdateStatus, ct) ?? new ServerUpdateStatus();
+
     /// <summary>Builds an MSI for a group from a channel, optionally including the console client and Start menu shortcut. Returns file name and download URL.</summary>
     public async Task<(string fileName, string url)> BuildMsiAsync(Guid? groupId, string channel, bool includeClient = true, bool shortcut = true, CancellationToken ct = default)
     {

@@ -79,6 +79,11 @@ unifies the database schema into a single baseline migration.
 - Channels view: rollout indicator plus a sortable device component-versions table that auto-refreshes;
   telemetry interval lowered to one minute.
 - Hardware telemetry: manufacturer, model, and serial number (SMBIOS, with OEM-placeholder handling).
+- **Server self-update from the console** (Server settings → Server update): upload a `RemoteServer`
+  tar.gz and an optional schema `upgrade.sql`, then update or roll back. A privileged systemd helper
+  takes a full backup (binaries + DB dump) first, applies the upgrade, swaps the build, health-checks,
+  and **auto-rolls-back on failure**. Needs a one-time helper install on the server box; the server
+  process itself never gets sudo (it only drops a trigger that systemd acts on).
 
 **Admin UI**
 - Users tab: delete user, right-click actions, and a tabbed editor (general, password, permissions,
@@ -392,6 +397,8 @@ The detailed first-run guide is in [FIRST-RUN.md](FIRST-RUN.md). High-level orde
 12. Upload release packages for `agent`, `updater`, `client`, and optionally `vnc`.
 13. Build an MSI from the console/admin API or enroll manually with `RemoteAgent.exe bootstrap "<blob>"`.
 14. Approve the Pending device in the console.
+15. To enable console-driven server updates later, install the self-update helper once:
+    copy [`ops/server-update/`](ops/server-update/) to the box and run `sudo ops/server-update/install.sh`.
 
 ---
 

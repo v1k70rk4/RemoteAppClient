@@ -52,6 +52,9 @@ builder.Services.AddHostedService<SecretExpiryWatcher>();
 var app = builder.Build();
 app.UseWebSockets();
 
+// Liveness probe used by the self-update helper (deploy.sh curls this on localhost). No secrets.
+app.MapGet("/health", () => Results.Text("ok"));
+
 // First-run helper: "RemoteServer mint-blob" verifies prerequisites and prints the first bootstrap blob,
 // then exits without starting the web server. Solves the chicken-and-egg of the very first enrollment
 // (the console needs an enrolled agent's tunnel to reach /admin, but there is no agent yet).
@@ -767,6 +770,80 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
         var s = v.ToString();
         return string.IsNullOrWhiteSpace(s) ? dflt : s.Trim().ToLowerInvariant();
     }
+});
+
+// === Server self-update (admin) ===
+// The client uploads a GitHub-built server tarball (and optional schema upgrade.sql), then triggers
+// an update. A privileged systemd helper (remoteserver-update.path -> .service running deploy.sh as
+// root, in its own cgroup so it survives the server stop) does backup/stop/migrate/swap/start/
+// health-check/auto-rollback. The server only stages files in its own writable UpdatesDir and drops a
+// trigger file; it never needs sudo. These routes sit under /admin, so the session-auth gate applies.
+
+app.MapPost("/admin/server/package", async (HttpContext ctx, AppDbContext db, IOptions<ServerOptions> opt) =>
+{
+    var kind = ctx.Request.Query["kind"].ToString().Trim().ToLowerInvariant();
+    if (kind is not ("tar" or "sql")) return Results.BadRequest(new { error = "bad_kind" });
+    var incoming = Path.Combine(opt.Value.UpdatesDir, "incoming");
+    Directory.CreateDirectory(incoming);
+    // A new build resets staging so a later binary-only update cannot reuse a stale upgrade.sql.
+    if (kind == "tar")
+    {
+        var oldSql = Path.Combine(incoming, "upgrade.sql");
+        if (File.Exists(oldSql)) File.Delete(oldSql);
+    }
+    var path = Path.Combine(incoming, kind == "tar" ? "server.tar.gz" : "upgrade.sql");
+    await using (var fs = File.Create(path))
+        await ctx.Request.Body.CopyToAsync(fs, ctx.RequestAborted);
+    var size = new FileInfo(path).Length;
+    await AuditAsync(db, ctx, "server-package", null, $"{kind} · {size} bytes");
+    return Results.Ok(new { kind, size });
+});
+
+app.MapPost("/admin/server/update", async (HttpContext ctx, AppDbContext db, IOptions<ServerOptions> opt) =>
+{
+    var dir = opt.Value.UpdatesDir;
+    if (!File.Exists(Path.Combine(dir, "incoming", "server.tar.gz"))) return Results.BadRequest(new { error = "no_package" });
+    bool sql = File.Exists(Path.Combine(dir, "incoming", "upgrade.sql"));
+    foreach (var f in new[] { "result.status", "result.log", "result.at" })
+    { var p = Path.Combine(dir, f); if (File.Exists(p)) File.Delete(p); }
+    // systemd path unit watches apply.trigger and fires the root deploy service.
+    await File.WriteAllTextAsync(Path.Combine(dir, "apply.trigger"), DateTimeOffset.UtcNow.ToString("o"), ctx.RequestAborted);
+    await AuditAsync(db, ctx, "server-update", null, sql ? "tar + sql" : "tar");
+    return Results.StatusCode(202);
+});
+
+app.MapPost("/admin/server/rollback", async (HttpContext ctx, AppDbContext db, IOptions<ServerOptions> opt) =>
+{
+    var dir = opt.Value.UpdatesDir;
+    if (!File.Exists(Path.Combine(dir, "last_backup"))) return Results.BadRequest(new { error = "no_backup" });
+    foreach (var f in new[] { "result.status", "result.log", "result.at" })
+    { var p = Path.Combine(dir, f); if (File.Exists(p)) File.Delete(p); }
+    await File.WriteAllTextAsync(Path.Combine(dir, "rollback.trigger"), DateTimeOffset.UtcNow.ToString("o"), ctx.RequestAborted);
+    await AuditAsync(db, ctx, "server-rollback", null, "rollback");
+    return Results.StatusCode(202);
+});
+
+app.MapGet("/admin/server/status", (IOptions<ServerOptions> opt) =>
+{
+    var dir = opt.Value.UpdatesDir;
+    var incoming = Path.Combine(dir, "incoming");
+    var tar = Path.Combine(incoming, "server.tar.gz");
+    string? Read(string n) { var p = Path.Combine(dir, n); return File.Exists(p) ? File.ReadAllText(p).Trim() : null; }
+    ServerUpdateResult? result = null;
+    var st = Read("result.status");
+    if (st is not null)
+        result = new ServerUpdateResult { Ok = st == "ok", Message = Read("result.log") ?? "", At = Read("result.at") ?? "" };
+    var info = new ServerUpdateStatus
+    {
+        Version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "?",
+        StagedTar = File.Exists(tar),
+        StagedTarSize = File.Exists(tar) ? new FileInfo(tar).Length : 0,
+        StagedSql = File.Exists(Path.Combine(incoming, "upgrade.sql")),
+        LastResult = result,
+        BackupAvailable = File.Exists(Path.Combine(dir, "last_backup")),
+        HelperReady = File.Exists("/opt/remoteserver-update/deploy.sh"),
+    };
+    return Results.Json(info, AgentJsonContext.Default.ServerUpdateStatus);
 });
 
 // Current packages per channel and component, used by the client channel view.

@@ -26,6 +26,10 @@ public sealed class ServerOptions
     /// <summary>Storage directory for update packages. Survives redeploys and backs /api/updates.</summary>
     public string PackagesDir { get; set; } = "/var/lib/remoteserver/packages";
 
+    /// <summary>Staging/trigger/result directory for server self-update. remotesrv-writable; the
+    /// privileged systemd helper (deploy.sh) reads the staged tar.gz/upgrade.sql and writes result.*.</summary>
+    public string UpdatesDir { get; set; } = "/var/lib/remoteserver/updates";
+
     /// <summary>Public server base URL, for example https://c2.example.com, embedded in bootstrap blobs.</summary>
     public string PublicUrl { get; set; } = string.Empty;
 

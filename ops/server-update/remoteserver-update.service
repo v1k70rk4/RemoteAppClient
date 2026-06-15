@@ -1,0 +1,6 @@
+[Unit]
+Description=RemoteServer self-update (backup, swap, migrate, restart, auto-rollback)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remoteserver-update/deploy.sh

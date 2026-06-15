@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for the RemoteServer rollback trigger
+
+[Path]
+PathExists=/var/lib/remoteserver/updates/rollback.trigger
+Unit=remoteserver-rollback.service
+
+[Install]
+WantedBy=multi-user.target
