@@ -29,6 +29,9 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
 
         device.Hostname = payload.Hostname;
         device.OsVersion = payload.OsVersion;
+        device.Manufacturer = payload.Manufacturer;
+        device.Model = payload.Model;
+        device.SerialNumber = payload.SerialNumber;
         device.AgentVersion = payload.AgentVersion;
         device.HelperVersion = payload.HelperVersion;
         device.VncVersion = payload.VncVersion;

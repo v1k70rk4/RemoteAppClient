@@ -36,6 +36,8 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.DeviceTelemetryPanel_SignInLock, d.LoginLocked ? L.Format(L.DeviceTelemetryPanel_LOCKEDFailed, d.LoginFailCount) : (d.LoginFailCount > 0 ? L.Format(L.DeviceTelemetryPanel_FailedAttempt, d.LoginFailCount) : "—"));
         Row("Agent / Helper / VNC", $"{S(d.AgentVersion)} / {S(d.HelperVersion)} / {S(d.VncVersion)}");
         Row(L.DeviceTelemetryPanel_ClientOS, $"{S(d.ClientVersion)} / {S(d.OsVersion)}");
+        Row(L.DeviceTelemetryPanel_MakeModel, $"{(string.IsNullOrWhiteSpace(d.Manufacturer) ? "OEM" : d.Manufacturer)} / {S(d.Model)}");
+        Row(L.DeviceTelemetryPanel_Serial, d.SerialNumber);
         Row(L.DeviceTelemetryPanel_AgentRestarts, d.AgentRestarts.ToString());
         if (!string.IsNullOrWhiteSpace(d.LastIncident)) Row(L.DeviceTelemetryPanel_LastIncident, d.LastIncident);
         Row("deviceId", d.DeviceId);

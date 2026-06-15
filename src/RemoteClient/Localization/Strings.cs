@@ -111,6 +111,7 @@ internal static partial class Strings
     public static string DeviceMessagesPanel_Busy => Get(nameof(DeviceMessagesPanel_Busy));
     public static string DeviceMessagesPanel_NoUser => Get(nameof(DeviceMessagesPanel_NoUser));
     public static string DeviceMessagesPanel_NoAnswer => Get(nameof(DeviceMessagesPanel_NoAnswer));
+    public static string DeviceMessagesPanel_CallWhenFree => Get(nameof(DeviceMessagesPanel_CallWhenFree));
     public static string DeviceMessagesPanel_MessageHint => Get(nameof(DeviceMessagesPanel_MessageHint));
     public static string DeviceMessagesPanel_Send => Get(nameof(DeviceMessagesPanel_Send));
     public static string DeviceMessagesPanel_Sending => Get(nameof(DeviceMessagesPanel_Sending));
@@ -249,6 +250,8 @@ internal static partial class Strings
     public static string DeviceTelemetryPanel_Channel => Get(nameof(DeviceTelemetryPanel_Channel));
     public static string DeviceTelemetryPanel_No => Get(nameof(DeviceTelemetryPanel_No));
     public static string DeviceTelemetryPanel_ClientOS => Get(nameof(DeviceTelemetryPanel_ClientOS));
+    public static string DeviceTelemetryPanel_MakeModel => Get(nameof(DeviceTelemetryPanel_MakeModel));
+    public static string DeviceTelemetryPanel_Serial => Get(nameof(DeviceTelemetryPanel_Serial));
     public static string DeviceTelemetryPanel_PublicIP => Get(nameof(DeviceTelemetryPanel_PublicIP));
     public static string DeviceTelemetryPanel_DISABLED => Get(nameof(DeviceTelemetryPanel_DISABLED));
     public static string DeviceTelemetryPanel_AgentRestarts => Get(nameof(DeviceTelemetryPanel_AgentRestarts));
@@ -513,6 +516,7 @@ internal static partial class Strings
     public static string SettingsView_ViewerColor => Get(nameof(SettingsView_ViewerColor));
     public static string SettingsView_ViewerColorFull => Get(nameof(SettingsView_ViewerColorFull));
     public static string SettingsView_ViewerColor256 => Get(nameof(SettingsView_ViewerColor256));
+    public static string SettingsView_VncConfig => Get(nameof(SettingsView_VncConfig));
     public static string UploadPanel_AddFiles => Get(nameof(UploadPanel_AddFiles));
     public static string UploadPanel_File => Get(nameof(UploadPanel_File));
     public static string UploadPanel_Remove => Get(nameof(UploadPanel_Remove));

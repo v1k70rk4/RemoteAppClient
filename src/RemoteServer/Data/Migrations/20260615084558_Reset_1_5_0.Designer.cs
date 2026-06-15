@@ -12,7 +12,7 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260614191021_Reset_1_5_0")]
+    [Migration("20260615084558_Reset_1_5_0")]
     partial class Reset_1_5_0
     {
         /// <inheritdoc />
@@ -168,6 +168,12 @@ namespace RemoteServer.Data.Migrations
                     b.Property<DateTimeOffset?>("LoginLockedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("Manufacturer")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("Note")
                         .HasColumnType("longtext");
 
@@ -175,6 +181,9 @@ namespace RemoteServer.Data.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<string>("PublicIpAddress")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("SerialNumber")
                         .HasColumnType("longtext");
 
                     b.Property<string>("SshPublicKey")

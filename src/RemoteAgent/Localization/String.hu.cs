@@ -77,7 +77,7 @@ internal static partial class Strings
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedNoActive)] = "open-tunnel elutasítva — nincs aktív felhasználó, unattended tiltott.",
         [nameof(TunnelOrchestratorService_RemoteAccess)] = "Távoli hozzáférés",
         [nameof(TunnelOrchestratorService_AnAdministratorWantsToConnect)] = "Egy rendszergazda távolról szeretne csatlakozni ehhez a géphez.\n\nEngedélyezed?",
-        [nameof(TunnelOrchestratorService_AvailabilityQuestion)] = "Szervusz, {0} belépne a gépedre. Szabad most a géped?",
+        [nameof(TunnelOrchestratorService_AvailabilityQuestion)] = "{0} szeretne belépni a gépedre. Szabad most a gép?",
         [nameof(PowerControl_RestartComment)] = "RemoteAppClient által újraindítva",
         [nameof(TunnelOrchestratorService_ThankYouTitle)] = "Köszönöm",
         [nameof(TunnelOrchestratorService_ThankYouBody)] = "Köszönöm, kérlek jelezd, ha kész vagy.",

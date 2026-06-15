@@ -14,6 +14,18 @@ public sealed class TelemetryPayload
     [JsonPropertyName("osVersion")]
     public string OsVersion { get; set; } = string.Empty;
 
+    /// <summary>System manufacturer from SMBIOS; null when unknown/OEM placeholder (typical on custom desktops).</summary>
+    [JsonPropertyName("manufacturer")]
+    public string? Manufacturer { get; set; }
+
+    /// <summary>System model / product name from SMBIOS.</summary>
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    /// <summary>System serial number from SMBIOS; often unavailable on custom/desktop builds.</summary>
+    [JsonPropertyName("serialNumber")]
+    public string? SerialNumber { get; set; }
+
     [JsonPropertyName("agentVersion")]
     public string AgentVersion { get; set; } = string.Empty;
 

@@ -160,6 +160,9 @@ CREATE TABLE `Devices` (
     `VncVersion` longtext CHARACTER SET utf8mb4 NULL,
     `ClientVersion` longtext CHARACTER SET utf8mb4 NULL,
     `OsVersion` longtext CHARACTER SET utf8mb4 NULL,
+    `Manufacturer` longtext CHARACTER SET utf8mb4 NULL,
+    `Model` longtext CHARACTER SET utf8mb4 NULL,
+    `SerialNumber` longtext CHARACTER SET utf8mb4 NULL,
     `LastSeenAt` datetime(6) NULL,
     `AgentRestarts` int NOT NULL,
     `LastIncident` longtext CHARACTER SET utf8mb4 NULL,
@@ -255,7 +258,7 @@ CREATE UNIQUE INDEX `IX_UserSessions_TokenHash` ON `UserSessions` (`TokenHash`);
 CREATE INDEX `IX_UserSessions_UserId` ON `UserSessions` (`UserId`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260614191021_Reset_1_5_0', '9.0.0');
+VALUES ('20260615084558_Reset_1_5_0', '9.0.0');
 
 COMMIT;
 

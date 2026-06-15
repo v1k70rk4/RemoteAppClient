@@ -77,7 +77,7 @@ internal static partial class Strings
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedNoActive)] = "open-tunnel denied; no active user and unattended is disabled.",
         [nameof(TunnelOrchestratorService_RemoteAccess)] = "Remote access",
         [nameof(TunnelOrchestratorService_AnAdministratorWantsToConnect)] = "An administrator wants to connect remotely to this device.\n\nAllow?",
-        [nameof(TunnelOrchestratorService_AvailabilityQuestion)] = "Hello, {0} would like to connect to your machine. Is it free now?",
+        [nameof(TunnelOrchestratorService_AvailabilityQuestion)] = "{0} would like to connect to your machine. Is it free now?",
         [nameof(PowerControl_RestartComment)] = "Restarted by RemoteAppClient",
         [nameof(TunnelOrchestratorService_ThankYouTitle)] = "Thank you",
         [nameof(TunnelOrchestratorService_ThankYouBody)] = "Thank you. Please let me know when you are done.",

@@ -93,8 +93,10 @@ public sealed class TunnelOrchestratorService(
             return;
         }
 
-        // Access policy from the server-signed command: consent and unattended access.
-        var outcome = await ConsentGateAsync(data?.ConsentRequired ?? false, data?.UnattendedAllowed ?? true, ct);
+        // Access policy from the server-signed command: ONLY "consent required" is evaluated now.
+        // Diagnostic: log the exact value received so consent issues are verifiable from the event log.
+        logger.LogInformation("Open-tunnel access policy: consentRequired={Consent}", data?.ConsentRequired);
+        var outcome = await ConsentGateAsync(data?.ConsentRequired ?? false, ct);
         await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
         if (outcome is not ("auto" or "granted"))
             return; // denied / timeout / no user; tunnel stays closed
@@ -111,29 +113,17 @@ public sealed class TunnelOrchestratorService(
     }
 
     /// <summary>
-    /// Access gate before opening the tunnel. Returns the outcome to the server/console too:
-    /// "auto" (no consent, allowed) | "granted" | "denied" | "timeout" | "no-user".
-    /// - No signed-in user: unattended policy decides.
-    /// - Signed-in user + consentRequired: WTS Yes/No prompt, only Yes allows access.
+    /// Access gate before opening the tunnel. ONLY "consent required" is evaluated:
+    /// - consentRequired = false: connect immediately ("auto") — no user detection, no other checks.
+    /// - consentRequired = true: WTS Yes/No prompt to the signed-in user; only Yes ("granted") connects.
+    ///   "timeout"/"denied" refuse; "no-user" when nobody is signed in to ask.
+    /// Unattended access is intentionally NOT evaluated here (reserved for a later project).
     /// </summary>
-    private async Task<string> ConsentGateAsync(bool consentRequired, bool unattendedAllowed, CancellationToken ct)
+    private async Task<string> ConsentGateAsync(bool consentRequired, CancellationToken ct)
     {
-        bool userPresent = RemoteAgent.Consent.ConsentPrompt.HasActiveUser();
+        if (!consentRequired) return "auto"; // consent not required → connect, nothing else is checked
 
-        if (!userPresent)
-        {
-            if (!unattendedAllowed)
-            {
-                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessDENIEDNoSigned);
-                logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedNoActive);
-                return "no-user";
-            }
-            return "auto"; // unattended allowed; proceed without consent
-        }
-
-        if (!consentRequired) return "auto";
-
-        // The WTS prompt blocks until answer/timeout; run it in the background to keep async flow free.
+        // The WTS prompt blocks until answer/timeout; run it in the background to keep the async flow free.
         var outcome = await Task.Run(() => RemoteAgent.Consent.ConsentPrompt.Ask(
             L.TunnelOrchestratorService_RemoteAccess,
             L.TunnelOrchestratorService_AnAdministratorWantsToConnect,
@@ -148,6 +138,10 @@ public sealed class TunnelOrchestratorService(
                 RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessTheUserDid);
                 logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelConsentTimeout);
                 return "timeout";
+            case RemoteAgent.Consent.ConsentPrompt.Outcome.NoUser:
+                RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessDENIEDNoSigned);
+                logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedNoActive);
+                return "no-user";
             default:
                 RemoteAgent.Vnc.VncLock.Log(L.Format(L.TunnelOrchestratorService_RemoteAccessDENIEDByThe, outcome));
                 logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedConsentOutcome, outcome);

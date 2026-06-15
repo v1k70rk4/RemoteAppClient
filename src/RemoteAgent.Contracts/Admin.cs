@@ -67,6 +67,11 @@ public sealed class DeviceInfo
     [JsonPropertyName("osVersion")]
     public string? OsVersion { get; set; }
 
+    /// <summary>System manufacturer / model / serial from SMBIOS. Null/OEM on generic desktops.</summary>
+    [JsonPropertyName("manufacturer")] public string? Manufacturer { get; set; }
+    [JsonPropertyName("model")] public string? Model { get; set; }
+    [JsonPropertyName("serialNumber")] public string? SerialNumber { get; set; }
+
     /// <summary>Helper supervisor signals for observability.</summary>
     [JsonPropertyName("agentRestarts")]
     public int AgentRestarts { get; set; }

@@ -165,6 +165,12 @@ namespace RemoteServer.Data.Migrations
                     b.Property<DateTimeOffset?>("LoginLockedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("Manufacturer")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("Note")
                         .HasColumnType("longtext");
 
@@ -172,6 +178,9 @@ namespace RemoteServer.Data.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<string>("PublicIpAddress")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("SerialNumber")
                         .HasColumnType("longtext");
 
                     b.Property<string>("SshPublicKey")

@@ -34,14 +34,19 @@ public sealed class SettingsView : UserControl, IContentView
         _onViewerPrefs = onViewerPrefs;
         Dock = DockStyle.Fill;
 
-        var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(24, 18, 24, 8) };
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_Appearance, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_Theme, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 4, 0, 2) });
+        // Scrollable root so the page never clips; two dropdowns per row (combo Hint = field label).
+        var root = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown,
+            WrapContents = false, Padding = new Padding(24, 14, 24, 16),
+        };
+
+        // --- Appearance: theme + language side by side ---
+        root.Controls.Add(Header(L.SettingsView_Appearance));
         _theme.Items.AddRange(new object[] { new ThemeItem("light", L.SettingsView_Light), new ThemeItem("dark", L.SettingsView_Dark), new ThemeItem("auto", L.SettingsView_AutoWindowsDefault) });
         SelectMode(currentMode);
         _theme.SelectedIndexChanged += (_, _) => { if (_theme.SelectedItem is ThemeItem t) _onTheme(t.Mode); };
-        top.Controls.Add(_theme);
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_Language, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 14, 0, 2) });
+
         var languages = new List<object> { new LanguageItem(RuntimeLanguage.Auto, L.SettingsView_AutoSystemLanguage) };
         languages.AddRange(L.AvailableLanguages.Select(code => new LanguageItem(code, L.GetDisplayName(code))));
         _language.Items.AddRange(languages.ToArray());
@@ -49,22 +54,14 @@ public sealed class SettingsView : UserControl, IContentView
         _language.SelectedIndexChanged += (_, _) =>
         {
             if (_language.SelectedItem is not LanguageItem item) return;
-            try
-            {
-                RuntimeLanguage.SavePreference(item.Language);
-                RuntimeLanguage.Apply(item.Language);
-                _languageStatus.Text = L.SettingsView_LanguageSavedRestartAffectedComponents;
-            }
-            catch (Exception ex)
-            {
-                _languageStatus.Text = L.SettingsView_CouldNotSaveLanguage + ex.Message;
-            }
+            try { RuntimeLanguage.SavePreference(item.Language); RuntimeLanguage.Apply(item.Language); _languageStatus.Text = L.SettingsView_LanguageSavedRestartAffectedComponents; }
+            catch (Exception ex) { _languageStatus.Text = L.SettingsView_CouldNotSaveLanguage + ex.Message; }
         };
-        top.Controls.Add(_language);
-        top.Controls.Add(_languageStatus);
+        root.Controls.Add(Pair(_theme, _language));
+        root.Controls.Add(_languageStatus);
 
-        // Viewer preferences (per-operator, roam with the account). Applied when launching the TightVNC viewer.
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_ViewerScale, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 14, 0, 2) });
+        // --- VNC configuration: viewer scale + color depth side by side ---
+        root.Controls.Add(Header(L.SettingsView_VncConfig));
         _viewerScaleCombo.Items.AddRange(new object[]
         {
             new ScaleItem("auto", L.SettingsView_ViewerScaleAuto),
@@ -73,23 +70,36 @@ public sealed class SettingsView : UserControl, IContentView
         });
         SelectScale(viewerScale);
         _viewerScaleCombo.SelectedIndexChanged += async (_, _) => await SaveViewerPrefsAsync();
-        top.Controls.Add(_viewerScaleCombo);
-
-        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_ViewerColor, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 10, 0, 2) });
-        _viewerColorCombo.Items.AddRange(new object[]
-        {
-            new ColorItem("full", L.SettingsView_ViewerColorFull),
-            new ColorItem("256", L.SettingsView_ViewerColor256),
-        });
+        _viewerColorCombo.Items.AddRange(new object[] { new ColorItem("full", L.SettingsView_ViewerColorFull), new ColorItem("256", L.SettingsView_ViewerColor256) });
         SelectColor(viewerColor);
         _viewerColorCombo.SelectedIndexChanged += async (_, _) => await SaveViewerPrefsAsync();
-        top.Controls.Add(_viewerColorCombo);
-        top.Controls.Add(_viewerScaleStatus);
+        root.Controls.Add(Pair(_viewerScaleCombo, _viewerColorCombo));
+        root.Controls.Add(_viewerScaleStatus);
 
-        top.Controls.Add(new MaterialDivider { Width = 460, Margin = new Padding(0, 16, 0, 0) });
+        // --- Local lock (admin only), below ---
+        if (_isAdmin)
+        {
+            root.Controls.Add(new MaterialDivider { Width = 460, Margin = new Padding(0, 16, 0, 8) });
+            _lock.Dock = DockStyle.None;
+            _lock.Size = new Size(820, 320);
+            root.Controls.Add(_lock);
+        }
 
-        if (_isAdmin) Controls.Add(_lock); // Fill; local lock is admin-only
-        Controls.Add(top);                 // Top; appearance/language
+        Controls.Add(root);
+    }
+
+    private static MaterialLabel Header(string text) =>
+        new() { Text = text, Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 14, 0, 6) };
+
+    // Two dropdowns side by side; each combo's Hint is its field label.
+    private static Control Pair(Control left, Control right)
+    {
+        left.Margin = new Padding(0, 2, 32, 2);
+        right.Margin = new Padding(0, 2, 0, 2);
+        var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        row.Controls.Add(left);
+        row.Controls.Add(right);
+        return row;
     }
 
     private void SelectMode(string mode)

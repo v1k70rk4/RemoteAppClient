@@ -293,6 +293,12 @@ namespace RemoteServer.Data.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     OsVersion = table.Column<string>(type: "longtext", nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
+                    Manufacturer = table.Column<string>(type: "longtext", nullable: true)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
+                    Model = table.Column<string>(type: "longtext", nullable: true)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
+                    SerialNumber = table.Column<string>(type: "longtext", nullable: true)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
                     LastSeenAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: true),
                     AgentRestarts = table.Column<int>(type: "int", nullable: false),
                     LastIncident = table.Column<string>(type: "longtext", nullable: true)

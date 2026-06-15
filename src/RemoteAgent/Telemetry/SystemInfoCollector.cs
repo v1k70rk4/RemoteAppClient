@@ -19,11 +19,15 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
 
     public TelemetryPayload Collect()
     {
+        var hw = HardwareInfo.System();
         var p = new TelemetryPayload
         {
             AgentId = MachineIdentity.Resolve(_options.AgentId),
             Hostname = Environment.MachineName,
             OsVersion = Environment.OSVersion.VersionString,
+            Manufacturer = hw.Manufacturer,
+            Model = hw.Model,
+            SerialNumber = hw.Serial,
             AgentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0",
             HelperVersion = FileVersion(CoLocated("RemoteAgent.Updater.exe")),
             ClientVersion = FileVersion(CoLocated("RemoteClient.exe")),

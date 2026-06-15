@@ -66,6 +66,11 @@ public sealed class DeviceMessagesPanel : UserControl
                 "no-user" => L.DeviceMessagesPanel_NoUser,
                 _ => L.DeviceMessagesPanel_NoAnswer, // no answer with consent required → treated as a refusal
             };
+
+            // Declined ("No"), or no answer while consent is required: ask the user (if one is present)
+            // to call back when free. Nobody to tell when there is no signed-in user.
+            if (outcome != "no-user")
+                try { await _api.SendMessageAsync(_deviceId, L.DeviceMessagesPanel_CallWhenFree); } catch { /* best effort */ }
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
         finally { _ask.Enabled = true; }

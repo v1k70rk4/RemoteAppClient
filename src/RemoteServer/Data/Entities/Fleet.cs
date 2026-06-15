@@ -63,6 +63,12 @@ public sealed class Device
     public string? VncVersion { get; set; }
     public string? ClientVersion { get; set; }
     public string? OsVersion { get; set; }
+
+    /// <summary>System manufacturer / model / serial from SMBIOS (denormalized from telemetry). Null/OEM on generic desktops.</summary>
+    public string? Manufacturer { get; set; }
+    public string? Model { get; set; }
+    public string? SerialNumber { get; set; }
+
     public DateTimeOffset? LastSeenAt { get; set; }
 
     /// <summary>Agent restart count and last incident reported by Helper supervisor for observability.</summary>
