@@ -13,13 +13,15 @@ namespace RemoteClient.Views;
 /// </summary>
 public sealed class SessionInfoWindow : MaterialForm
 {
-    public SessionInfoWindow(DeviceInfo d, Rectangle area, int width)
+    public SessionInfoWindow(DeviceInfo d, Rectangle area, int width, bool keepOnTop)
     {
         ThemeManager.Skin.AddFormToManage(this);
         Text = string.IsNullOrWhiteSpace(d.Hostname) ? d.DeviceId : d.Hostname;
         Sizable = true;
-        ShowInTaskbar = false;
-        TopMost = true;
+        // Split view: float beside the viewer (always on top). Background view: sit behind the
+        // full-width viewer but stay reachable from the taskbar.
+        ShowInTaskbar = !keepOnTop;
+        TopMost = keepOnTop;
         MinimumSize = new Size(240, 240);
         StartPosition = FormStartPosition.Manual;
         Bounds = new Rectangle(area.Right - width, area.Top, width, area.Height);

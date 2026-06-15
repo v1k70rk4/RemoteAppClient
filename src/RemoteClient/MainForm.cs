@@ -730,7 +730,8 @@ public sealed class MainForm : MaterialForm
         }
 
         // Settings + About are visible to everyone; local settings are not admin-dependent.
-        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin", _api!, _viewerScale, _viewerColor, ApplyViewerPrefs);
+        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin", _api!, _viewerScale, _viewerColor, ApplyViewerPrefs,
+            _cfg.VncPanelMode, mode => { _cfg.VncPanelMode = mode; try { _cfg.Save(); } catch { /* best effort */ } });
         _aboutView = new AboutView(_cfg);
         AddNav(L.MainForm_Settings, _settingsView);
         AddNav(L.MainForm_About, _aboutView);

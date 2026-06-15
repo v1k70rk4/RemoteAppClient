@@ -15,9 +15,11 @@ public sealed class SettingsView : UserControl, IContentView
     private readonly MaterialLabel _languageStatus = new() { AutoSize = false, Width = 560, Height = 44, Margin = new Padding(0, 6, 0, 0) };
     private readonly MaterialComboBox _viewerScaleCombo = new() { Hint = L.SettingsView_ViewerScale, Width = 260 };
     private readonly MaterialComboBox _viewerColorCombo = new() { Hint = L.SettingsView_ViewerColor, Width = 260 };
+    private readonly MaterialComboBox _vncPanelCombo = new() { Hint = L.SettingsView_VncPanel, Width = 300 };
     private readonly MaterialLabel _viewerScaleStatus = new() { AutoSize = false, Width = 560, Height = 28, Margin = new Padding(0, 6, 0, 0) };
     private readonly Action<string> _onTheme;
     private readonly Action<string, string> _onViewerPrefs;
+    private readonly Action<string> _onVncPanel;
     private readonly AdminApi _api;
     private readonly bool _isAdmin;
 
@@ -25,13 +27,15 @@ public sealed class SettingsView : UserControl, IContentView
     private sealed record LanguageItem(string Language, string Name) { public override string ToString() => Name; }
     private sealed record ScaleItem(string Value, string Name) { public override string ToString() => Name; }
     private sealed record ColorItem(string Value, string Name) { public override string ToString() => Name; }
+    private sealed record PanelItem(string Value, string Name) { public override string ToString() => Name; }
 
-    public SettingsView(string currentMode, Action<string> onTheme, bool isAdmin, AdminApi api, string viewerScale, string viewerColor, Action<string, string> onViewerPrefs)
+    public SettingsView(string currentMode, Action<string> onTheme, bool isAdmin, AdminApi api, string viewerScale, string viewerColor, Action<string, string> onViewerPrefs, string vncPanel, Action<string> onVncPanel)
     {
         _onTheme = onTheme;
         _isAdmin = isAdmin;
         _api = api;
         _onViewerPrefs = onViewerPrefs;
+        _onVncPanel = onVncPanel;
         Dock = DockStyle.Fill;
 
         // Scrollable root so the page never clips; two dropdowns per row (combo Hint = field label).
@@ -74,6 +78,18 @@ public sealed class SettingsView : UserControl, IContentView
         SelectColor(viewerColor);
         _viewerColorCombo.SelectedIndexChanged += async (_, _) => await SaveViewerPrefsAsync();
         root.Controls.Add(Pair(_viewerScaleCombo, _viewerColorCombo));
+
+        // Session panel layout on connect (local, per machine).
+        _vncPanelCombo.Items.AddRange(new object[]
+        {
+            new PanelItem("split", L.SettingsView_VncPanelSplit),
+            new PanelItem("background", L.SettingsView_VncPanelBackground),
+            new PanelItem("off", L.SettingsView_VncPanelOff),
+        });
+        SelectPanel(vncPanel);
+        _vncPanelCombo.Margin = new Padding(0, 6, 0, 2);
+        _vncPanelCombo.SelectedIndexChanged += (_, _) => { if (_vncPanelCombo.SelectedItem is PanelItem p) _onVncPanel(p.Value); };
+        root.Controls.Add(_vncPanelCombo);
         root.Controls.Add(_viewerScaleStatus);
 
         // --- Local lock (admin only), below ---
@@ -131,6 +147,14 @@ public sealed class SettingsView : UserControl, IContentView
         for (int i = 0; i < _viewerColorCombo.Items.Count; i++)
             if (_viewerColorCombo.Items[i] is ColorItem c && string.Equals(c.Value, v, StringComparison.OrdinalIgnoreCase)) { _viewerColorCombo.SelectedIndex = i; return; }
         _viewerColorCombo.SelectedIndex = 0; // full
+    }
+
+    private void SelectPanel(string value)
+    {
+        var v = string.IsNullOrWhiteSpace(value) ? "split" : value.Trim().ToLowerInvariant();
+        for (int i = 0; i < _vncPanelCombo.Items.Count; i++)
+            if (_vncPanelCombo.Items[i] is PanelItem p && string.Equals(p.Value, v, StringComparison.OrdinalIgnoreCase)) { _vncPanelCombo.SelectedIndex = i; return; }
+        _vncPanelCombo.SelectedIndex = 0; // split
     }
 
     private async Task SaveViewerPrefsAsync()

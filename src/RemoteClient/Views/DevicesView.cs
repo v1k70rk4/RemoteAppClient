@@ -464,14 +464,25 @@ public sealed class DevicesView : UserControl, IContentView
         // Per-operator scale (TightVNC: -scale=auto -> fitWindow(true), or a percent); overrides the file.
         psi.ArgumentList.Add($"-scale={_viewerScale}");
 
-        // Open the narrow session panel first (note + telemetry), pinned to the top-right of the
-        // operator's screen at ~20% width / full height; the viewer then opens into the rest.
+        // Session panel layout (local per-machine preference):
+        //   "split"      -> viewer in the left ~80%, info panel pinned top-right 20% (always on top)
+        //   "background" -> viewer full width, info panel opens behind it (reachable from the taskbar)
+        //   "off"        -> viewer full width, no info panel
+        var mode = (_cfg.VncPanelMode ?? "split").Trim().ToLowerInvariant();
         var screen = Screen.FromControl(FindForm() ?? (Control)this);
         var area = screen.WorkingArea;
         int panelW = Math.Max(260, (int)(area.Width * 0.20));
+        bool split = mode == "split";
+        bool showPanel = split || mode == "background";
+        var viewerArea = split ? new Rectangle(area.Left, area.Top, area.Width - panelW, area.Height) : area;
+
+        // Open the panel first (note + telemetry) so the viewer opens next to / over it.
         SessionInfoWindow? info = null;
-        try { info = new SessionInfoWindow(d, area, panelW); info.Show(FindForm()); }
-        catch { info = null; }
+        if (showPanel)
+        {
+            try { info = new SessionInfoWindow(d, area, panelW, keepOnTop: split); info.Show(FindForm()); }
+            catch { info = null; }
+        }
 
         Process? p = null;
         try { p = Process.Start(psi); }
@@ -479,8 +490,8 @@ public sealed class DevicesView : UserControl, IContentView
 
         if (p is not null)
         {
-            // Best effort: place the viewer to the left of the panel; scale=auto refits the remote view.
-            PositionViewer(p, new Rectangle(area.Left, area.Top, area.Width - panelW, area.Height));
+            // Best effort: size the viewer to its area; scale=auto refits the remote view.
+            PositionViewer(p, viewerArea);
             // Close the side panel automatically when the viewer is closed.
             if (info is not null)
             {

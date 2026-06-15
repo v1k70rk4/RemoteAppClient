@@ -37,6 +37,10 @@ public sealed class ClientConfig
     /// <summary>The username the trust token belongs to (prefilled on the login screen and matched before sending the token).</summary>
     public string? TrustUsername { get; set; }
 
+    /// <summary>VNC session panel layout (local, per machine): "split" (viewer 80% + panel 20%),
+    /// "background" (viewer 100%, panel opens behind it), or "off" (viewer 100%, no panel).</summary>
+    public string VncPanelMode { get; set; } = "split";
+
     public bool IsComplete =>
         !string.IsNullOrWhiteSpace(SshHost) &&
         !string.IsNullOrWhiteSpace(SshUser) &&

@@ -524,6 +524,10 @@ internal static partial class Strings
     public static string SettingsView_ViewerColorFull => Get(nameof(SettingsView_ViewerColorFull));
     public static string SettingsView_ViewerColor256 => Get(nameof(SettingsView_ViewerColor256));
     public static string SettingsView_VncConfig => Get(nameof(SettingsView_VncConfig));
+    public static string SettingsView_VncPanel => Get(nameof(SettingsView_VncPanel));
+    public static string SettingsView_VncPanelSplit => Get(nameof(SettingsView_VncPanelSplit));
+    public static string SettingsView_VncPanelBackground => Get(nameof(SettingsView_VncPanelBackground));
+    public static string SettingsView_VncPanelOff => Get(nameof(SettingsView_VncPanelOff));
     public static string UploadPanel_AddFiles => Get(nameof(UploadPanel_AddFiles));
     public static string UploadPanel_File => Get(nameof(UploadPanel_File));
     public static string UploadPanel_Remove => Get(nameof(UploadPanel_Remove));
