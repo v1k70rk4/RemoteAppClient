@@ -61,28 +61,37 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
     }
 
     /// <summary>
-    /// Nudges the device toward its channel's current agent/updater package (the channel "target"/min
-    /// version) so devices installed or approved after a rollout still update. Upgrade-only; respects
-    /// UpdateAllowed + approval, and backs off while an update is in flight or recently failed.
+    /// Converges the device toward its channel's current packages (the channel "target"/min versions) so
+    /// devices installed or approved after a rollout still update. Sends ONE component per telemetry pass
+    /// in a safe order (agent LAST — updating the agent restarts it), so a batch of pending packages rolls
+    /// out one at a time instead of racing. Upgrade-only; respects UpdateAllowed + approval. Self-heals a
+    /// racy multi-rollout because each pass simply sends whatever is still behind.
     /// </summary>
     private async Task AutoConvergeAsync(Device device, CancellationToken ct)
     {
         if (!device.UpdateAllowed || device.Status != DeviceStatus.Approved) return;
-
-        var cutoff = DateTimeOffset.UtcNow.AddHours(-6);
-        bool busy = await db.Commands.AnyAsync(c => c.DeviceId == device.Id && c.Type == CommandTypes.Update
-            && ((c.Status == CommandStatus.Queued || c.Status == CommandStatus.Sent || c.Status == CommandStatus.Acked)
-                || (c.Status == CommandStatus.Failed && c.CreatedAt > cutoff)), ct);
-        if (busy) return; // update in flight, or a recent failure — retry later
-
         var channel = string.IsNullOrWhiteSpace(device.Channel) ? "rtm" : device.Channel;
-        foreach (var comp in new[] { "agent", "updater" })
+
+        // "In progress" = a recently-sent update whose target version the device has NOT reported yet.
+        // Update commands never report completion (Sent stays Sent), so the reported version is the
+        // done-signal; the 10-minute bound lets a failed update stop blocking and be retried.
+        var since = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var inflight = await db.Commands
+            .Where(c => c.DeviceId == device.Id && c.Type == CommandTypes.Update && c.CreatedAt > since
+                && (c.Status == CommandStatus.Queued || c.Status == CommandStatus.Sent || c.Status == CommandStatus.Acked))
+            .ToListAsync(ct);
+        foreach (var c in inflight)
+        {
+            var cd = c.PayloadJson is null ? null : JsonSerializer.Deserialize(c.PayloadJson, AgentJsonContext.Default.CommandData);
+            if (Behind(Reported(device, cd?.UpdateTarget), cd?.UpdateVersion))
+                return; // a sent update has not taken effect yet — let it finish before sending the next
+        }
+
+        foreach (var comp in new[] { "vnc", "client", "updater", "agent" })
         {
             var pkg = await db.ReleasePackages.Where(p => p.Channel == channel && p.Component == comp)
                 .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
-            if (pkg is null || !Version.TryParse(pkg.Version, out var target)) continue;
-            var reported = comp == "updater" ? device.HelperVersion : device.AgentVersion;
-            if (Version.TryParse(reported, out var cur) && cur >= target) continue; // already at/above target
+            if (pkg is null || !Behind(Reported(device, comp), pkg.Version)) continue;
 
             var data = new CommandData
             {
@@ -90,7 +99,24 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
                 UpdateSha256 = pkg.Sha256, UpdateTarget = comp,
             };
             await commands.EnqueueAsync(device.DeviceId, CommandTypes.Update, data, null, ct);
-            return; // one component at a time; the other converges on a later telemetry
+            return; // one component per pass
         }
+    }
+
+    /// <summary>The device's reported version for an update component.</summary>
+    private static string? Reported(Device d, string? component) => component switch
+    {
+        "updater" or "helper" => d.HelperVersion,
+        "vnc" => d.VncVersion,
+        "client" => d.ClientVersion,
+        _ => d.AgentVersion,
+    };
+
+    /// <summary>True when the device should still update: target parses and reported is missing or below it (upgrade-only).</summary>
+    private static bool Behind(string? reported, string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return false;
+        if (Version.TryParse(target, out var t) && Version.TryParse(reported, out var r)) return r < t;
+        return string.IsNullOrWhiteSpace(reported) || !reported.StartsWith(target, StringComparison.OrdinalIgnoreCase);
     }
 }
