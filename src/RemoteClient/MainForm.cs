@@ -21,6 +21,7 @@ public sealed class MainForm : MaterialForm
     private AdminApi? _api;
     private string _role = "operator";
     private string _viewerScale = "auto";   // operator's TightVNC viewer scale; loaded at sign-in, roams with the account
+    private string _viewerColor = "full";   // operator's TightVNC color depth ("full"/"256"); loaded at sign-in, roams
     private string _username = "";
     private bool _started;
     private LoginResponse? _login;
@@ -441,11 +442,13 @@ public sealed class MainForm : MaterialForm
         Invalidate(true);
     }
 
-    // Applies a changed viewer-scale preference to the live Devices view. SettingsView already persisted it server-side.
-    private void ApplyViewerScale(string scale)
+    // Applies changed viewer preferences to the live Devices view. SettingsView already persisted them server-side.
+    private void ApplyViewerPrefs(string scale, string color)
     {
         _viewerScale = string.IsNullOrWhiteSpace(scale) ? "auto" : scale;
+        _viewerColor = string.IsNullOrWhiteSpace(color) ? "full" : color;
         _devicesView?.SetViewerScale(_viewerScale);
+        _devicesView?.SetViewerColor(_viewerColor);
     }
 
     // ---------------- Login + setup ----------------
@@ -662,11 +665,12 @@ public sealed class MainForm : MaterialForm
 
         ApplyBranding(); // blue title bar branding
 
-        // Operator viewer-scale preference (roams with the account); applied when launching the VNC viewer.
+        // Operator viewer preferences (roam with the account); applied when launching the VNC viewer.
         _viewerScale = string.IsNullOrWhiteSpace(_login?.ViewerScale) ? "auto" : _login!.ViewerScale!;
+        _viewerColor = string.IsNullOrWhiteSpace(_login?.ViewerColor) ? "full" : _login!.ViewerColor!;
 
         // Create views + menu according to role; operators only see Devices.
-        _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin", _viewerScale);
+        _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin", _viewerScale, _viewerColor);
         AddNav(L.MainForm_Devices, _devicesView);
         if (_role == "admin")
         {
@@ -686,7 +690,7 @@ public sealed class MainForm : MaterialForm
         }
 
         // Settings + About are visible to everyone; local settings are not admin-dependent.
-        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin", _api!, _viewerScale, ApplyViewerScale);
+        _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin", _api!, _viewerScale, _viewerColor, ApplyViewerPrefs);
         _aboutView = new AboutView(_cfg);
         AddNav(L.MainForm_Settings, _settingsView);
         AddNav(L.MainForm_About, _aboutView);

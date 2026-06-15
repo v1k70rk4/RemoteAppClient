@@ -37,6 +37,12 @@ public sealed class User
     /// </summary>
     public string? ViewerScale { get; set; }
 
+    /// <summary>
+    /// Per-operator TightVNC viewer color depth: "full" or "256" (8-bit, low-color/fast). Null/empty means full.
+    /// Roams with the account. Applied via a generated options file at launch (color has no CLI flag).
+    /// </summary>
+    public string? ViewerColor { get; set; }
+
     public ICollection<UserRole> UserRoles { get; set; } = [];
     public ICollection<UserGrant> Grants { get; set; } = [];
 }

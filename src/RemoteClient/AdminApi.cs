@@ -136,10 +136,10 @@ public sealed class AdminApi : IDisposable
         try { using var resp = await _http.PostAsync("/auth/logout", content: null, ct); } catch { /* best effort */ }
     }
 
-    /// <summary>Saves the signed-in operator's TightVNC viewer scale ("auto" or a percent "1".."400"). Roams with the account.</summary>
-    public async Task UpdateViewerPrefsAsync(string scale, CancellationToken ct = default)
+    /// <summary>Saves the signed-in operator's TightVNC viewer prefs: scale ("auto" or "1".."400") and color ("full"/"256"). Roams with the account.</summary>
+    public async Task UpdateViewerPrefsAsync(string scale, string color, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new ViewerPrefsRequest { Scale = scale }, AgentJsonContext.Default.ViewerPrefsRequest);
+        using var content = JsonContent.Create(new ViewerPrefsRequest { Scale = scale, Color = color }, AgentJsonContext.Default.ViewerPrefsRequest);
         using var resp = await _http.PutAsync("/admin/me/viewer-prefs", content, ct);
         resp.EnsureSuccessStatusCode();
     }

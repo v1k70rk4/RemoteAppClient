@@ -92,5 +92,5 @@ public sealed class TelemetryOptions
 
     public string ServerCertPinSha256 { get; set; } = string.Empty;
 
-    public int IntervalSeconds { get; set; } = 300;
+    public int IntervalSeconds { get; set; } = 60;
 }

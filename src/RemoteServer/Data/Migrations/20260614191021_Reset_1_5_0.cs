@@ -249,6 +249,8 @@ namespace RemoteServer.Data.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     ResetCodeExpiresAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: true),
                     ViewerScale = table.Column<string>(type: "longtext", nullable: true)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
+                    ViewerColor = table.Column<string>(type: "longtext", nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4")
                 },
                 constraints: table =>

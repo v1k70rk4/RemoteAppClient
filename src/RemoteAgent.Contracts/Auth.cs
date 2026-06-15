@@ -44,6 +44,9 @@ public sealed class LoginResponse
 
     /// <summary>Per-operator TightVNC viewer scale ("auto" or a percent "1".."400"). Roams with the account; the client applies it when launching the viewer.</summary>
     [JsonPropertyName("viewerScale")] public string? ViewerScale { get; set; }
+
+    /// <summary>Per-operator TightVNC viewer color depth ("full" or "256"). Roams with the account.</summary>
+    [JsonPropertyName("viewerColor")] public string? ViewerColor { get; set; }
 }
 
 /// <summary>Error code returned with login or authorization rejection (HTTP 401/403).</summary>
@@ -121,10 +124,14 @@ public sealed class MeResponse
 
     /// <summary>Per-operator TightVNC viewer scale ("auto" or a percent "1".."400").</summary>
     [JsonPropertyName("viewerScale")] public string? ViewerScale { get; set; }
+
+    /// <summary>Per-operator TightVNC viewer color depth ("full" or "256").</summary>
+    [JsonPropertyName("viewerColor")] public string? ViewerColor { get; set; }
 }
 
 /// <summary>Updates the signed-in operator's viewer preferences. <see cref="Scale"/> is "auto" or a percent "1".."400".</summary>
 public sealed class ViewerPrefsRequest
 {
     [JsonPropertyName("scale")] public string? Scale { get; set; }
+    [JsonPropertyName("color")] public string? Color { get; set; }
 }

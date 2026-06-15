@@ -136,6 +136,7 @@ CREATE TABLE `Users` (
     `ResetCodeHash` longtext CHARACTER SET utf8mb4 NULL,
     `ResetCodeExpiresAt` datetime(6) NULL,
     `ViewerScale` longtext CHARACTER SET utf8mb4 NULL,
+    `ViewerColor` longtext CHARACTER SET utf8mb4 NULL,
     CONSTRAINT `PK_Users` PRIMARY KEY (`Id`)
 ) CHARACTER SET=utf8mb4;
 

@@ -17,6 +17,7 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly ClientConfig _cfg;
     private readonly bool _isAdmin;
     private string _viewerScale;   // TightVNC viewer scale: "auto" (fit to window) or a percent "1".."400"; per-operator, from the account
+    private string _viewerColor;   // TightVNC color depth: "full" or "256" (8-bit, low-color); per-operator, from the account
 
     private readonly List<DeviceInfo> _devices = new();
     private readonly Panel _listHost = new() { Dock = DockStyle.Fill };
@@ -45,10 +46,11 @@ public sealed class DevicesView : UserControl, IContentView
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
 
-    public DevicesView(AdminApi api, BrokerClient broker, ClientConfig cfg, bool isAdmin, string viewerScale = "auto")
+    public DevicesView(AdminApi api, BrokerClient broker, ClientConfig cfg, bool isAdmin, string viewerScale = "auto", string viewerColor = "full")
     {
         _api = api; _broker = broker; _cfg = cfg; _isAdmin = isAdmin;
         _viewerScale = string.IsNullOrWhiteSpace(viewerScale) ? "auto" : viewerScale;
+        _viewerColor = string.IsNullOrWhiteSpace(viewerColor) ? "full" : viewerColor;
         Dock = DockStyle.Fill;
         BuildList();
         BuildEditor();
@@ -80,6 +82,7 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Columns.Add(L.CredentialDialog_User, 150);
         _list.Columns.Add(L.DevicesView_LastOnline, 140);
         _list.Columns.Add(L.DeviceTelemetryPanel_PublicIP, 120);
+        _list.Columns.Add(L.DevicesView_Update, 150);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
         // Right-click selects the row under the cursor and opens a context menu of editor tabs.
         if (_isAdmin)
@@ -183,10 +186,13 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Items.Clear();
         foreach (var d in items)
         {
-            // Column order: Device | Group | Note | Online | User | Last seen | Public IP.
+            // Column order: Device | Group | Note | Online | User | Last seen | Public IP | Update.
             var name = string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname;
             if (d.LoginLocked) name = "🔒 " + name;
             var item = new ListViewItem(name) { Tag = d, UseItemStyleForSubItems = false };
+            // Pending (not yet approved) must stand out: red device name.
+            if (string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                item.ForeColor = Color.Red;
             if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.Note) ? "—" : d.Note);
@@ -195,6 +201,9 @@ public sealed class DevicesView : UserControl, IContentView
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
             item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.PublicIpAddress) ? "—" : d.PublicIpAddress);
+            // Rollout indicator: grey check + target while an update command is in flight; "—" once applied.
+            var upd = item.SubItems.Add(d.UpdatePending ? "✓ " + (d.UpdatePendingInfo ?? "") : "—");
+            if (d.UpdatePending) upd.ForeColor = Color.Gray;
             if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
         }
@@ -416,6 +425,9 @@ public sealed class DevicesView : UserControl, IContentView
     /// <summary>Updates the viewer scale used for subsequent connections (from the operator's account preference).</summary>
     public void SetViewerScale(string scale) => _viewerScale = string.IsNullOrWhiteSpace(scale) ? "auto" : scale;
 
+    /// <summary>Updates the viewer color depth used for subsequent connections (from the operator's account preference).</summary>
+    public void SetViewerColor(string color) => _viewerColor = string.IsNullOrWhiteSpace(color) ? "full" : color;
+
     private void LaunchViewer(int localPort, string password)
     {
         var viewer = ResolveViewer();
@@ -425,14 +437,34 @@ public sealed class DevicesView : UserControl, IContentView
             MessageBox.Show(L.DevicesView_ViewerNotFound, "VNC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
+        // 8-bit color has no command-line flag, so write a small options file carrying it. -optionsfile takes
+        // over the connection, so host/port live in the file too; the password stays on the command line
+        // (plaintext, never written to disk) and -scale overrides the file's scale.
+        var profile = Path.Combine(Path.GetTempPath(), $"rac-{Guid.NewGuid():N}.vnc");
+        try
+        {
+            File.WriteAllText(profile,
+                "[connection]\r\nhost=127.0.0.1\r\n" + $"port={localPort}\r\n" +
+                "[options]\r\n" + $"8bit={(_viewerColor == "256" ? 1 : 0)}\r\n");
+        }
+        catch { profile = ""; }
+
         var psi = new ProcessStartInfo(viewer) { UseShellExecute = false };
-        psi.ArgumentList.Add("-host=127.0.0.1");
-        psi.ArgumentList.Add($"-port={localPort}");
+        if (profile.Length > 0)
+            psi.ArgumentList.Add($"-optionsfile={profile}");
+        else
+        {
+            psi.ArgumentList.Add("-host=127.0.0.1");
+            psi.ArgumentList.Add($"-port={localPort}");
+        }
         psi.ArgumentList.Add($"-password={password}");
-        // Per-operator viewer scale (TightVNC: -scale=auto -> ConnectionConfig::fitWindow(true), or a percent).
-        // "auto" fits the remote desktop to the window instead of letting it overflow.
+        // Per-operator scale (TightVNC: -scale=auto -> fitWindow(true), or a percent); overrides the file.
         psi.ArgumentList.Add($"-scale={_viewerScale}");
         Process.Start(psi);
+
+        // The viewer reads the options file at startup; remove it shortly after (best effort; no secret in it).
+        if (profile.Length > 0)
+            _ = Task.Run(async () => { await Task.Delay(8000); try { File.Delete(profile); } catch { /* ignore */ } });
     }
 
     /// <summary>Locates the TightVNC viewer: configured path first, then standard install dirs and a copy next to the client.</summary>

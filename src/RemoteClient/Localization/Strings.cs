@@ -256,6 +256,7 @@ internal static partial class Strings
     public static string DevicesView_Connect => Get(nameof(DevicesView_Connect));
     public static string DevicesView_Device => Get(nameof(DevicesView_Device));
     public static string DevicesView_LastOnline => Get(nameof(DevicesView_LastOnline));
+    public static string DevicesView_Update => Get(nameof(DevicesView_Update));
     public static string DevicesView_UnlockSignIn => Get(nameof(DevicesView_UnlockSignIn));
     public static string DevicesView_Approve => Get(nameof(DevicesView_Approve));
     public static string DevicesView_Delete => Get(nameof(DevicesView_Delete));
@@ -509,6 +510,9 @@ internal static partial class Strings
     public static string SettingsView_ViewerScaleAuto => Get(nameof(SettingsView_ViewerScaleAuto));
     public static string SettingsView_ViewerScaleSaved => Get(nameof(SettingsView_ViewerScaleSaved));
     public static string SettingsView_CouldNotSaveScale => Get(nameof(SettingsView_CouldNotSaveScale));
+    public static string SettingsView_ViewerColor => Get(nameof(SettingsView_ViewerColor));
+    public static string SettingsView_ViewerColorFull => Get(nameof(SettingsView_ViewerColorFull));
+    public static string SettingsView_ViewerColor256 => Get(nameof(SettingsView_ViewerColor256));
     public static string UploadPanel_AddFiles => Get(nameof(UploadPanel_AddFiles));
     public static string UploadPanel_File => Get(nameof(UploadPanel_File));
     public static string UploadPanel_Remove => Get(nameof(UploadPanel_Remove));

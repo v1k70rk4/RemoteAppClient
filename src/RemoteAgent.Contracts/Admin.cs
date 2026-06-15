@@ -56,6 +56,14 @@ public sealed class DeviceInfo
     [JsonPropertyName("clientVersion")]
     public string? ClientVersion { get; set; }
 
+    /// <summary>True when an update command is in flight (Queued/Sent/Acked) that the device has not applied yet.</summary>
+    [JsonPropertyName("updatePending")]
+    public bool UpdatePending { get; set; }
+
+    /// <summary>Rollout detail for the pending update, e.g. "agent 1.5.3 · Sent". Null when none.</summary>
+    [JsonPropertyName("updatePendingInfo")]
+    public string? UpdatePendingInfo { get; set; }
+
     [JsonPropertyName("osVersion")]
     public string? OsVersion { get; set; }
 

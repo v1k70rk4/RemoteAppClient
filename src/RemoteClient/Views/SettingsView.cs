@@ -14,22 +14,24 @@ public sealed class SettingsView : UserControl, IContentView
     private readonly MaterialComboBox _language = new() { Hint = L.SettingsView_Language, Width = 260 };
     private readonly MaterialLabel _languageStatus = new() { AutoSize = false, Width = 560, Height = 44, Margin = new Padding(0, 6, 0, 0) };
     private readonly MaterialComboBox _viewerScaleCombo = new() { Hint = L.SettingsView_ViewerScale, Width = 260 };
+    private readonly MaterialComboBox _viewerColorCombo = new() { Hint = L.SettingsView_ViewerColor, Width = 260 };
     private readonly MaterialLabel _viewerScaleStatus = new() { AutoSize = false, Width = 560, Height = 28, Margin = new Padding(0, 6, 0, 0) };
     private readonly Action<string> _onTheme;
-    private readonly Action<string> _onViewerScale;
+    private readonly Action<string, string> _onViewerPrefs;
     private readonly AdminApi _api;
     private readonly bool _isAdmin;
 
     private sealed record ThemeItem(string Mode, string Name) { public override string ToString() => Name; }
     private sealed record LanguageItem(string Language, string Name) { public override string ToString() => Name; }
     private sealed record ScaleItem(string Value, string Name) { public override string ToString() => Name; }
+    private sealed record ColorItem(string Value, string Name) { public override string ToString() => Name; }
 
-    public SettingsView(string currentMode, Action<string> onTheme, bool isAdmin, AdminApi api, string viewerScale, Action<string> onViewerScale)
+    public SettingsView(string currentMode, Action<string> onTheme, bool isAdmin, AdminApi api, string viewerScale, string viewerColor, Action<string, string> onViewerPrefs)
     {
         _onTheme = onTheme;
         _isAdmin = isAdmin;
         _api = api;
-        _onViewerScale = onViewerScale;
+        _onViewerPrefs = onViewerPrefs;
         Dock = DockStyle.Fill;
 
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(24, 18, 24, 8) };
@@ -61,7 +63,7 @@ public sealed class SettingsView : UserControl, IContentView
         top.Controls.Add(_language);
         top.Controls.Add(_languageStatus);
 
-        // Viewer scale (per-operator, roams with the account). Applied when launching the TightVNC viewer.
+        // Viewer preferences (per-operator, roam with the account). Applied when launching the TightVNC viewer.
         top.Controls.Add(new MaterialLabel { Text = L.SettingsView_ViewerScale, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 14, 0, 2) });
         _viewerScaleCombo.Items.AddRange(new object[]
         {
@@ -70,8 +72,18 @@ public sealed class SettingsView : UserControl, IContentView
             new ScaleItem("125", "125%"), new ScaleItem("150", "150%"), new ScaleItem("200", "200%"),
         });
         SelectScale(viewerScale);
-        _viewerScaleCombo.SelectedIndexChanged += async (_, _) => await SaveViewerScaleAsync();
+        _viewerScaleCombo.SelectedIndexChanged += async (_, _) => await SaveViewerPrefsAsync();
         top.Controls.Add(_viewerScaleCombo);
+
+        top.Controls.Add(new MaterialLabel { Text = L.SettingsView_ViewerColor, FontType = MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(0, 10, 0, 2) });
+        _viewerColorCombo.Items.AddRange(new object[]
+        {
+            new ColorItem("full", L.SettingsView_ViewerColorFull),
+            new ColorItem("256", L.SettingsView_ViewerColor256),
+        });
+        SelectColor(viewerColor);
+        _viewerColorCombo.SelectedIndexChanged += async (_, _) => await SaveViewerPrefsAsync();
+        top.Controls.Add(_viewerColorCombo);
         top.Controls.Add(_viewerScaleStatus);
 
         top.Controls.Add(new MaterialDivider { Width = 460, Margin = new Padding(0, 16, 0, 0) });
@@ -103,13 +115,21 @@ public sealed class SettingsView : UserControl, IContentView
         _viewerScaleCombo.SelectedIndex = 0; // auto
     }
 
-    private async Task SaveViewerScaleAsync()
+    private void SelectColor(string value)
     {
-        if (_viewerScaleCombo.SelectedItem is not ScaleItem item) return;
+        var v = string.IsNullOrWhiteSpace(value) ? "full" : value.Trim().ToLowerInvariant();
+        for (int i = 0; i < _viewerColorCombo.Items.Count; i++)
+            if (_viewerColorCombo.Items[i] is ColorItem c && string.Equals(c.Value, v, StringComparison.OrdinalIgnoreCase)) { _viewerColorCombo.SelectedIndex = i; return; }
+        _viewerColorCombo.SelectedIndex = 0; // full
+    }
+
+    private async Task SaveViewerPrefsAsync()
+    {
+        if (_viewerScaleCombo.SelectedItem is not ScaleItem scale || _viewerColorCombo.SelectedItem is not ColorItem color) return;
         try
         {
-            await _api.UpdateViewerPrefsAsync(item.Value);
-            _onViewerScale(item.Value);
+            await _api.UpdateViewerPrefsAsync(scale.Value, color.Value);
+            _onViewerPrefs(scale.Value, color.Value);
             _viewerScaleStatus.Text = L.SettingsView_ViewerScaleSaved;
         }
         catch (Exception ex)

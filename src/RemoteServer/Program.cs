@@ -167,6 +167,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         MustChangePassword = user.MustChangePassword,
         TotpEnrollRequired = !user.TotpConfirmed,
         ViewerScale = user.ViewerScale,
+        ViewerColor = user.ViewerColor,
     };
 
     // First sign-in or no TOTP yet: generate an enrollment secret, store encrypted and unconfirmed.
@@ -245,6 +246,7 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
         MustChangePassword = user.MustChangePassword,
         TotpEnrollRequired = !user.TotpConfirmed,
         ViewerScale = user.ViewerScale,
+        ViewerColor = user.ViewerColor,
     }, AgentJsonContext.Default.LoginResponse);
 });
 
@@ -420,6 +422,7 @@ app.MapGet("/auth/me", async (HttpContext ctx, AuthService auth, CancellationTok
         Username = u.Username, Role = AuthService.RoleOf(u),
         MustChangePassword = u.MustChangePassword, TotpConfirmed = u.TotpConfirmed,
         ViewerScale = u.ViewerScale,
+        ViewerColor = u.ViewerColor,
     }, AgentJsonContext.Default.MeResponse);
 });
 
@@ -527,6 +530,29 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         var (gids, dids) = await auth.GrantsAsync(me.Id, ct);
         devices = devices.Where(d => AuthService.CanAccessDevice(d, gids, dids)).ToList();
     }
+
+    // In-flight update commands (Queued/Sent/Acked) per device, for the rollout/pending indicator.
+    // Cleared once the device reports the target version (handles agents that restart before acking).
+    var byId = devices.ToDictionary(d => d.Id);
+    var deviceGuids = byId.Keys.ToList();
+    var inflight = await db.Commands
+        .Where(c => c.Type == CommandTypes.Update
+            && (c.Status == CommandStatus.Queued || c.Status == CommandStatus.Sent || c.Status == CommandStatus.Acked)
+            && deviceGuids.Contains(c.DeviceId))
+        .ToListAsync(ct);
+    var pendingInfo = new Dictionary<Guid, string>();
+    foreach (var grp in inflight.GroupBy(c => c.DeviceId))
+    {
+        if (!byId.TryGetValue(grp.Key, out var dev)) continue;
+        var cmd = grp.OrderByDescending(c => c.CreatedAt).First();
+        var cd = cmd.PayloadJson is null ? null : JsonSerializer.Deserialize(cmd.PayloadJson, AgentJsonContext.Default.CommandData);
+        var target = string.IsNullOrWhiteSpace(cd?.UpdateTarget) ? "agent" : cd!.UpdateTarget!;
+        var ver = cd?.UpdateVersion ?? "";
+        var reported = target switch { "updater" => dev.HelperVersion, "vnc" => dev.VncVersion, "client" => dev.ClientVersion, _ => dev.AgentVersion };
+        if (string.IsNullOrEmpty(ver) || reported is null || !reported.StartsWith(ver, StringComparison.OrdinalIgnoreCase))
+            pendingInfo[grp.Key] = $"{target} {ver} · {cmd.Status}";
+    }
+
     var list = devices.Select(d => new DeviceInfo
     {
         DeviceId = d.DeviceId,
@@ -558,6 +584,8 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         LoginFailCount = d.LoginFailCount,
         LoginLocked = d.LoginLockedAt is not null,
         Note = protector.TryUnprotect(d.Note),
+        UpdatePending = pendingInfo.ContainsKey(d.Id),
+        UpdatePendingInfo = pendingInfo.GetValueOrDefault(d.Id),
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListDeviceInfo);
 });
@@ -1162,9 +1190,11 @@ app.MapPut("/admin/me/viewer-prefs", async (HttpContext ctx, AppDbContext db, Ca
     var req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.ViewerPrefsRequest, ct);
     var scale = NormalizeViewerScale(req?.Scale);
     if (scale is null) return Results.BadRequest(new AuthError { Error = "invalid_scale" });
+    var color = NormalizeViewerColor(req?.Color);
 
     var u = await db.Users.FirstAsync(x => x.Id == me.Id, ct);
     u.ViewerScale = scale;
+    u.ViewerColor = color;
     await db.SaveChangesAsync(ct);
     return Results.NoContent();
 });
@@ -1621,6 +1651,10 @@ static string? NormalizeViewerScale(string? raw)
     if (string.IsNullOrEmpty(s) || s == "auto") return "auto";
     return int.TryParse(s, out var pct) && pct is >= 1 and <= 400 ? pct.ToString() : null;
 }
+
+// Normalizes a viewer color-depth preference: "256" (8-bit, low-color) or "full". Null/empty/unknown -> "full".
+static string NormalizeViewerColor(string? raw) =>
+    string.Equals(raw?.Trim(), "256", StringComparison.OrdinalIgnoreCase) ? "256" : "full";
 
 // Short URL-safe temporary password.
 static string TempPw() =>
