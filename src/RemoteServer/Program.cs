@@ -48,6 +48,7 @@ builder.Services.AddSingleton<HelloChallengeStore>();
 builder.Services.AddSingleton<AccessResultStore>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddHostedService<SecretExpiryWatcher>();
+builder.Services.AddHostedService<CommandExpiryWatcher>();
 
 var app = builder.Build();
 app.UseWebSockets();

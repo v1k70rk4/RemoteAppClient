@@ -72,6 +72,18 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
         if (!device.UpdateAllowed || device.Status != DeviceStatus.Approved) return;
         var channel = string.IsNullOrWhiteSpace(device.Channel) ? "rtm" : device.Channel;
 
+        // Circuit breaker: if a device has had a storm of update commands in the last hour, it cannot
+        // apply something (e.g. a locked exe) — stop hammering it and flag it instead of looping forever.
+        var hourAgo = DateTimeOffset.UtcNow.AddHours(-1);
+        var recentUpdates = await db.Commands.CountAsync(
+            c => c.DeviceId == device.Id && c.Type == CommandTypes.Update && c.CreatedAt > hourAgo, ct);
+        if (recentUpdates >= 8)
+        {
+            const string note = "auto-converge paused: too many update attempts";
+            if (device.LastIncident != note) { device.LastIncident = note; await db.SaveChangesAsync(ct); }
+            return;
+        }
+
         // "In progress" = a recently-sent update whose target version the device has NOT reported yet.
         // Update commands never report completion (Sent stays Sent), so the reported version is the
         // done-signal; the 10-minute bound lets a failed update stop blocking and be retried.

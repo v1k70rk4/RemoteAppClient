@@ -26,6 +26,10 @@ public sealed class TunnelOrchestratorService(
     private int _tunnelPort;
     private DateTimeOffset _lastActivity;
 
+    // The currently-running update, if any. Updates run off the command loop so a slow/hung download
+    // cannot block tunnel/power/message commands; single-flight so only one runs at a time.
+    private Task _updateTask = Task.CompletedTask;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Separate idle watchdog closes inactive tunnels even when no command arrives.
@@ -58,8 +62,7 @@ public sealed class TunnelOrchestratorService(
                 await CloseTunnelAsync();
                 break;
             case CommandTypes.Update:
-                await updateInstaller.ApplyAsync(
-                    cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
+                StartUpdate(cmd, ct); // non-blocking + single-flight; must not jam the command loop
                 break;
             case CommandTypes.Message:
                 await MessageCommandAsync(cmd, ct);
@@ -71,6 +74,28 @@ public sealed class TunnelOrchestratorService(
                 logger.LogWarning(L.TunnelOrchestratorService_UnknownCommandType, cmd.Type);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Runs an update off the command loop, single-flight. Downloads can take minutes, so awaiting
+    /// inline would block tunnel/power/message; and only one update should run at a time.
+    /// </summary>
+    private void StartUpdate(AgentCommand cmd, CancellationToken ct)
+    {
+        if (!_updateTask.IsCompleted)
+        {
+            logger.LogInformation("Update already in progress; skipping new update command.");
+            return;
+        }
+        _updateTask = Task.Run(async () =>
+        {
+            try
+            {
+                await updateInstaller.ApplyAsync(
+                    cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
+            }
+            catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_TunnelCommandProcessingFailedType, CommandTypes.Update); }
+        }, ct);
     }
 
     private async Task OpenTunnelAsync(AgentCommand cmd, CancellationToken ct)
