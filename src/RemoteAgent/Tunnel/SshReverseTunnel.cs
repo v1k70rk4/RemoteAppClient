@@ -16,6 +16,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
 {
     private Process? _process;
     private string? _knownHostsPath;
+    private WsBridgeListener? _bridge;
 
     public bool IsRunning => _process is { HasExited: false };
 
@@ -27,28 +28,49 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
             return;
         }
 
-        _knownHostsPath = WritePinnedKnownHosts();
-
-        var ports = transport.CandidatePorts(options.BastionPort);
-        for (int i = 0; i < ports.Count; i++)
+        foreach (var a in transport.Attempts(options.BastionPort))
         {
-            var port = ports[i];
-            if (await TryStartOnPortAsync(remotePort, port, ct))
-            {
-                transport.RecordWorkingPort(port);
-                logger.LogInformation(
-                    L.SshReverseTunnel_StartingReverseTunnelBastionHost,
-                    options.BastionHost, port, remotePort, options.LocalForwardPort);
-                return;
-            }
-            logger.LogWarning("Reverse tunnel could not connect on bastion port {Port}{More}.",
-                port, i + 1 < ports.Count ? " — trying next" : "");
+            var ok = a.Wss ? await TryStartWssAsync(remotePort, ct)
+                           : await TryStartRawAsync(remotePort, a.Port, ct);
+            if (ok) { transport.RecordWorking(a); return; }
+            logger.LogWarning("Reverse tunnel attempt failed: {Attempt}.", a.Wss ? "WSS" : $"port {a.Port}");
         }
 
         CleanupKnownHosts();
+        if (_bridge is not null) { await _bridge.DisposeAsync(); _bridge = null; }
     }
 
-    private async Task<bool> TryStartOnPortAsync(int remotePort, int port, CancellationToken ct)
+    // Raw SSH on a bastion port (443 sslh mux, or 22).
+    private async Task<bool> TryStartRawAsync(int remotePort, int port, CancellationToken ct)
+    {
+        CleanupKnownHosts();
+        _knownHostsPath = WritePinnedKnownHosts();
+        if (!await TryStartOnPortAsync(remotePort, port, options.BastionHost, ct)) return false;
+        logger.LogInformation(L.SshReverseTunnel_StartingReverseTunnelBastionHost,
+            options.BastionHost, port, remotePort, options.LocalForwardPort);
+        return true;
+    }
+
+    // SSH-over-WebSocket: ssh reaches the bastion through a local TCP→WSS bridge to the server's
+    // /ssh endpoint (DPI / Cloudflare friendly).
+    private async Task<bool> TryStartWssAsync(int remotePort, CancellationToken ct)
+    {
+        var (url, pfx, thumb, pin) = transport.WssParams;
+        if (string.IsNullOrWhiteSpace(url)) { logger.LogWarning("WSS attempt: no /ssh URL configured."); return false; }
+        CleanupKnownHosts();
+        _bridge = new WsBridgeListener(url, pfx, thumb, pin, logger);
+        var bport = _bridge.Start();
+        _knownHostsPath = WriteKnownHosts("127.0.0.1", bport);
+        if (await TryStartOnPortAsync(remotePort, bport, "127.0.0.1", ct))
+        {
+            logger.LogInformation("Reverse tunnel up over WSS ({Url}, remote {Remote}).", url, remotePort);
+            return true;
+        }
+        await _bridge.DisposeAsync(); _bridge = null;
+        return false;
+    }
+
+    private async Task<bool> TryStartOnPortAsync(int remotePort, int port, string host, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
         {
@@ -82,7 +104,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
 
         psi.ArgumentList.Add("-p");
         psi.ArgumentList.Add(port.ToString());
-        psi.ArgumentList.Add($"{options.BastionUser}@{options.BastionHost}");
+        psi.ArgumentList.Add($"{options.BastionUser}@{host}");
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var authed = false;
@@ -116,28 +138,29 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
     public async Task StopAsync()
     {
         var proc = _process;
-        if (proc is null)
-            return;
-
-        try
+        if (proc is not null)
         {
-            if (!proc.HasExited)
+            try
             {
-                proc.Kill(entireProcessTree: true);
-                await proc.WaitForExitAsync();
+                if (!proc.HasExited)
+                {
+                    proc.Kill(entireProcessTree: true);
+                    await proc.WaitForExitAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, L.SshReverseTunnel_ErrorWhileStoppingTunnel);
+            }
+            finally
+            {
+                proc.Dispose();
+                _process = null;
             }
         }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, L.SshReverseTunnel_ErrorWhileStoppingTunnel);
-        }
-        finally
-        {
-            proc.Dispose();
-            _process = null;
-            CleanupKnownHosts();
-            logger.LogInformation("Reverse tunnel stopped.");
-        }
+        if (_bridge is not null) { await _bridge.DisposeAsync(); _bridge = null; }
+        CleanupKnownHosts();
+        if (proc is not null) logger.LogInformation("Reverse tunnel stopped.");
     }
 
     private async Task KillQuietly(Process proc)
@@ -160,6 +183,16 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         if (options.BastionPort != 22 && options.BastionPort != 443)
             lines.Add($"[{options.BastionHost}]:{options.BastionPort} {options.BastionHostKey}");
         File.WriteAllText(path, string.Join("\n", lines) + "\n");
+        return path;
+    }
+
+    private string WriteKnownHosts(string host, int port)
+    {
+        // Single pinned entry for the wss443 bridge: ssh connects to [127.0.0.1]:<bridgePort>, but the
+        // host key it sees is the bastion sshd's (through the WS), so pin that key under this address.
+        var path = Path.Combine(Path.GetTempPath(), $"ra_known_hosts_{Guid.NewGuid():N}");
+        var entry = port == 22 ? host : $"[{host}]:{port}";
+        File.WriteAllText(path, $"{entry} {options.BastionHostKey}\n");
         return path;
     }
 

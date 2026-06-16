@@ -15,12 +15,14 @@ public sealed class DeviceTelemetryPanel : UserControl
         Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false,
         AutoScroll = true, Padding = new Padding(12, 10, 8, 8),
     };
+    private DeviceInfo? _last;
 
     public DeviceTelemetryPanel(DeviceInfo d)
     {
         Dock = DockStyle.Fill;
         Controls.Add(_flow);
         Build(d);
+        _ = WarmLocalTransportAsync(); // fill the operator-side transport for the connect-path row
     }
 
     /// <summary>Re-renders all rows for a refreshed snapshot (used by the live session panel).</summary>
@@ -28,6 +30,7 @@ public sealed class DeviceTelemetryPanel : UserControl
 
     private void Build(DeviceInfo d)
     {
+        _last = d;
         _flow.SuspendLayout();
         _flow.Controls.Clear();
 
@@ -58,11 +61,38 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.DeviceTelemetryPanel_AgentRestarts, d.AgentRestarts.ToString());
         if (!string.IsNullOrWhiteSpace(d.LastIncident)) Row(L.DeviceTelemetryPanel_LastIncident, d.LastIncident);
         Row("deviceId", d.DeviceId);
+        Row(L.AboutView_Connection, ConnectPath(d));
+        _flow.Controls.Add(new MaterialLabel { Text = " ", AutoSize = true, Margin = new Padding(0, 0, 0, 10) }); // trailing spacer so the last row is never clipped
 
         _flow.ResumeLayout();
     }
 
     private static string S(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+
+    /// <summary>Short transport label for the connect-path row.</summary>
+    private static string TransportLabel(string? code) => (code ?? "auto").Trim().ToLowerInvariant() switch
+    {
+        "ssl443" => "443 (sslh)",
+        "ssh22" => "22 (ssh)",
+        "wss443" => "WSS",
+        _ => "auto",
+    };
+
+    /// <summary>Operator transport ↔ Bastion ↔ device transport, e.g. "WSS ↔ Bastion ↔ WSS".</summary>
+    private static string ConnectPath(DeviceInfo d)
+    {
+        var local = StatusClient.LastLocalTransport;
+        var src = local is null ? "?" : TransportLabel(local);
+        return $"{src} <-> Bastion <-> {TransportLabel(d.BastionTransport)}";
+    }
+
+    private async Task WarmLocalTransportAsync()
+    {
+        if (StatusClient.LastLocalTransport is not null) return; // already known from an earlier status query
+        try { await StatusClient.QueryAgentAsync(); } catch { /* best effort */ }
+        if (IsDisposed || _last is null) return;
+        try { BeginInvoke(() => { if (!IsDisposed && _last is not null) Build(_last); }); } catch { /* form gone */ }
+    }
 
     /// <summary>"reverse (ip)" when a PTR is cached, else just the IP, else "—". Shared with the device list.</summary>
     public static string PublicIp(DeviceInfo d) =>

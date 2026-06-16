@@ -104,13 +104,14 @@ public sealed class AboutView : UserControl, IContentView
             {
                 443 => "443 (sslh)",
                 22 => "22 (ssh)",
+                -1 => "443 (WSS)",
                 > 0 => s.ActiveBastionPort.ToString(),
                 _ => (s.BastionTransport ?? "auto") switch
                 {
                     "ssl443" => "443 (sslh)",
                     "ssh22" => "22 (ssh)",
                     "wss443" => "443 (WSS)",
-                    _ => "Auto (443 → 22)",
+                    _ => "Auto (443 → WSS)",
                 },
             });
             Row(L.AboutView_LastServerContact, s.LastServerContactUtc?.LocalDateTime.ToString("g") ?? "—");

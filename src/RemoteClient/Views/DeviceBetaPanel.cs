@@ -26,6 +26,7 @@ public sealed class DeviceBetaPanel : UserControl
         _transport.Items.Add(new TransportItem("auto", L.DeviceBetaPanel_TransportAuto));
         _transport.Items.Add(new TransportItem("ssl443", L.DeviceBetaPanel_TransportSsl));
         _transport.Items.Add(new TransportItem("ssh22", L.DeviceBetaPanel_TransportSsh));
+        _transport.Items.Add(new TransportItem("wss443", L.DeviceBetaPanel_TransportWss));
         var cur = (d.BastionTransport ?? "auto").Trim().ToLowerInvariant();
         _transport.SelectedIndex = 0;
         for (int i = 0; i < _transport.Items.Count; i++)
@@ -38,8 +39,6 @@ public sealed class DeviceBetaPanel : UserControl
         void Lbl(string t) => body.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
         Lbl(L.DeviceBetaPanel_Transport);
         body.Controls.Add(_transport);
-        // WSS transport is a roadmap item (DPI-proof, Megoldás 2). Shown greyed so the option is visible before it exists.
-        body.Controls.Add(new MaterialLabel { Text = L.DeviceBetaPanel_TransportWss, Enabled = false, AutoSize = true, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, Margin = new Padding(4, 2, 0, 0) });
         body.Controls.Add(save);
         body.Controls.Add(_status);
         Controls.Add(body);

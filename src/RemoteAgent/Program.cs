@@ -38,6 +38,15 @@ static string? ArgVal(string[] a, string flag)
     return i >= 0 && i + 1 < a.Length ? a[i + 1] : null;
 }
 
+// The wss443 transport tunnels SSH over a WebSocket at the server's /ssh path, which mirrors the
+// C2 URL (…/agent → …/ssh). Empty when no C2 URL is configured.
+static string DeriveSshUrl(string c2Url)
+{
+    if (string.IsNullOrWhiteSpace(c2Url)) return "";
+    try { return new UriBuilder(new Uri(c2Url)) { Path = "/ssh" }.Uri.ToString(); }
+    catch { return c2Url.Replace("/agent", "/ssh"); }
+}
+
 // "bootstrap <blob>" mode: prepares tokenless self-install by writing bootstrap.dat.
 if (args is ["bootstrap", var bootstrapBlob, ..])
     return RemoteAgent.Enrollment.BootstrapEnroller.WriteBootstrapFile(bootstrapBlob, @"C:\ProgramData\RemoteAgent");
@@ -96,7 +105,11 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
 builder.Services.AddSingleton<CommandBus>();
 builder.Services.AddSingleton<TunnelState>();
 builder.Services.AddSingleton<TransportState>(sp =>
-    new TransportState(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentOptions>>().Value.Tunnel.BastionTransport));
+{
+    var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentOptions>>().Value;
+    return new TransportState(o.Tunnel.BastionTransport, DeriveSshUrl(o.CommandChannel.Url),
+        o.ClientCertPfxPath, o.CommandChannel.ClientCertThumbprint, o.CommandChannel.ServerCertPinSha256);
+});
 builder.Services.AddSingleton<AgentStatusState>();
 builder.Services.AddSingleton<AgentUplink>();
 builder.Services.AddSingleton<CommandVerifier>();

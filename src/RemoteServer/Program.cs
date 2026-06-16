@@ -483,6 +483,29 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
     }
 });
 
+// === SSH-over-WebSocket bridge: a device tunnels its ssh through wss://…/ssh and we pipe it to the
+// bastion sshd. mTLS-gated like /agent; the inner SSH still requires the bastion CA cert (double auth).
+// The endpoint only ever bridges to loopback sshd — no arbitrary target. ===
+app.Map("/ssh", async (HttpContext ctx, Microsoft.Extensions.Options.IOptions<ServerOptions> srvOpts, ILoggerFactory lf) =>
+{
+    if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = StatusCodes.Status400BadRequest; return; }
+    var log = lf.CreateLogger("SshTunnel");
+    var deviceId = ResolveDeviceId(ctx);
+    if (deviceId is null) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+
+    using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
+    var port = srvOpts.Value.Bastion.Port;
+    using var tcp = new System.Net.Sockets.TcpClient();
+    try { await tcp.ConnectAsync(System.Net.IPAddress.Loopback, port, ctx.RequestAborted); }
+    catch (Exception ex) { log.LogWarning(ex, "SSH bridge: cannot reach sshd on 127.0.0.1:{Port}", port); return; }
+
+    log.LogInformation("SSH tunnel open: device {Device}", deviceId);
+    try { await WsTcpBridge.RunAsync(socket, tcp.GetStream(), ctx.RequestAborted); }
+    catch (OperationCanceledException) { /* shutdown/disconnect */ }
+    catch (WebSocketException) { /* peer closed */ }
+    finally { log.LogInformation("SSH tunnel closed: device {Device}", deviceId); }
+});
+
 // === Telemetry ingest. Production uses mTLS behind nginx. ===
 app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink, AppDbContext db) =>
 {
