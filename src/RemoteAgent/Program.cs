@@ -95,6 +95,8 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
 // Shared state and infrastructure.
 builder.Services.AddSingleton<CommandBus>();
 builder.Services.AddSingleton<TunnelState>();
+builder.Services.AddSingleton<TransportState>(sp =>
+    new TransportState(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentOptions>>().Value.Tunnel.BastionTransport));
 builder.Services.AddSingleton<AgentStatusState>();
 builder.Services.AddSingleton<AgentUplink>();
 builder.Services.AddSingleton<CommandVerifier>();

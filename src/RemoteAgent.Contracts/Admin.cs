@@ -37,6 +37,10 @@ public sealed class DeviceInfo
     [JsonPropertyName("channel")]
     public string? Channel { get; set; }
 
+    /// <summary>Bastion transport: "auto" (443→22 fallback), "ssl443", "ssh22", "wss443". Null = auto.</summary>
+    [JsonPropertyName("bastionTransport")]
+    public string? BastionTransport { get; set; }
+
     [JsonPropertyName("unattendedAllowed")]
     public bool? UnattendedAllowed { get; set; }
 
@@ -92,6 +96,8 @@ public sealed class DeviceInfo
     [JsonPropertyName("ipAddress")] public string? IpAddress { get; set; }
     /// <summary>Public IP address observed by the server when the agent connects.</summary>
     [JsonPropertyName("publicIpAddress")] public string? PublicIpAddress { get; set; }
+    /// <summary>Reverse DNS (PTR) for the public IP, resolved + cached server-side. Null/empty = none (show the IP).</summary>
+    [JsonPropertyName("publicIpReverse")] public string? PublicIpReverse { get; set; }
     [JsonPropertyName("wifiSsid")] public string? WifiSsid { get; set; }
     [JsonPropertyName("vpnActive")] public bool VpnActive { get; set; }
     [JsonPropertyName("loggedInUser")] public string? LoggedInUser { get; set; }
@@ -123,9 +129,25 @@ public sealed class DeviceUpdate
     [JsonPropertyName("channel")]
     public string? Channel { get; set; }
 
+    /// <summary>Bastion transport: "auto" | "ssl443" | "ssh22" | "wss443" (null = unchanged).</summary>
+    [JsonPropertyName("bastionTransport")]
+    public string? BastionTransport { get; set; }
+
     /// <summary>Note stored encrypted by the server.</summary>
     [JsonPropertyName("note")]
     public string? Note { get; set; }
+}
+
+/// <summary>
+/// Small config blob the server returns in the telemetry response, so it can steer the agent
+/// without a separate signed command. Authenticated by the telemetry mTLS channel; the values are
+/// non-secret (the bastion host key stays pinned regardless of which port is used).
+/// </summary>
+public sealed class AgentConfigResponse
+{
+    /// <summary>Desired bastion transport: "auto" (443→22) | "ssl443" | "ssh22" | "wss443".</summary>
+    [JsonPropertyName("bastionTransport")]
+    public string? BastionTransport { get; set; }
 }
 
 /// <summary>Current package for a channel and component, used by the client channel view.</summary>

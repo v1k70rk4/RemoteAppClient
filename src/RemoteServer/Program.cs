@@ -484,7 +484,7 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
 });
 
 // === Telemetry ingest. Production uses mTLS behind nginx. ===
-app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink) =>
+app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink, AppDbContext db) =>
 {
     var deviceId = ResolveDeviceId(ctx) ?? "unknown";
     TelemetryPayload? payload;
@@ -500,7 +500,13 @@ app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink) =>
 
     if (payload is null) return Results.BadRequest();
     await sink.IngestAsync(deviceId, payload, PublicIpOf(ctx), ctx.RequestAborted);
-    return Results.NoContent();
+
+    // Steer the agent's bastion transport via the telemetry response (mTLS-authenticated, non-secret;
+    // the bastion host key stays pinned regardless of port). Old agents ignore the body; new ones apply it.
+    var transport = await db.Devices.Where(d => d.DeviceId == deviceId)
+        .Select(d => d.BastionTransport).FirstOrDefaultAsync(ctx.RequestAborted);
+    return Results.Json(new AgentConfigResponse { BastionTransport = transport ?? "auto" },
+        AgentJsonContext.Default.AgentConfigResponse);
 });
 
 // === Device reports its VNC password over mTLS into devices.vnc_secret. ===
@@ -576,6 +582,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         GroupName = d.Group?.Name,
         UpdateAllowed = d.UpdateAllowed,
         Channel = d.Channel,
+        BastionTransport = d.BastionTransport,
         UnattendedAllowed = d.UnattendedAllowed,
         ConsentRequired = d.ConsentRequired,
         AgentVersion = d.AgentVersion,
@@ -592,6 +599,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         BootTimeUtc = d.BootTimeUtc,
         IpAddress = d.IpAddress,
         PublicIpAddress = d.PublicIpAddress,
+        PublicIpReverse = d.PublicIpReverse,
         WifiSsid = d.WifiSsid,
         VpnActive = d.VpnActive,
         LoggedInUser = d.LoggedInUser,
@@ -618,6 +626,7 @@ app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx,
     if (upd.GroupId is not null) device.GroupId = upd.GroupId == Guid.Empty ? null : upd.GroupId;
     if (upd.UpdateAllowed is not null) device.UpdateAllowed = upd.UpdateAllowed.Value;
     if (upd.Channel is not null && (upd.Channel is "rtm" or "beta")) device.Channel = upd.Channel;
+    if (upd.BastionTransport is not null && (upd.BastionTransport is "auto" or "ssl443" or "ssh22" or "wss443")) device.BastionTransport = upd.BastionTransport;
     if (upd.UnattendedAllowed is not null) device.UnattendedAllowed = upd.UnattendedAllowed;
     if (upd.ConsentRequired is not null) device.ConsentRequired = upd.ConsentRequired;
     if (upd.Note is not null) device.Note = upd.Note.Length == 0 ? null : protector.Protect(upd.Note);

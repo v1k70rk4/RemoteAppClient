@@ -35,6 +35,7 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly MaterialButton _tabCommands = TabBtn(L.DevicesView_Commands);
     private readonly MaterialButton _tabLog = TabBtn("LOG");
     private readonly MaterialButton _tabTelemetry = TabBtn(L.DevicesView_Telemetry);
+    private readonly MaterialButton _tabBeta = TabBtn("BETA");
     private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
     private DeviceInfo? _editing;
@@ -46,6 +47,7 @@ public sealed class DevicesView : UserControl, IContentView
     private DeviceCommandsPanel? _cmdPanel;
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
+    private DeviceBetaPanel? _betaPanel;
 
     public DevicesView(AdminApi api, BrokerClient broker, ClientConfig cfg, bool isAdmin, string viewerScale = "auto", string viewerColor = "full")
     {
@@ -142,9 +144,10 @@ public sealed class DevicesView : UserControl, IContentView
         _tabCommands.Click += (_, _) => SelectTab("commands");
         _tabLog.Click += async (_, _) => await SelectTabAsync("log");
         _tabTelemetry.Click += (_, _) => SelectTab("telemetry");
+        _tabBeta.Click += (_, _) => SelectTab("beta");
 
         var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabMessages, _tabCommands, _tabLog, _tabTelemetry]);
+        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabMessages, _tabCommands, _tabLog, _tabTelemetry, _tabBeta]);
 
         _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _tabContent));
     }
@@ -201,9 +204,22 @@ public sealed class DevicesView : UserControl, IContentView
             online.ForeColor = d.Online ? Color.MediumSeaGreen : Color.Gray;
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
             item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
-            item.SubItems.Add(string.IsNullOrWhiteSpace(d.PublicIpAddress) ? "—" : d.PublicIpAddress);
+            var pip = item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));
+            // CGNAT (carrier NAT) reverse names contain "nat." — flag red: not a directly reachable public IP.
+            if (d.PublicIpReverse is { } rev && rev.Contains("nat.", StringComparison.OrdinalIgnoreCase))
+                pip.ForeColor = Color.IndianRed;
             if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
+        }
+
+        // Auto-size every column to fit header + content, except Note (free-form, kept fixed).
+        for (int c = 0; c < _list.Columns.Count; c++)
+        {
+            if (c == 2) continue; // Note column stays fixed
+            _list.AutoResizeColumn(c, ColumnHeaderAutoResizeStyle.HeaderSize);
+            int header = _list.Columns[c].Width;
+            _list.AutoResizeColumn(c, ColumnHeaderAutoResizeStyle.ColumnContent);
+            if (_list.Columns[c].Width < header) _list.Columns[c].Width = header;
         }
         _list.EndUpdate();
     }
@@ -246,13 +262,17 @@ public sealed class DevicesView : UserControl, IContentView
             _editing = d;
             _editorTitle.Text = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
 
-            _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _cmdPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose();
+            _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _cmdPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose(); _betaPanel?.Dispose();
             _generalPanel = new DeviceGeneralPanel(_api, d, groups);
             _permPanel = new DevicePermissionsPanel(_api, d);
             _msgPanel = new DeviceMessagesPanel(_api, d, () => ConnectDeviceAsync(d));
             _cmdPanel = new DeviceCommandsPanel(_api, d);
             _logPanel = new LogPanel(_api, deviceId: d.DeviceId);
             _telemetryPanel = new DeviceTelemetryPanel(d);
+            _betaPanel = new DeviceBetaPanel(_api, d);
+
+            // BETA tab only for beta-channel devices: the agent that understands the transport ships there first.
+            _tabBeta.Visible = string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase);
 
             ShowEditor();
             SelectTab(initialTab);
@@ -264,7 +284,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     private async Task SelectTabAsync(string tab)
     {
-        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabMessages, "messages"), (_tabCommands, "commands"), (_tabLog, "log"), (_tabTelemetry, "telemetry") })
+        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabMessages, "messages"), (_tabCommands, "commands"), (_tabLog, "log"), (_tabTelemetry, "telemetry"), (_tabBeta, "beta") })
             b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
 
         _tabContent.Controls.Clear();
@@ -276,6 +296,7 @@ public sealed class DevicesView : UserControl, IContentView
             case "commands" when _cmdPanel is not null: _tabContent.Controls.Add(_cmdPanel); break;
             case "telemetry" when _telemetryPanel is not null: _tabContent.Controls.Add(_telemetryPanel); break;
             case "log" when _logPanel is not null: _tabContent.Controls.Add(_logPanel); await _logPanel.ShownAsync(); break;
+            case "beta" when _betaPanel is not null: _tabContent.Controls.Add(_betaPanel); break;
         }
     }
 

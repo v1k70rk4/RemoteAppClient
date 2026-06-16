@@ -100,6 +100,19 @@ public sealed class AboutView : UserControl, IContentView
         {
             Row(L.AboutView_ServerC2, s.C2Connected ? "● Online" : "● Offline", s.C2Connected ? Color.MediumSeaGreen : Color.IndianRed);
             Row("Tunnel", s.TunnelActive ? L.AboutView_Ready : L.AboutView_Stopped);
+            Row(L.AboutView_Transport, s.ActiveBastionPort switch
+            {
+                443 => "443 (sslh)",
+                22 => "22 (ssh)",
+                > 0 => s.ActiveBastionPort.ToString(),
+                _ => (s.BastionTransport ?? "auto") switch
+                {
+                    "ssl443" => "443 (sslh)",
+                    "ssh22" => "22 (ssh)",
+                    "wss443" => "443 (WSS)",
+                    _ => "Auto (443 → 22)",
+                },
+            });
             Row(L.AboutView_LastServerContact, s.LastServerContactUtc?.LocalDateTime.ToString("g") ?? "—");
         }
 

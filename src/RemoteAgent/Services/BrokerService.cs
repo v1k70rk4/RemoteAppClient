@@ -23,7 +23,7 @@ namespace RemoteAgent.Services;
 /// Forwards live for the lifetime of the pipe connection. Authenticated local users can
 /// reach the pipe; server login and grants decide authorization.
 /// </summary>
-public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory lf, ILogger<BrokerService> logger) : BackgroundService
+public sealed class BrokerService(IOptions<AgentOptions> options, TransportState transport, ILoggerFactory lf, ILogger<BrokerService> logger) : BackgroundService
 {
     public const string PipeName = "RemoteAgent.broker";
     private const int AdminApiPort = 5000;
@@ -87,7 +87,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, ILoggerFactory
                 {
                     try
                     {
-                        var fwd = new SshLocalForward(_bastion, lf.CreateLogger<SshLocalForward>());
+                        var fwd = new SshLocalForward(_bastion, transport, lf.CreateLogger<SshLocalForward>());
                         await fwd.StartAsync(remotePort, ct);
                         forwards.Add(fwd);
                         localPort = fwd.LocalPort;

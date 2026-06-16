@@ -277,5 +277,15 @@ CREATE INDEX `IX_UserSessions_UserId` ON `UserSessions` (`UserId`);
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260615184020_Reset_1_6_0', '9.0.0');
 
+ALTER TABLE `Devices` ADD `BastionTransport` longtext CHARACTER SET utf8mb4 NOT NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260616102124_Add_BastionTransport', '9.0.0');
+
+ALTER TABLE `Devices` ADD `PublicIpReverse` longtext CHARACTER SET utf8mb4 NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260616122112_Add_PublicIpReverse', '9.0.0');
+
 COMMIT;
 

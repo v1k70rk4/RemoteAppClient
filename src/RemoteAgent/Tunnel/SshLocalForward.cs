@@ -12,8 +12,9 @@ namespace RemoteAgent.Tunnel;
 /// broker opens it on client request: a local loopback port points to bastion
 /// 127.0.0.1:&lt;remotePort&gt; for the admin API or a target device VNC bastion port.
 /// The bastion host key is pinned, so the connection can only be built to our server.
+/// The bastion port is chosen by <see cref="TransportState"/>: 443 (sslh) preferred, 22 fallback.
 /// </summary>
-public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAsyncDisposable
+public sealed class SshLocalForward(TunnelOptions options, TransportState transport, ILogger logger) : IAsyncDisposable
 {
     private Process? _process;
     private string? _knownHostsPath;
@@ -23,8 +24,25 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
 
     public async Task StartAsync(int remotePort, CancellationToken ct)
     {
-        LocalPort = FreeLoopbackPort();
         _knownHostsPath = WritePinnedKnownHosts();
+        var ports = transport.CandidatePorts(options.BastionPort);
+        for (int i = 0; i < ports.Count; i++)
+        {
+            if (await TryStartOnPortAsync(remotePort, ports[i], ct))
+            {
+                transport.RecordWorkingPort(ports[i]);
+                return;
+            }
+            logger.LogWarning("Broker forward could not connect on bastion port {Port}{More}.",
+                ports[i], i + 1 < ports.Count ? " — trying next" : "");
+        }
+        CleanupKnownHosts();
+        throw new InvalidOperationException(L.SshLocalForward_SshLForwardWasNot);
+    }
+
+    private async Task<bool> TryStartOnPortAsync(int remotePort, int port, CancellationToken ct)
+    {
+        LocalPort = FreeLoopbackPort();
 
         var psi = new ProcessStartInfo
         {
@@ -49,11 +67,12 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         AddOption(psi, "StrictHostKeyChecking=yes");
         AddOption(psi, $"UserKnownHostsFile=\"{_knownHostsPath}\"");
         AddOption(psi, "ExitOnForwardFailure=yes");
+        AddOption(psi, "ConnectTimeout=8"); // bound a dead port so fallback is quick
         AddOption(psi, "ServerAliveInterval=15");
         AddOption(psi, "ServerAliveCountMax=3");
 
         psi.ArgumentList.Add("-p");
-        psi.ArgumentList.Add(options.BastionPort.ToString());
+        psi.ArgumentList.Add(port.ToString());
         psi.ArgumentList.Add($"{options.BastionUser}@{options.BastionHost}");
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
@@ -62,21 +81,17 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         proc.BeginErrorReadLine();
         _process = proc;
 
-        // Wait until ssh is up and has bound the local port, or exits if the forward failed
-        // (ExitOnForwardFailure=yes). Poll the local port and return as soon as it accepts.
-        // Cold SSH handshakes can take seconds on slow networks; do not hand the broker a dead port.
-        var deadline = DateTime.UtcNow.AddSeconds(20);
+        // Wait until ssh is up and has bound the local port, or it exits if the forward failed
+        // (ExitOnForwardFailure=yes / ConnectTimeout). Poll the local port and return as soon as it accepts.
+        var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
         {
-            if (proc.HasExited)
-                throw new InvalidOperationException(L.SshLocalForward_SshLForwardWasNot);
-            if (PortAccepts(LocalPort))
-                return;
-            await Task.Delay(150, ct);
+            if (proc.HasExited) { await KillQuietly(proc); return false; }
+            if (PortAccepts(LocalPort)) return true;
+            try { await Task.Delay(150, ct); } catch { break; }
         }
-        if (proc.HasExited)
-            throw new InvalidOperationException(L.SshLocalForward_SshLForwardWasNot_2);
-        // Timeout but ssh is alive; assume ready. The client will retry if needed.
+        if (proc.HasExited) { await KillQuietly(proc); return false; }
+        return true; // alive but slow; assume ready, the client will retry if needed
     }
 
     private static bool PortAccepts(int port)
@@ -108,6 +123,13 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
         }
     }
 
+    private async Task KillQuietly(Process proc)
+    {
+        try { if (!proc.HasExited) { proc.Kill(entireProcessTree: true); await proc.WaitForExitAsync(); } } catch { /* best effort */ }
+        try { proc.Dispose(); } catch { /* best effort */ }
+        if (ReferenceEquals(_process, proc)) _process = null;
+    }
+
     private static int FreeLoopbackPort()
     {
         var l = new TcpListener(IPAddress.Loopback, 0);
@@ -119,9 +141,17 @@ public sealed class SshLocalForward(TunnelOptions options, ILogger logger) : IAs
 
     private string WritePinnedKnownHosts()
     {
+        // Same bastion host key on every port; write an entry for each candidate so ssh matches
+        // regardless of the port we connect on. "[host]:port" is required for non-default ports.
         var path = Path.Combine(Path.GetTempPath(), $"ra_brk_known_{Guid.NewGuid():N}");
-        var hostEntry = options.BastionPort == 22 ? options.BastionHost : $"[{options.BastionHost}]:{options.BastionPort}";
-        File.WriteAllText(path, $"{hostEntry} {options.BastionHostKey}\n");
+        var lines = new List<string>
+        {
+            $"{options.BastionHost} {options.BastionHostKey}",
+            $"[{options.BastionHost}]:443 {options.BastionHostKey}",
+        };
+        if (options.BastionPort != 22 && options.BastionPort != 443)
+            lines.Add($"[{options.BastionHost}]:{options.BastionPort} {options.BastionHostKey}");
+        File.WriteAllText(path, string.Join("\n", lines) + "\n");
         return path;
     }
 

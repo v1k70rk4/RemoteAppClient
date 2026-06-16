@@ -62,6 +62,12 @@ public sealed class TunnelOptions
     public int BastionPort { get; set; } = 22;
     public string BastionUser { get; set; } = "agent";
 
+    /// <summary>
+    /// Bastion transport: "auto" (443→BastionPort fallback), "ssl443", "ssh22", "wss443".
+    /// Seeds <c>TransportState</c>; the server can override it at runtime via the telemetry response.
+    /// </summary>
+    public string BastionTransport { get; set; } = "auto";
+
     /// <summary>Agent SSH private key in OpenSSH format, readable only by SYSTEM.</summary>
     public string PrivateKeyPath { get; set; } = string.Empty;
 

@@ -6,6 +6,7 @@ using RemoteAgent.Commands;
 using RemoteAgent.Configuration;
 using RemoteAgent.Security;
 using RemoteAgent.Telemetry;
+using RemoteAgent.Tunnel;
 using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
@@ -18,6 +19,7 @@ public sealed class TelemetryService(
     IOptions<AgentOptions> options,
     SystemInfoCollector collector,
     AgentStatusState status,
+    TransportState transport,
     ILogger<TelemetryService> logger) : BackgroundService
 {
     private readonly TelemetryOptions _opt = options.Value.Telemetry;
@@ -46,6 +48,15 @@ public sealed class TelemetryService(
                 if (resp.IsSuccessStatusCode)
                 {
                     status.MarkServerContact(); // status-pipe "last server contact"
+                    try
+                    {
+                        // The server steers the bastion transport via the response body. Older servers
+                        // return no body, so a parse failure here is harmless and ignored.
+                        var cfg = await resp.Content.ReadFromJsonAsync(
+                            AgentJsonContext.Default.AgentConfigResponse, stoppingToken);
+                        if (cfg is not null) transport.SetTransport(cfg.BastionTransport);
+                    }
+                    catch { /* no/invalid config body; keep the current transport */ }
                     logger.LogDebug(L.TelemetryService_TelemetrySent);
                 }
                 else

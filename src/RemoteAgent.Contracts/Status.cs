@@ -30,6 +30,12 @@ public sealed class StatusReport
     /// <summary>Whether the reverse tunnel used for server-side access is active.</summary>
     [JsonPropertyName("tunnelActive")] public bool TunnelActive { get; set; }
 
+    /// <summary>Configured bastion transport: "auto" | "ssl443" | "ssh22" | "wss443". Null = unknown/auto.</summary>
+    [JsonPropertyName("bastionTransport")] public string? BastionTransport { get; set; }
+
+    /// <summary>Bastion port the last tunnel actually connected on (443 or 22), shown in About. 0 = none yet.</summary>
+    [JsonPropertyName("activeBastionPort")] public int ActiveBastionPort { get; set; }
+
     /// <summary>Time of the last successful server contact, either C2 connection or telemetry.</summary>
     [JsonPropertyName("lastServerContactUtc")] public DateTimeOffset? LastServerContactUtc { get; set; }
 

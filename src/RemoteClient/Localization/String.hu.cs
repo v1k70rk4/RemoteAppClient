@@ -8,6 +8,12 @@ internal static partial class Strings
     {
         [nameof(AboutView_ClientVersion)] = "Kliens verzió: ",
         [nameof(AboutView_Refresh)] = "Frissítés",
+        [nameof(AboutView_Transport)] = "Transzport",
+        [nameof(DeviceBetaPanel_Transport)] = "Bastion transzport",
+        [nameof(DeviceBetaPanel_TransportAuto)] = "Automatikus (443 → 22)",
+        [nameof(DeviceBetaPanel_TransportSsl)] = "443 (sslh)",
+        [nameof(DeviceBetaPanel_TransportSsh)] = "22 (ssh)",
+        [nameof(DeviceBetaPanel_TransportWss)] = "443 (WSS) — hamarosan",
         [nameof(AboutView_FetchingStatus)] = "Állapot lekérése…",
         [nameof(AboutView_Unavailable)] = "nem elérhető",
         [nameof(AboutView_Ready)] = "kész",

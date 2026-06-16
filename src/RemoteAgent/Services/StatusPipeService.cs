@@ -19,7 +19,7 @@ namespace RemoteAgent.Services;
 /// see in real time whether C2 and tunnel are alive and when the last server contact was.
 /// No commands, no secrets: the control channel remains signed C2.
 /// </summary>
-public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel, RemoteAgent.Telemetry.SystemInfoCollector sysInfo, Microsoft.Extensions.Options.IOptions<RemoteAgent.Configuration.AgentOptions> options, ILogger<StatusPipeService> logger) : BackgroundService
+public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel, TransportState transport, RemoteAgent.Telemetry.SystemInfoCollector sysInfo, Microsoft.Extensions.Options.IOptions<RemoteAgent.Configuration.AgentOptions> options, ILogger<StatusPipeService> logger) : BackgroundService
 {
     public const string PipeName = "RemoteAgent.status";
 
@@ -68,6 +68,8 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
                 VncVersion = vnc,
                 C2Connected = state.C2Connected,
                 TunnelActive = tunnel.IsActive,
+                BastionTransport = transport.Transport,
+                ActiveBastionPort = transport.LastWorkingPort,
                 LastServerContactUtc = state.LastServerContactUtc,
                 Healthy = state.C2Connected,
                 DeviceId = _deviceId,

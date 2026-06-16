@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RemoteServer.Data;
 
@@ -11,9 +12,11 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260616102124_Add_BastionTransport")]
+    partial class Add_BastionTransport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -182,9 +185,6 @@ namespace RemoteServer.Data.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<string>("PublicIpAddress")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("PublicIpReverse")
                         .HasColumnType("longtext");
 
                     b.Property<string>("SerialNumber")

@@ -16,6 +16,7 @@ public sealed class TunnelOrchestratorService(
     IOptions<AgentOptions> options,
     CommandBus bus,
     TunnelState state,
+    TransportState transport,
     RemoteAgent.Update.UpdateInstaller updateInstaller,
     AgentUplink uplink,
     ILoggerFactory loggerFactory,
@@ -140,7 +141,7 @@ public sealed class TunnelOrchestratorService(
         if (_tunnel is not null)
             await _tunnel.StopAsync();
 
-        _tunnel = new SshReverseTunnel(_opt, loggerFactory.CreateLogger<SshReverseTunnel>());
+        _tunnel = new SshReverseTunnel(_opt, transport, loggerFactory.CreateLogger<SshReverseTunnel>());
         await _tunnel.StartAsync(remotePort, ct);
         _tunnelPort = remotePort;
         state.Set(_tunnel.IsRunning);

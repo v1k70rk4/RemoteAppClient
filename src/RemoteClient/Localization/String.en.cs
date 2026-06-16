@@ -8,6 +8,12 @@ internal static partial class Strings
     {
         [nameof(AboutView_ClientVersion)] = "Client version: ",
         [nameof(AboutView_Refresh)] = "Refresh",
+        [nameof(AboutView_Transport)] = "Transport",
+        [nameof(DeviceBetaPanel_Transport)] = "Bastion transport",
+        [nameof(DeviceBetaPanel_TransportAuto)] = "Automatic (443 → 22)",
+        [nameof(DeviceBetaPanel_TransportSsl)] = "443 (sslh)",
+        [nameof(DeviceBetaPanel_TransportSsh)] = "22 (ssh)",
+        [nameof(DeviceBetaPanel_TransportWss)] = "443 (WSS) — coming soon",
         [nameof(AboutView_FetchingStatus)] = "Fetching status...",
         [nameof(AboutView_Unavailable)] = "unavailable",
         [nameof(AboutView_Ready)] = "ready",

@@ -62,6 +62,12 @@ internal static partial class Strings
 
     public static string AboutView_ClientVersion => Get(nameof(AboutView_ClientVersion));
     public static string AboutView_Refresh => Get(nameof(AboutView_Refresh));
+    public static string AboutView_Transport => Get(nameof(AboutView_Transport));
+    public static string DeviceBetaPanel_Transport => Get(nameof(DeviceBetaPanel_Transport));
+    public static string DeviceBetaPanel_TransportAuto => Get(nameof(DeviceBetaPanel_TransportAuto));
+    public static string DeviceBetaPanel_TransportSsl => Get(nameof(DeviceBetaPanel_TransportSsl));
+    public static string DeviceBetaPanel_TransportSsh => Get(nameof(DeviceBetaPanel_TransportSsh));
+    public static string DeviceBetaPanel_TransportWss => Get(nameof(DeviceBetaPanel_TransportWss));
     public static string AboutView_FetchingStatus => Get(nameof(AboutView_FetchingStatus));
     public static string AboutView_Unavailable => Get(nameof(AboutView_Unavailable));
     public static string AboutView_Ready => Get(nameof(AboutView_Ready));

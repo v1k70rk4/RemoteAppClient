@@ -10,8 +10,9 @@ namespace RemoteAgent.Tunnel;
 /// The bastion host key is pinned through a private known_hosts file, so the agent can
 /// connect only to our server, not to an intermediary. The forward target is fixed
 /// (localhost:LocalForwardPort); the server can influence only the remote port number.
+/// The bastion port is chosen by <see cref="TransportState"/>: 443 (sslh) preferred, 22 fallback.
 /// </summary>
-public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IAsyncDisposable
+public sealed class SshReverseTunnel(TunnelOptions options, TransportState transport, ILogger logger) : IAsyncDisposable
 {
     private Process? _process;
     private string? _knownHostsPath;
@@ -28,6 +29,27 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
 
         _knownHostsPath = WritePinnedKnownHosts();
 
+        var ports = transport.CandidatePorts(options.BastionPort);
+        for (int i = 0; i < ports.Count; i++)
+        {
+            var port = ports[i];
+            if (await TryStartOnPortAsync(remotePort, port, ct))
+            {
+                transport.RecordWorkingPort(port);
+                logger.LogInformation(
+                    L.SshReverseTunnel_StartingReverseTunnelBastionHost,
+                    options.BastionHost, port, remotePort, options.LocalForwardPort);
+                return;
+            }
+            logger.LogWarning("Reverse tunnel could not connect on bastion port {Port}{More}.",
+                port, i + 1 < ports.Count ? " — trying next" : "");
+        }
+
+        CleanupKnownHosts();
+    }
+
+    private async Task<bool> TryStartOnPortAsync(int remotePort, int port, CancellationToken ct)
+    {
         var psi = new ProcessStartInfo
         {
             FileName = ResolveSshPath(),
@@ -36,19 +58,15 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
             RedirectStandardError = true,
         };
 
-        // -N: do not run a remote command, only the forward.
-        // -R remote:localhost:local — a reverse forward.
+        // -N: only the forward, no remote command. -R remote:127.0.0.1:local — a reverse forward.
+        // 127.0.0.1 instead of 'localhost': Windows ssh may resolve localhost to ::1, while VNC
+        // typically listens only on IPv4 loopback.
         psi.ArgumentList.Add("-N");
         psi.ArgumentList.Add("-R");
-        // 127.0.0.1 instead of 'localhost': Windows ssh may resolve localhost to ::1,
-        // while VNC typically listens only on IPv4 loopback.
         psi.ArgumentList.Add($"{remotePort}:127.0.0.1:{options.LocalForwardPort}");
 
-        // Use only the configured key, without password or interactive fallback.
         psi.ArgumentList.Add("-i");
         psi.ArgumentList.Add(options.PrivateKeyPath);
-
-        // SSH certificate signed by the CA trusted by bastion TrustedUserCAKeys.
         if (!string.IsNullOrWhiteSpace(options.CertificatePath))
             AddOption(psi, $"CertificateFile=\"{options.CertificatePath}\"");
 
@@ -56,31 +74,43 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         AddOption(psi, "BatchMode=yes");                       // no prompts
         AddOption(psi, "StrictHostKeyChecking=yes");           // fail on unknown keys
         AddOption(psi, $"UserKnownHostsFile=\"{_knownHostsPath}\"");
-        AddOption(psi, "ExitOnForwardFailure=yes");            // exit if forward creation fails
+        AddOption(psi, "ExitOnForwardFailure=yes");            // exit if the remote forward is refused
+        AddOption(psi, "ConnectTimeout=8");                    // bound a dead port so fallback is quick
         AddOption(psi, "ServerAliveInterval=15");              // keepalive
         AddOption(psi, "ServerAliveCountMax=3");
+        psi.ArgumentList.Add("-v");                            // verbose: lets us detect auth and fail over
 
         psi.ArgumentList.Add("-p");
-        psi.ArgumentList.Add(options.BastionPort.ToString());
+        psi.ArgumentList.Add(port.ToString());
         psi.ArgumentList.Add($"{options.BastionUser}@{options.BastionHost}");
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        // ssh writes only errors/warnings to stderr without -v; log them as warnings so tunnel
-        // failures are visible in the SYSTEM service EventLog.
+        var authed = false;
         proc.ErrorDataReceived += (_, e) =>
         {
-            if (!string.IsNullOrWhiteSpace(e.Data))
+            if (string.IsNullOrWhiteSpace(e.Data)) return;
+            if (e.Data.Contains("Authenticat", StringComparison.OrdinalIgnoreCase)) authed = true;
+            // ssh -v debug lines start with "debug"; log only real warnings/errors to keep the EventLog clean.
+            if (!e.Data.StartsWith("debug", StringComparison.OrdinalIgnoreCase))
                 logger.LogWarning("ssh: {Line}", e.Data);
         };
-
-        logger.LogInformation(
-            L.SshReverseTunnel_StartingReverseTunnelBastionHost,
-            options.BastionHost, options.BastionPort, remotePort, options.LocalForwardPort);
-
         proc.Start();
         proc.BeginErrorReadLine();
         _process = proc;
-        await Task.CompletedTask;
+
+        // Wait for authentication or a quick failure (ConnectTimeout=8 bounds a dead/black-holed port).
+        var deadline = DateTime.UtcNow.AddSeconds(12);
+        while (DateTime.UtcNow < deadline && !authed && !proc.HasExited)
+        {
+            try { await Task.Delay(150, ct); } catch { break; }
+        }
+        if (!authed || proc.HasExited) { await KillQuietly(proc); return false; }
+
+        // Authenticated. ExitOnForwardFailure makes ssh exit promptly if the -R forward was refused;
+        // if it is still alive after a short grace, the forward is up.
+        try { await Task.Delay(2000, ct); } catch { }
+        if (proc.HasExited) { await KillQuietly(proc); return false; }
+        return true;
     }
 
     public async Task StopAsync()
@@ -110,17 +140,26 @@ public sealed class SshReverseTunnel(TunnelOptions options, ILogger logger) : IA
         }
     }
 
+    private async Task KillQuietly(Process proc)
+    {
+        try { if (!proc.HasExited) { proc.Kill(entireProcessTree: true); await proc.WaitForExitAsync(); } } catch { /* best effort */ }
+        try { proc.Dispose(); } catch { /* best effort */ }
+        if (ReferenceEquals(_process, proc)) _process = null;
+    }
+
     private string WritePinnedKnownHosts()
     {
-        // Write the pinned host key to a temporary known_hosts file for this session only.
-        // Content format: "<host> <key>".
+        // Same bastion host key on every port; write an entry for each candidate so ssh matches
+        // regardless of the port we connect on. "[host]:port" is required for non-default ports.
         var path = Path.Combine(Path.GetTempPath(), $"ra_known_hosts_{Guid.NewGuid():N}");
-        // On port 22, ssh looks up the plain host name in known_hosts; [host]:port is only
-        // valid for non-default ports.
-        var hostEntry = options.BastionPort == 22
-            ? options.BastionHost
-            : $"[{options.BastionHost}]:{options.BastionPort}";
-        File.WriteAllText(path, $"{hostEntry} {options.BastionHostKey}\n");
+        var lines = new List<string>
+        {
+            $"{options.BastionHost} {options.BastionHostKey}",
+            $"[{options.BastionHost}]:443 {options.BastionHostKey}",
+        };
+        if (options.BastionPort != 22 && options.BastionPort != 443)
+            lines.Add($"[{options.BastionHost}]:{options.BastionPort} {options.BastionHostKey}");
+        File.WriteAllText(path, string.Join("\n", lines) + "\n");
         return path;
     }
 

@@ -41,6 +41,9 @@ public sealed class Device
     /// <summary>Release channel: "rtm" (default) or "beta". Beta devices receive beta channel packages.</summary>
     public string Channel { get; set; } = "rtm";
 
+    /// <summary>Bastion transport for the reverse tunnel: "auto" (443→22 fallback), "ssl443", "ssh22", "wss443".</summary>
+    public string BastionTransport { get; set; } = "auto";
+
     /// <summary>Whether unattended access is allowed. Null inherits from group.</summary>
     public bool? UnattendedAllowed { get; set; }
 
@@ -83,6 +86,9 @@ public sealed class Device
     public string? IpAddress { get; set; }
     /// <summary>Public IP where the agent connects from, observed from the telemetry request source IP.</summary>
     public string? PublicIpAddress { get; set; }
+
+    /// <summary>Reverse DNS (PTR) for PublicIpAddress, resolved once per IP and cached. Null = not resolved yet; "" = looked up, no PTR.</summary>
+    public string? PublicIpReverse { get; set; }
 
     // Failed-login counter and lockout for device-level brute-force protection.
     public int LoginFailCount { get; set; }

@@ -41,7 +41,11 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
         device.VncLocked = payload.VncLocked;
         device.BootTimeUtc = payload.BootTimeUtc == default ? null : payload.BootTimeUtc;
         device.IpAddress = payload.IpAddress;
-        if (!string.IsNullOrWhiteSpace(publicIp)) device.PublicIpAddress = publicIp;
+        if (!string.IsNullOrWhiteSpace(publicIp))
+        {
+            if (device.PublicIpAddress != publicIp) { device.PublicIpAddress = publicIp; device.PublicIpReverse = null; }
+            device.PublicIpReverse ??= await ReverseDnsAsync(publicIp); // resolve once per IP, then cache
+        }
         device.WifiSsid = payload.WifiSsid;
         device.VpnActive = payload.VpnActive;
         device.LoggedInUser = payload.LoggedInUser;
@@ -58,6 +62,21 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
 
         // Best-effort: keep the device converging to its channel's target package (never fail telemetry).
         try { await AutoConvergeAsync(device, ct); } catch { /* convergence is best-effort */ }
+    }
+
+    /// <summary>
+    /// Reverse DNS (PTR) for a public IP, bounded so a slow/missing PTR never stalls telemetry.
+    /// Returns "" when there is no usable PTR, so the caller caches that and does not look it up again.
+    /// </summary>
+    private static async Task<string> ReverseDnsAsync(string ip)
+    {
+        if (!System.Net.IPAddress.TryParse(ip, out var addr) || System.Net.IPAddress.IsLoopback(addr)) return "";
+        try
+        {
+            var entry = await System.Net.Dns.GetHostEntryAsync(addr).WaitAsync(TimeSpan.FromSeconds(2));
+            return string.IsNullOrWhiteSpace(entry.HostName) || entry.HostName == ip ? "" : entry.HostName;
+        }
+        catch { return ""; } // timeout / NXDOMAIN / no PTR → cache as "none"
     }
 
     /// <summary>

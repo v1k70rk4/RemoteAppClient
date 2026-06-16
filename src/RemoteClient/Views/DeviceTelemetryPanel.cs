@@ -44,7 +44,7 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.DeviceTelemetryPanel_Channel, string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
         Row(L.DeviceTelemetryPanel_SignedInUser, d.LoggedInUser ?? L.DeviceTelemetryPanel_No);
         Row(L.DeviceTelemetryPanel_IPAddressLocal, d.IpAddress);
-        Row(L.DeviceTelemetryPanel_PublicIP, d.PublicIpAddress);
+        Row(L.DeviceTelemetryPanel_PublicIP, PublicIp(d));
         Row("Wi-Fi", string.IsNullOrWhiteSpace(d.WifiSsid) ? L.DeviceTelemetryPanel_WiredNoWiFi : d.WifiSsid);
         Row("VPN", d.VpnActive ? L.DeviceTelemetryPanel_Active : L.DeviceTelemetryPanel_No);
         Row(L.DeviceTelemetryPanel_BootTime, d.BootTimeUtc?.LocalDateTime.ToString("g"));
@@ -63,6 +63,12 @@ public sealed class DeviceTelemetryPanel : UserControl
     }
 
     private static string S(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+
+    /// <summary>"reverse (ip)" when a PTR is cached, else just the IP, else "—". Shared with the device list.</summary>
+    public static string PublicIp(DeviceInfo d) =>
+        string.IsNullOrWhiteSpace(d.PublicIpAddress) ? "—"
+        : string.IsNullOrWhiteSpace(d.PublicIpReverse) ? d.PublicIpAddress
+        : $"{d.PublicIpReverse} ({d.PublicIpAddress})";
 
     private static string? Uptime(DateTimeOffset? boot)
     {
