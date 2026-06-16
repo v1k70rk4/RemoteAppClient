@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-1.6.0-2ea44f" alt="version 1.6.0">
+  <img src="https://img.shields.io/badge/version-1.7.0-2ea44f" alt="version 1.7.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 1.7.0](#whats-new-in-170)
 - [What's New in 1.6.0](#whats-new-in-160)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -51,6 +52,49 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 1.7.0
+
+1.7.0 is a big round focused on **reaching devices on locked-down networks** and **moving files**,
+plus independent on-device privacy controls. Highlights since 1.6.0:
+
+**File transfer (new)**
+- A dedicated, Total Commander-style **two-pane file manager**: the operator's local PC on the left,
+  the remote device on the right, each with a drive selector and a file list.
+- Full operations with multi-select: **copy both ways, new folder, delete, rename** — with a live
+  per-file progress bar and a **Cancel** button (a cancelled transfer cleans up its partial file).
+- It rides the same SSH reverse tunnel as VNC, so it inherits the transport and works behind
+  DPI/Cloudflare **over WSS**. The remote pane opens at the signed-in user's home folder.
+- Gated by the existing consent model plus a **per-session token**, loopback-only on the device, and
+  every operation is audited. Available to admins from the device right-click menu.
+
+**Connectivity: everything on 443**
+- **Per-device bastion transport**: `auto`, `443 (sslh)`, `22 (SSH)`, or `443 (WSS)`, pushed to the
+  device and applied without a reinstall. `auto` tries 443 first and falls back to WSS. A BETA-channel
+  tab exposes the selector, and the About page shows the active transport.
+- **SSH-over-WebSocket (`wss443`)**: the reverse tunnel is wrapped in a WebSocket to the server's
+  `/ssh` endpoint, so remote access keeps working through DPI, proxies, and Cloudflare-style 443-only paths.
+- **443 multiplexing via the nginx stream module** (TLS → the HTTPS app, SSH → sshd), with the **real
+  client IP preserved** end-to-end (PROXY protocol + real_ip), replacing the previous muxer that hid it.
+- Public IPs now show a cached **reverse-DNS name** ("name (ip)") in the device list and telemetry,
+  flagged red on carrier-NAT addresses. Telemetry also shows the live connect path, e.g.
+  `WSS <-> Bastion <-> WSS`.
+
+**On-device privacy controls**
+- The local lock now covers **VNC and file transfer independently**: a person at the machine can
+  disable remote access, file transfer, or both (via UAC). Neither can be re-enabled remotely.
+
+**Fleet & reliability**
+- Non-blocking agent self-update and an auto-converge circuit breaker.
+- A command-expiry watcher that no longer expires still-queued commands, so **offline devices keep
+  their pending-update indicator** and update when they reconnect.
+- Auto-sizing device-list columns and assorted UI polish.
+
+**Under the hood**
+- .NET 10, EF Core 9 + Pomelo (MariaDB). Two new `Devices` columns since 1.6.0 (`BastionTransport`,
+  `PublicIpReverse`); fresh installs get them from `schema.sql`.
 
 ---
 
@@ -484,8 +528,8 @@ and bastion configuration before printing the first bootstrap blob.
 Typical release:
 
 ```bash
-git tag v1.6.0
-git push origin v1.6.0
+git tag v1.7.0
+git push origin v1.7.0
 ```
 
 The server stores uploaded packages in `Server:PackagesDir`, computes SHA-256, and uses
