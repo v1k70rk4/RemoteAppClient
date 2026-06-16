@@ -985,7 +985,7 @@ app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> 
 
 // Open tunnel: uses the device's stable port assigned at enrollment; can be overridden by query.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
-    string deviceId, int? remotePort, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, CancellationToken ct) =>
+    string deviceId, int? remotePort, string? purpose, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();
@@ -1001,6 +1001,11 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
 
     var port = remotePort is > 0 ? remotePort.Value
              : device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback for old devices without port
+    // File-service forward port: deterministic per device (60000-65000, distinct from VNC's 50000-60000),
+    // so a reused reverse tunnel keeps forwarding the SAME file port across sessions (a per-session random
+    // port would mismatch on reuse and break the file pane). Unique for sequentially-assigned tunnel ports.
+    var filePort = 60000 + ((port - 50000) % 5000);
+    var fileToken = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
 
     // Effective access policy: device override, then group, then defaults (no consent / unattended allowed).
     // The agent uses this to prompt/decide before opening the tunnel.
@@ -1010,7 +1015,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
 
     var cmd = await commands.EnqueueAsync(
         deviceId, CommandTypes.OpenTunnel,
-        new CommandData { RemotePort = port, ConsentRequired = consentRequired, UnattendedAllowed = unattendedAllowed },
+        new CommandData { RemotePort = port, ConsentRequired = consentRequired, UnattendedAllowed = unattendedAllowed, FileRemotePort = filePort, FileToken = fileToken, TunnelPurpose = purpose },
         createdBy: null, ct);
     if (cmd is null) return Results.NotFound();
 
@@ -1018,7 +1023,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
 
     return Results.Json(
-        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" },
+        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" },
         AgentJsonContext.Default.OpenTunnelResult);
 });
 

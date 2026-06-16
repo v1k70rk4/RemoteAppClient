@@ -28,7 +28,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, TransportState
     public const string PipeName = "RemoteAgent.broker";
     private const int AdminApiPort = 5000;
     private const int TunnelPortMin = 50000;
-    private const int TunnelPortMax = 60000;
+    private const int TunnelPortMax = 65000; // 50000-60000 = VNC tunnel ports, 60000-65000 = file-service forwards
 
     private readonly TunnelOptions _bastion = options.Value.Tunnel;
 

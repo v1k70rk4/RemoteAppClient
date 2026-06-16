@@ -17,16 +17,18 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
     private Process? _process;
     private string? _knownHostsPath;
     private WsBridgeListener? _bridge;
+    private int _fileRemotePort; // >0 = also reverse-forward the file service (additive to the VNC forward)
 
     public bool IsRunning => _process is { HasExited: false };
 
-    public async Task StartAsync(int remotePort, CancellationToken ct)
+    public async Task StartAsync(int remotePort, int fileRemotePort, CancellationToken ct)
     {
         if (IsRunning)
         {
             logger.LogInformation(L.SshReverseTunnel_TunnelAlreadyRunningSkippingNew);
             return;
         }
+        _fileRemotePort = fileRemotePort;
 
         foreach (var a in transport.Attempts(options.BastionPort))
         {
@@ -86,6 +88,12 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         psi.ArgumentList.Add("-N");
         psi.ArgumentList.Add("-R");
         psi.ArgumentList.Add($"{remotePort}:127.0.0.1:{options.LocalForwardPort}");
+        if (_fileRemotePort > 0)
+        {
+            // Additive second forward for the file service (loopback 5901); VNC forward above is unchanged.
+            psi.ArgumentList.Add("-R");
+            psi.ArgumentList.Add($"{_fileRemotePort}:127.0.0.1:5901");
+        }
 
         psi.ArgumentList.Add("-i");
         psi.ArgumentList.Add(options.PrivateKeyPath);

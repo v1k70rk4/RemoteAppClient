@@ -202,9 +202,10 @@ public sealed class AdminApi : IDisposable
     public async Task<List<DeviceInfo>> GetDevicesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/devices", AgentJsonContext.Default.ListDeviceInfo, ct) ?? [];
 
-    public async Task<OpenTunnelResult?> OpenTunnelAsync(string deviceId, CancellationToken ct = default)
+    public async Task<OpenTunnelResult?> OpenTunnelAsync(string deviceId, string? purpose = null, CancellationToken ct = default)
     {
-        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/open-tunnel", content: null, ct);
+        var q = string.IsNullOrEmpty(purpose) ? "" : $"?purpose={Uri.EscapeDataString(purpose)}";
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/open-tunnel{q}", content: null, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct);
     }

@@ -24,6 +24,7 @@ public sealed class TunnelOrchestratorService(
 {
     private readonly TunnelOptions _opt = options.Value.Tunnel;
     private SshReverseTunnel? _tunnel;
+    private RemoteAgent.Files.FileService? _fileService;
     private int _tunnelPort;
     private DateTimeOffset _lastActivity;
 
@@ -104,10 +105,13 @@ public sealed class TunnelOrchestratorService(
         var data = cmd.Data;
         int remotePort = data?.RemotePort ?? 0;
 
-        // Local VNC lock: when the device is locally disabled, do not open a tunnel and log the attempt.
-        if (RemoteAgent.Vnc.VncLock.IsLocked())
+        // Local locks (set on the device, never remotely changeable). VNC and file transfer are independent;
+        // the command's purpose selects which one gates this request so the operator gets the right message.
+        bool fileLocked = RemoteAgent.Files.FileLock.IsLocked();
+        bool wantsFile = string.Equals(data?.TunnelPurpose, "file", StringComparison.OrdinalIgnoreCase);
+        if (wantsFile ? fileLocked : RemoteAgent.Vnc.VncLock.IsLocked())
         {
-            RemoteAgent.Vnc.VncLock.Log(L.TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis);
+            RemoteAgent.Vnc.VncLock.Log(wantsFile ? L.TunnelOrchestratorService_FileTransferDENIEDThis : L.TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis);
             logger.LogWarning(L.TunnelOrchestratorService_OpenTunnelDeniedThisDevice);
             await uplink.ReportAccessResultAsync(cmd.Nonce, "locked", ct);
             return;
@@ -128,6 +132,11 @@ public sealed class TunnelOrchestratorService(
         if (outcome is not ("auto" or "granted"))
             return; // denied / timeout / no user; tunnel stays closed
 
+        // Start the loopback file service unless file transfer is locally disabled (token + port are auxiliary).
+        bool serveFiles = data?.FileRemotePort is > 0 && !string.IsNullOrEmpty(data.FileToken) && !fileLocked;
+        if (serveFiles)
+            (_fileService ??= new RemoteAgent.Files.FileService(loggerFactory.CreateLogger<RemoteAgent.Files.FileService>())).Start(data!.FileToken!);
+
         // Reuse an existing tunnel on the same port so a second operator can join the session:
         // TightVNC runs shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer.
         if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort)
@@ -142,7 +151,7 @@ public sealed class TunnelOrchestratorService(
             await _tunnel.StopAsync();
 
         _tunnel = new SshReverseTunnel(_opt, transport, loggerFactory.CreateLogger<SshReverseTunnel>());
-        await _tunnel.StartAsync(remotePort, ct);
+        await _tunnel.StartAsync(remotePort, serveFiles ? data!.FileRemotePort : 0, ct);
         _tunnelPort = remotePort;
         state.Set(_tunnel.IsRunning);
         _lastActivity = DateTimeOffset.UtcNow;

@@ -293,12 +293,35 @@ public sealed class OpenTunnelResult
     [JsonPropertyName("remotePort")]
     public int RemotePort { get; set; }
 
+    /// <summary>Bastion port for the device's file service (0 = unavailable), and the per-session file token.</summary>
+    [JsonPropertyName("fileRemotePort")]
+    public int FileRemotePort { get; set; }
+
+    [JsonPropertyName("fileToken")]
+    public string? FileToken { get; set; }
+
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
     /// <summary>Nonce of the issued command; the console uses it to poll for the access result.</summary>
     [JsonPropertyName("nonce")]
     public string Nonce { get; set; } = string.Empty;
+}
+
+/// <summary>One file-system entry in a directory listing from the agent file service.</summary>
+public sealed class FsEntry
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("size")] public long Size { get; set; }
+    [JsonPropertyName("isDir")] public bool IsDir { get; set; }
+    [JsonPropertyName("modified")] public DateTimeOffset Modified { get; set; }
+}
+
+/// <summary>A directory listing: the resolved path plus its entries (used for list/drives/home).</summary>
+public sealed class FsList
+{
+    [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+    [JsonPropertyName("entries")] public System.Collections.Generic.List<FsEntry> Entries { get; set; } = [];
 }
 
 /// <summary>An audit log entry. Action is a key such as "connect"; the client localizes it.</summary>

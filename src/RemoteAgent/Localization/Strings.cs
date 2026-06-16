@@ -125,6 +125,7 @@ internal static partial class Strings
     public static string TelemetryService_TelemetriaSendingFailed => Get(nameof(TelemetryService_TelemetriaSendingFailed));
     public static string TunnelOrchestratorService_TunnelCommandProcessingFailedType => Get(nameof(TunnelOrchestratorService_TunnelCommandProcessingFailedType));
     public static string TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis => Get(nameof(TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis));
+    public static string TunnelOrchestratorService_FileTransferDENIEDThis => Get(nameof(TunnelOrchestratorService_FileTransferDENIEDThis));
     public static string TunnelOrchestratorService_OpenTunnelDeniedThisDevice => Get(nameof(TunnelOrchestratorService_OpenTunnelDeniedThisDevice));
     public static string TunnelOrchestratorService_OpenTunnelWithInvalidRemote => Get(nameof(TunnelOrchestratorService_OpenTunnelWithInvalidRemote));
     public static string TunnelOrchestratorService_RemoteAccessDENIEDNoSigned => Get(nameof(TunnelOrchestratorService_RemoteAccessDENIEDNoSigned));
@@ -168,6 +169,8 @@ internal static partial class Strings
     public static string VncLock_VNCUNLOCKEDTvnserverAutoStarted => Get(nameof(VncLock_VNCUNLOCKEDTvnserverAutoStarted));
     public static string VncLock_AdminSYSTEMRightsRequired => Get(nameof(VncLock_AdminSYSTEMRightsRequired));
     public static string VncLock_Error => Get(nameof(VncLock_Error));
+    public static string FileLock_FileTransferLOCALLYDisabled => Get(nameof(FileLock_FileTransferLOCALLYDisabled));
+    public static string FileLock_FileTransferLOCALLYEnabled => Get(nameof(FileLock_FileTransferLOCALLYEnabled));
     public static string VncProvisioner_TightVNCInstalledAndConfigured => Get(nameof(VncProvisioner_TightVNCInstalledAndConfigured));
     public static string VncProvisioner_TightVNCAlreadyInstalledConfigurationUpdated => Get(nameof(VncProvisioner_TightVNCAlreadyInstalledConfigurationUpdated));
     public static string VncProvisioner_Password => Get(nameof(VncProvisioner_Password));

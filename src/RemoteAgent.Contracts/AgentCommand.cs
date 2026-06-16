@@ -94,6 +94,17 @@ public sealed class CommandData
     // command signatures stay unchanged. The agent maps the keyword to a fixed action (no shell string
     // travels the wire): "restart" | "force-restart" | "cancel" | "logout".
     [JsonPropertyName("powerAction")] public string? PowerAction { get; set; }
+
+    // File-transfer session (open-tunnel). Auxiliary: intentionally NOT covered by the command
+    // signature — adding them to the open-tunnel canonical form would break not-yet-updated agents.
+    // They ride the mTLS-pinned WSS; a tampered token only mismatches the operator's copy → DoS,
+    // never escalation. The signed fields (RemotePort, consent) still gate the access decision.
+    /// <summary>Bastion port the device also reverse-forwards to its file service (0 = none).</summary>
+    [JsonPropertyName("fileRemotePort")] public int FileRemotePort { get; set; }
+    /// <summary>Per-session token the file service requires on every request.</summary>
+    [JsonPropertyName("fileToken")] public string? FileToken { get; set; }
+    /// <summary>What the operator opened the tunnel for ("vnc"/"file"); selects which local lock gates it. Auxiliary, unsigned.</summary>
+    [JsonPropertyName("tunnelPurpose")] public string? TunnelPurpose { get; set; }
 }
 
 /// <summary>Known command types. Arbitrary strings are ignored.</summary>
@@ -122,6 +133,8 @@ public static class CommandTypes
 [JsonSerializable(typeof(Admin.DeviceUpdate))]
 [JsonSerializable(typeof(Admin.UpdateRequest))]
 [JsonSerializable(typeof(Admin.OpenTunnelResult))]
+[JsonSerializable(typeof(Admin.FsList))]
+[JsonSerializable(typeof(Admin.FsEntry))]
 [JsonSerializable(typeof(Admin.GroupInfo))]
 [JsonSerializable(typeof(Admin.ChannelPackageInfo))]
 [JsonSerializable(typeof(Admin.LoginRequest))]

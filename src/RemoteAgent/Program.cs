@@ -23,6 +23,10 @@ if (args is ["provision-vnc", ..])
 if (args is ["vnc-lock", ..]) return RemoteAgent.Vnc.VncLock.Lock();
 if (args is ["vnc-unlock", ..]) return RemoteAgent.Vnc.VncLock.Unlock();
 
+// Local file-transfer lock (admin/SYSTEM): disables or enables file transfer on this device, independent of VNC.
+if (args is ["file-lock", ..]) return RemoteAgent.Files.FileLock.Lock();
+if (args is ["file-unlock", ..]) return RemoteAgent.Files.FileLock.Unlock();
+
 // "remove-vnc" mode: force-remove TightVNC (service + files + registry). Used by the MSI uninstall.
 if (args is ["remove-vnc", ..]) return RemoteAgent.Vnc.VncProvisioner.Remove();
 

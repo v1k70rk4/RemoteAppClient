@@ -97,6 +97,10 @@ public sealed class DevicesView : UserControl, IContentView
             Item(L.DevicesView_Telemetry, "telemetry");
             Item(L.UsersView_Permissions, "permissions");
 
+            // File manager (two-pane), separated like the power commands below.
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(L.FileManager_Files, null, async (_, _) => await OpenFilesSelectedAsync());
+
             // Power commands directly in the menu (each confirms first; cancel is a safe undo).
             menu.Items.Add(new ToolStripSeparator());
             var power = new ToolStripMenuItem(L.DevicesView_Commands);
@@ -338,7 +342,7 @@ public sealed class DevicesView : UserControl, IContentView
             if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
 
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
-            var result = await _api.OpenTunnelAsync(d.DeviceId);
+            var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
 
             SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
@@ -368,6 +372,39 @@ public sealed class DevicesView : UserControl, IContentView
         }
         catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
         finally { _connectBtn.Enabled = true; }
+    }
+
+    private async Task OpenFilesSelectedAsync()
+    {
+        if (SelectedDevice() is not { } d) { SetStatus(L.DevicesView_SelectADevice); return; }
+        await OpenFilesAsync(d);
+    }
+
+    /// <summary>Opens the tunnel and launches the two-pane file manager (uses the session file port + token).</summary>
+    private async Task OpenFilesAsync(DeviceInfo sel)
+    {
+        try
+        {
+            SetStatus(L.DevicesView_FetchingLatestData);
+            var devices = await _api.GetDevicesAsync();
+            var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
+            if (!d.Online) { MessageBox.Show(L.DevicesView_TheDeviceIsOffline, "Offline", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+
+            SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
+            var result = await _api.OpenTunnelAsync(d.DeviceId, "file");
+            if (result is null || result.FileRemotePort <= 0 || string.IsNullOrEmpty(result.FileToken)) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
+
+            SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
+            var outcome = await WaitAccessAsync(result.Nonce);
+            if (outcome is not ("auto" or "granted")) { SetStatus(L.DevicesView_Denied); return; }
+
+            SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
+            await Task.Delay(1500);
+            var localPort = await _broker.ForwardAsync(result.FileRemotePort);
+            new FileManagerWindow(localPort, result.FileToken!, string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname).Show();
+            SetStatus(L.FileManager_Title);
+        }
+        catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
     }
 
     /// <summary>Runs a power action on the selected device (right-click menu). Confirms first when asked.</summary>
