@@ -22,8 +22,10 @@ public static class VncPassword
         var pw = Encoding.ASCII.GetBytes(password);
         Array.Copy(pw, data, Math.Min(8, pw.Length));
 
-#pragma warning disable CA5351 // DES is required by the VNC format for interop here, not used as a protection mechanism.
-        using var des = DES.Create();
+        // DES is mandated by the VNC password format (interop with TightVNC), not a protection mechanism;
+        // real protection is the SSH tunnel + loopback-only binding (see class summary). Hence the suppressions.
+#pragma warning disable CA5351
+        using var des = DES.Create(); // nosemgrep: csharp.dotnet.security.use_deprecated_cipher_algorithm.use_deprecated_cipher_algorithm
         des.Mode = CipherMode.ECB;
         des.Padding = PaddingMode.None;
         using var enc = des.CreateEncryptor(key, null);
