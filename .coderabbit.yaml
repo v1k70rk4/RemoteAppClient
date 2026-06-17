@@ -1,0 +1,11 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+# Docstring coverage gate disabled: doc comments are kept where the code genuinely
+# needs explanation (security model, tunnel/transport, update & failover flows),
+# not enforced as a blanket coverage percentage.
+reviews:
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+  finishing_touches:
+    docstrings:
+      enabled: false
