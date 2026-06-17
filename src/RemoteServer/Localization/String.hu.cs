@@ -7,7 +7,7 @@ internal static partial class Strings
     private static readonly Dictionary<string, string> Hu = new()
     {
         [nameof(CertificateAuthority_CAFilesAreMissing)] = "A CA fájlok hiányoznak ('{0}', '{1}'). ",
-        [nameof(CertificateAuthority_GenerateThemDuringProvisioningDeploy)] = "Generáld provisioning-kor (deploy/deploy-server.sh), a szerver csak olvassa.",
+        [nameof(CertificateAuthority_GenerateThemDuringProvisioningDeploy)] = "Generáld a szerver telepítésekor (deploy/setup.sh), a szerver csak olvassa.",
         [nameof(CertificateAuthority_CALoadedSubject)] = "CA betöltve: {Subject}",
         [nameof(CommandService_UnknownDeviceCommandDiscardedDevice)] = "Ismeretlen gép, parancs eldobva: {Device}",
         [nameof(CommandService_CommandDeliveredToDeviceType)] = "Parancs kézbesítve {Device}: {Type}",
@@ -67,7 +67,7 @@ internal static partial class Strings
         [nameof(Program_MintBlobAdminExists)] = "Admin felhasználó létezik (az ideiglenes jelszó a szerver logban van; első belépéskor csere kell)",
         [nameof(Program_MintBlobCommandSigningKey)] = "Parancs-aláíró kulcs (Server:CommandSigningKeyPath)",
         [nameof(Program_MintBlobCaCertAndKey)] = "CA cert + kulcs (Server:CaCertPath / CaKeyPath)",
-        [nameof(Program_MintBlobGenerateCaSeeFirstRun)] = "generáld a CA-t (lásd FIRST-RUN.md)",
+        [nameof(Program_MintBlobGenerateCaSeeFirstRun)] = "generáld a CA-t (futtasd: deploy/setup.sh)",
         [nameof(Program_MintBlobEmpty)] = "üres",
         [nameof(Program_MintBlobSetServerPublicUrl)] = "állítsd be a Server:PublicUrl-t",
         [nameof(Program_MintBlobBastionHostAndHostKey)] = "Bastion host + host kulcs (a reverse tunnelhez kell, magához a blobhoz nem)",
@@ -82,7 +82,7 @@ internal static partial class Strings
         [nameof(SecretExpiryWatcher_RemoteAppClientEmailDeliverySecretExpires)] = "RemoteAppClient: a levélküldési secret hamarosan lejár",
         [nameof(SecretExpiryWatcher_SecretExpiryWarningSentTo)] = "Secret-lejárat figyelmeztető elküldve: {To} ({Days} nap).",
         [nameof(SecretExpiryWatcher_SecretExpiryWarningSendFailed)] = "Secret-lejárat figyelmeztető küldése sikertelen: {Error}",
-        [nameof(SecretProtector_EncryptionKeyIsMissingGenerate)] = "A titkosító kulcs hiányzik ('{0}'). Generáld provisioning-kor (deploy-server.sh).",
+        [nameof(SecretProtector_EncryptionKeyIsMissingGenerate)] = "A titkosító kulcs hiányzik ('{0}'). Generáld a szerver telepítésekor (deploy/setup.sh).",
         [nameof(SecretProtector_EncryptionKeyIsNot32)] = "A titkosító kulcs nem 32 bájt ({0}).",
         [nameof(SecretProtector_SecretEncryptionKeyLoaded)] = "Titok-titkosító kulcs betöltve.",
         [nameof(SshCertificateAuthority_SSHCAKeyNotFound)] = "SSH-CA kulcs nem található: {Path}",

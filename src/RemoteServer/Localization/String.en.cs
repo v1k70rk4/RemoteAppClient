@@ -7,7 +7,7 @@ internal static partial class Strings
     private static readonly Dictionary<string, string> En = new()
     {
         [nameof(CertificateAuthority_CAFilesAreMissing)] = "CA files are missing ('{0}', '{1}'). ",
-        [nameof(CertificateAuthority_GenerateThemDuringProvisioningDeploy)] = "Generate them during provisioning (deploy/deploy-server.sh); the server only reads them.",
+        [nameof(CertificateAuthority_GenerateThemDuringProvisioningDeploy)] = "Generate them during server setup (deploy/setup.sh); the server only reads them.",
         [nameof(CertificateAuthority_CALoadedSubject)] = "CA loaded: {Subject}",
         [nameof(CommandService_UnknownDeviceCommandDiscardedDevice)] = "Unknown device, command discarded: {Device}",
         [nameof(CommandService_CommandDeliveredToDeviceType)] = "Command delivered to {Device}: {Type}",
@@ -67,7 +67,7 @@ internal static partial class Strings
         [nameof(Program_MintBlobAdminExists)] = "Admin user exists (temporary password is in the server log; first sign-in requires a change)",
         [nameof(Program_MintBlobCommandSigningKey)] = "Command-signing key (Server:CommandSigningKeyPath)",
         [nameof(Program_MintBlobCaCertAndKey)] = "CA cert + key (Server:CaCertPath / CaKeyPath)",
-        [nameof(Program_MintBlobGenerateCaSeeFirstRun)] = "generate the CA (see FIRST-RUN.md)",
+        [nameof(Program_MintBlobGenerateCaSeeFirstRun)] = "generate the CA (run deploy/setup.sh)",
         [nameof(Program_MintBlobEmpty)] = "empty",
         [nameof(Program_MintBlobSetServerPublicUrl)] = "set Server:PublicUrl",
         [nameof(Program_MintBlobBastionHostAndHostKey)] = "Bastion host + host key (required for the reverse tunnel, not for the blob itself)",
@@ -82,7 +82,7 @@ internal static partial class Strings
         [nameof(SecretExpiryWatcher_RemoteAppClientEmailDeliverySecretExpires)] = "RemoteAppClient: email delivery secret expires soon",
         [nameof(SecretExpiryWatcher_SecretExpiryWarningSentTo)] = "Secret expiry warning sent: {To} ({Days} days).",
         [nameof(SecretExpiryWatcher_SecretExpiryWarningSendFailed)] = "Secret expiry warning send failed: {Error}",
-        [nameof(SecretProtector_EncryptionKeyIsMissingGenerate)] = "Encryption key is missing ('{0}'). Generate it during provisioning (deploy-server.sh).",
+        [nameof(SecretProtector_EncryptionKeyIsMissingGenerate)] = "Encryption key is missing ('{0}'). Generate it during server setup (deploy/setup.sh).",
         [nameof(SecretProtector_EncryptionKeyIsNot32)] = "Encryption key is not 32 bytes ({0}).",
         [nameof(SecretProtector_SecretEncryptionKeyLoaded)] = "Secret encryption key loaded.",
         [nameof(SshCertificateAuthority_SSHCAKeyNotFound)] = "SSH CA key not found: {Path}",

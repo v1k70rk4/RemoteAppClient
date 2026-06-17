@@ -33,7 +33,7 @@ enrollment, tunnel orchestration, security model, fleet UI, and update workflow 
 Use this only on systems you own or are explicitly authorized to administer.
 
 [Website and screenshots](https://v1k70rk4.github.io/RemoteAppClient/) |
-[First-run guide](FIRST-RUN.md)
+[Deployment guide](#deployment-flow)
 
 ---
 
@@ -282,7 +282,7 @@ ConnectionStrings__MariaDb="Server=localhost;Port=3306;Database=remoteserver;Use
 
 | Setting | Default | Required | Description |
 |---|---:|:---:|---|
-| `ConnectionStrings:MariaDb` | `CHANGEME` sample | Yes | MariaDB connection string. `deploy/setup-db.sh` writes this to `/etc/remoteserver/db.env`. |
+| `ConnectionStrings:MariaDb` | `CHANGEME` sample | Yes | MariaDB connection string. `deploy/setup.sh` (step 02) writes this to `/etc/remoteserver/db.env`. |
 | `Server:CommandSigningKeyPath` | `/etc/remoteserver/cmd_signing.key` sample | Yes | ECDSA P-256 private key used to sign agent commands. The public key is returned to agents during enrollment. |
 | `Server:CaCertPath` | `/etc/remoteserver/ca.crt` | Yes | Client-certificate CA public certificate. nginx also uses this for mTLS validation. |
 | `Server:CaKeyPath` | `/etc/remoteserver/ca.key` | Yes | Client-certificate CA private key. Keep readable only by the service user. |
@@ -409,40 +409,88 @@ need a restart to fully pick up the new language.
 
 ### Deployment Script Outputs
 
-The `deploy/` scripts generate the values that should not be committed:
+`deploy/setup.sh` runs as ordered steps under `deploy/steps/`. The values they generate
+should not be committed:
 
-| Script | Output |
+| Step | Output |
 |---|---|
-| `setup-db.sh` | MariaDB database/user and `/etc/remoteserver/db.env`. |
-| `deploy-server.sh` | `/opt/remoteserver`, command-signing key, client CA, `secret.key`, systemd unit, package directory. |
-| `setup-bastion.sh` | Restricted `agent` SSH user, SSH CA key, sshd Match block, bastion host key output. |
-| `setup-tls.sh` | Let's Encrypt certificate via Cloudflare DNS-01. |
-| `setup-nginx.sh` | TLS reverse proxy, mTLS for `/agent` and `/api/*`, localhost-only `/admin/*`. |
-| `fetch-tightvnc.sh` | Pinned TightVNC MSI and matching source ZIP under `third_party/tightvnc`. |
-| `harden.sh` | UFW, fail2ban, and sshd hardening. |
+| `02-mariadb` | MariaDB database/user (or your external DB) and `/etc/remoteserver/db.env`. |
+| `03-schema` | Baseline schema loaded into the database. |
+| `04-server` | `/opt/remoteserver`, command-signing key, client CA, `secret.key`, `bastion.env` (+ `PublicUrl`), systemd unit, package directory. |
+| `05-bastion` | Restricted `agent` SSH user, SSH CA key, sshd Match block. |
+| `06-tls` | Let's Encrypt certificate via Cloudflare DNS-01. |
+| `07-nginx` | 443 multiplexer (SSH + HTTPS/WSS on one port), mTLS for `/agent` `/ssh` `/api/*`, localhost-only `/admin/*`. |
+| `08-harden` | UFW, fail2ban, and sshd hardening. |
+| `09-blob` | First bootstrap blob + admin login. |
+| `10-selfupdate` | Console-driven server self-update helper (systemd path-units + root helper scripts). |
+
+`deploy/fetch-tightvnc.sh` (run separately) downloads the pinned TightVNC MSI and the
+matching GPL source ZIP under `third_party/tightvnc`.
 
 ---
 
 ## Deployment Flow
 
-The detailed first-run guide is in [FIRST-RUN.md](FIRST-RUN.md). High-level order:
+### Server (one command, on a fresh Ubuntu box)
 
-1. Build or download `RemoteServer-linux-x64.tar.gz`.
-2. Run `deploy/setup-db.sh`.
-3. Load `src/RemoteServer/Data/Migrations/schema.sql`.
-4. Run `BASTION_HOST=remote.example.com deploy/deploy-server.sh`.
-5. Set `Server__PublicUrl=https://remote.example.com` in `/etc/remoteserver/bastion.env`.
-6. Run `deploy/setup-bastion.sh`.
-7. Run `DOMAIN=remote.example.com ACME_EMAIL=admin@example.com deploy/setup-tls.sh`.
-8. Run `DOMAIN=remote.example.com deploy/setup-nginx.sh`.
-9. Run `deploy/harden.sh`.
-10. Get the temporary first-admin password from `journalctl -u remoteserver`.
-11. Run `RemoteServer mint-blob` on the server to create the first bootstrap blob.
-12. Upload release packages for `agent`, `updater`, `client`, and optionally `vnc`.
-13. Build an MSI from the console/admin API or enroll manually with `RemoteAgent.exe bootstrap "<blob>"`.
-14. Approve the Pending device in the console.
-15. To enable console-driven server updates later, install the self-update helper once:
-    copy [`ops/server-update/`](ops/server-update/) to the box and run `sudo ops/server-update/install.sh`.
+`deploy/setup.sh` takes a fresh server from zero to a running `RemoteServer` — database, server,
+bastion, TLS, the **443 multiplexer**, hardening, the **self-update helper**, and the first
+bootstrap blob — then verifies it. Run it **on the server**, as a user with passwordless sudo:
+
+```bash
+git clone https://github.com/v1k70rk4/RemoteAppClient.git
+cd RemoteAppClient
+./deploy/setup.sh
+```
+
+It asks a few things up front — public DNS name, ACME email, and **whether you have your own
+MariaDB** (otherwise it installs one) — then runs to the end. It is idempotent, and each step
+under `deploy/steps/` can run on its own, e.g. `./deploy/setup.sh 06-tls 07-nginx`. For an
+unattended run, copy `deploy/config.env.example` to `deploy/config.env` and fill it in. Details:
+[`deploy/README.md`](deploy/README.md).
+
+TLS uses Let's Encrypt with Cloudflare DNS-01 — the script prompts for a Cloudflare API token
+(Zone → DNS → Edit), or place it at `/etc/letsencrypt/cloudflare.ini` first. No Cloudflare? Issue
+the certificate yourself and skip `06-tls`. At the end, `09-blob` prints the bootstrap blob **and
+the first admin login** (`admin` + a temporary password to change on first sign-in).
+
+### First Windows device
+
+For the first machine, manual enrollment is simplest; later, build group MSIs from the console.
+In an elevated PowerShell, put the release artifacts in one folder and run:
+
+```powershell
+.\RemoteAgent.exe bootstrap "<blob>"
+.\RemoteAgent.exe install-service --owner "Company Name" --group "First devices"
+```
+
+To provision TightVNC on first start, place the pinned MSI at `.\vnc\tightvnc.msi` first (see
+[TightVNC And Licensing](#tightvnc-and-licensing)). The agent enrolls on first start, opens its
+tunnel, and reports telemetry. Because the bootstrap token is not auto-approved, the device stays
+**Pending** until approved.
+
+### First sign-in
+
+Start `RemoteClient.exe`, sign in as `admin` with the temporary password, complete the forced
+password change and TOTP setup, then approve the Pending device in the Devices view. From there
+you can upload packages, build group MSI installers, and use the normal remote workflow.
+
+### Troubleshooting
+
+```bash
+sudo systemctl status remoteserver
+sudo journalctl -u remoteserver -f
+sudo nginx -t && sudo tail -f /var/log/nginx/error.log
+```
+
+| Symptom | Check |
+| --- | --- |
+| `09-blob` reports missing `PublicUrl` | Set `Server__PublicUrl` in `/etc/remoteserver/bastion.env`, restart `remoteserver`. |
+| `09-blob` reports missing schema | Re-run `./deploy/setup.sh 03-schema` (`RAC_SCHEMA_FORCE=1` to reload). |
+| Agent enrolls but console cannot connect | RemoteAgent service running? Bastion host key present in `bastion.env`? |
+| `/agent` or `/api/*` returns 403 | Check nginx mTLS and the client CA. |
+| `/admin/*` unreachable from the internet | Expected — localhost-only, reached through an enrolled device tunnel. |
+| TightVNC not installed | Ensure `vnc\tightvnc.msi` sits next to the agent before service start, or run `RemoteAgent.exe provision-vnc --msi <path>` elevated. |
 
 ---
 
@@ -523,7 +571,7 @@ and bastion configuration before printing the first bootstrap blob.
 | `RemoteAgent.exe` | Upload as the `agent` package. |
 | `RemoteAgent.Updater.exe` | Upload as the `updater` package. |
 | `RemoteClient.exe` | Upload as the `client` package. |
-| `RemoteServer-linux-x64.tar.gz` | Deploy to the Linux server with `deploy/deploy-server.sh`. |
+| `RemoteServer-linux-x64.tar.gz` | Deploy to the Linux server with `deploy/setup.sh` (step `04-server`). |
 
 Typical release:
 
@@ -549,20 +597,18 @@ src/
   RemoteAgent.Contracts/   shared DTOs and command signatures
   RemoteAgent.Resources/   shared resources
 
-deploy/
-  deploy-server.sh
-  fetch-tightvnc.sh
-  harden.sh
-  setup-bastion.sh
-  setup-db.sh
-  setup-nginx.sh
-  setup-tls.sh
+deploy/                    from-scratch server installer
+  setup.sh                 orchestrator that runs the steps below
+  lib.sh
+  config.env.example
+  steps/                   01-prereqs … 11-verify
+  fetch-tightvnc.sh        pinned TightVNC MSI + GPL source
+  README.md
 
 icon/
 third_party/
 .github/workflows/build.yml
 build.ps1
-FIRST-RUN.md
 RemoteAppClient.slnx
 ```
 
