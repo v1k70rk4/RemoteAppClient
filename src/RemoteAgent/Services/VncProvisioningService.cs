@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -37,7 +39,7 @@ public sealed class VncProvisioningService(
             try
             {
                 var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
-                string? password = File.Exists(secretFile) ? File.ReadAllText(secretFile).Trim() : null;
+                string? password = ReadSecret(secretFile);
 
                 var msi = Path.Combine(AppContext.BaseDirectory, "vnc", "tightvnc.msi");
 
@@ -48,7 +50,7 @@ public sealed class VncProvisioningService(
                     {
                         await VncProvisioner.EnsureInstalledAsync(msi);
                         VncProvisioner.ApplyHardening(password);
-                        File.WriteAllText(secretFile, password);
+                        WriteSecret(secretFile, password);
                         logger.LogInformation(L.VncProvisioningService_VNCProvisionedPerDevicePassword);
                     }
                     catch (Exception ex)
@@ -87,13 +89,32 @@ public sealed class VncProvisioningService(
             try
             {
                 var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
-                var pw = File.Exists(secretFile) ? File.ReadAllText(secretFile).Trim() : null;
+                var pw = ReadSecret(secretFile);
                 if (!string.IsNullOrEmpty(pw))
                     await VncProvisioner.EnsureHealthyAsync(pw, msiPath);
             }
             catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VNCPasswordReportFailed); }
         }
     }
+
+    // vnc.secret stores the local VNC password. Encrypt it at rest with DPAPI (machine scope; the agent
+    // runs as SYSTEM), transparently migrating any legacy plaintext file the first time it is read.
+    private static string? ReadSecret(string file)
+    {
+        if (!File.Exists(file)) return null;
+        var raw = File.ReadAllBytes(file);
+        if (raw.Length == 0) return null;
+        try { return Encoding.UTF8.GetString(ProtectedData.Unprotect(raw, null, DataProtectionScope.LocalMachine)).Trim(); }
+        catch
+        {
+            var plain = Encoding.UTF8.GetString(raw).Trim();   // legacy plaintext
+            try { WriteSecret(file, plain); } catch { /* best-effort migration */ }
+            return plain;
+        }
+    }
+
+    private static void WriteSecret(string file, string password) =>
+        File.WriteAllBytes(file, ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.LocalMachine));
 
     private async Task ReportSecretAsync(string password, CancellationToken ct)
     {

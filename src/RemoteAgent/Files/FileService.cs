@@ -75,7 +75,10 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            try { ctx.Response.StatusCode = 500; var b = Encoding.UTF8.GetBytes(ex.Message); ctx.Response.OutputStream.Write(b); ctx.Response.Close(); } catch { /* client gone */ }
+            // Log the detail server-side; return a generic, non-reflective body so no request-controlled
+            // data is echoed back into the response.
+            logger.LogWarning(ex, "File service request failed.");
+            try { ctx.Response.StatusCode = 500; ctx.Response.ContentType = "text/plain; charset=utf-8"; var b = Encoding.UTF8.GetBytes("Operation failed."); ctx.Response.OutputStream.Write(b); ctx.Response.Close(); } catch { /* client gone */ }
         }
     }
 
@@ -139,7 +142,8 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
 
     private static void Ok(HttpListenerContext ctx) { ctx.Response.StatusCode = 200; ctx.Response.Close(); }
 
-    private void Audit(string op, string detail) => logger.LogInformation("file {Op}: {Detail}", op, detail);
+    // Strip CR/LF from the request-controlled detail so a crafted path cannot forge extra audit-log lines.
+    private void Audit(string op, string detail) => logger.LogInformation("file {Op}: {Detail}", op, detail.Replace('\r', ' ').Replace('\n', ' '));
 
     /// <summary>Logged-in user's home (best-effort): the system drive's Users\&lt;active console user&gt;, else the drive root.</summary>
     private static string HomeDir()
