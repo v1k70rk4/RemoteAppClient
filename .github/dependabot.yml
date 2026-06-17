@@ -26,3 +26,10 @@ updates:
     groups:
       nuget:
         patterns: ["*"]
+    ignore:
+      # EF Core's major must match the Pomelo provider's (currently 9; no stable Pomelo 10 yet).
+      # Upgrade EF Core + Pomelo together as a deliberate change, not via routine bumps.
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Pomelo.EntityFrameworkCore.MySql"
+        update-types: ["version-update:semver-major"]
