@@ -46,6 +46,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Projects](#projects)
 - [Security Model](#security-model)
 - [Configuration](#configuration)
+- [Linux Operator Console](#linux-operator-console)
 - [Deployment Flow](#deployment-flow)
 - [Build](#build)
 - [Runtime Commands](#runtime-commands)
@@ -426,6 +427,60 @@ should not be committed:
 
 `deploy/fetch-tightvnc.sh` (run separately) downloads the pinned TightVNC MSI and the
 matching GPL source ZIP under `third_party/tightvnc`.
+
+---
+
+## Linux Operator Console
+
+**Multiserver Linux RemoteAppClient Lite** is a viewer-only operator console for Linux
+(Debian/Ubuntu). It connects to the same server as the Windows console and opens VNC
+sessions to enrolled devices, but it runs **no agent** and can do nothing on the remote
+side beyond what an operator already can.
+
+How it differs from the Windows console:
+
+- **No local SYSTEM agent / broker.** On sign-in the server mints a short-lived (12 h)
+  operator SSH certificate for an ephemeral key, and the console opens its own `ssh -L`
+  forwards to the bastion with that cert — there is no client-owned long-lived SSH key.
+- **Per-account gate.** The account must have the **keyless-operator** flag, set in the
+  Windows console (Users → pick the user → *Keyless operator (Linux console)*). Without it
+  the server mints no certificate and sign-in is refused.
+- **Viewer only.** Device list, telemetry, VNC connect, and password recovery — no device
+  management, MSI, channels, or server administration.
+
+### Requirements
+
+| Need | Package |
+|---|---|
+| SSH client (tunnels) | `openssh-client` |
+| VNC viewer | `ssvnc` (preferred — adds fit-to-window scaling + 256-color) or `tigervnc-viewer` |
+
+Both are declared as dependencies of the `.deb`.
+
+### Install
+
+```bash
+sudo apt install ./remoteclient_<version>_amd64.deb     # or run the AppImage directly
+```
+
+The `.deb` and AppImage are built from a self-contained `linux-x64` publish:
+
+```bash
+dotnet publish src/RemoteClient.Linux/RemoteClient.Linux.csproj -c Release -r linux-x64 --self-contained -o publish/client-linux
+src/RemoteClient.Linux/packaging/build-deb.sh      publish/client-linux <version> icon/RemoteAccessBlue_256x256.png .
+src/RemoteClient.Linux/packaging/build-appimage.sh publish/client-linux <version> icon/RemoteAccessBlue_256x256.png .
+```
+
+CI builds the `.deb` on every push (the `client-linux` job) and attaches it to tagged releases.
+
+### Usage
+
+Launch *Multiserver Linux RemoteAppClient Lite*, sign in (server URL, username, password,
+and TOTP when required), pick a device, and **Connect (VNC)**. The device table (hostname,
+group, note, online, last-seen) is sortable and searchable. **Settings** adjusts the VNC
+scaling and 256-color mode plus the UI language (Auto / English / Magyar; the language
+applies after a restart). **Forgot password?** runs the same code-based recovery as the
+Windows console.
 
 ---
 

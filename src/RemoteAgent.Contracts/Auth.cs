@@ -21,6 +21,11 @@ public sealed class LoginRequest
 
     /// <summary>When true and full 2FA succeeds, the server issues a device-trust token so TOTP can be skipped next time.</summary>
     [JsonPropertyName("rememberDevice")] public bool RememberDevice { get; set; }
+
+    /// <summary>Linux operator console only: an ephemeral SSH public key. When the account has the
+    /// keyless-operator flag, the login response mints a short-lived SSH certificate for it so the console
+    /// can open the bastion tunnel without a local SYSTEM agent. Ignored for normal (Windows) clients.</summary>
+    [JsonPropertyName("sshPublicKey")] public string? SshPublicKey { get; set; }
 }
 
 /// <summary>
@@ -56,6 +61,15 @@ public sealed class LoginResponse
 
     /// <summary>Newly issued "remember this device" token (only when rememberDevice was set and 2FA passed). Store client-side.</summary>
     [JsonPropertyName("trustToken")] public string? TrustToken { get; set; }
+
+    /// <summary>Linux operator console only: a short-lived SSH certificate signed for the SshPublicKey from the
+    /// request, set only when the account has the keyless-operator flag. With the bastion fields below the
+    /// console opens its own tunnel. Null for normal (Windows, agent-broker) clients.</summary>
+    [JsonPropertyName("operatorCert")] public string? OperatorCert { get; set; }
+    [JsonPropertyName("bastionHost")] public string? BastionHost { get; set; }
+    [JsonPropertyName("bastionPort")] public int? BastionPort { get; set; }
+    [JsonPropertyName("bastionUser")] public string? BastionUser { get; set; }
+    [JsonPropertyName("bastionHostKey")] public string? BastionHostKey { get; set; }
 }
 
 /// <summary>Error code returned with login or authorization rejection (HTTP 401/403).</summary>

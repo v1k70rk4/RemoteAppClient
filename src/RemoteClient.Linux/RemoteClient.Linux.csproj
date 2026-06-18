@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Linux operator console (viewer-only): a thin Avalonia UI over the shared RemoteClient.Core.
+       No SYSTEM agent on this box - it uses LinuxOperatorTransport (ephemeral operator SSH cert). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <RootNamespace>RemoteClient.Linux</RootNamespace>
+    <AssemblyName>RemoteClient.Linux</AssemblyName>
+    <Version>1.7.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.3" />
+    <!-- Pin Avalonia's transitive Tmds.DBus.Protocol to the 0.21-line security patch to clear NU1903
+         (GHSA-xrw6-gwf8-vvr9; patched in 0.21.3). Staying on 0.21.x keeps Avalonia 11.2 compatibility. -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteClient.Core\RemoteClient.Core.csproj" />
+  </ItemGroup>
+
+</Project>

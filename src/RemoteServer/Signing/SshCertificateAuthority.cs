@@ -15,8 +15,19 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
 {
     private readonly BastionOptions _opt = options.Value.Bastion;
 
-    /// <summary>Returns the signed SSH certificate (OpenSSH cert), or null on failure.</summary>
-    public async Task<string?> SignAsync(string sshPublicKey, string deviceId, CancellationToken ct)
+    /// <summary>Signs an agent SSH key (long-lived, "agent" principal). Returns the OpenSSH cert or null.</summary>
+    public Task<string?> SignAsync(string sshPublicKey, string deviceId, CancellationToken ct)
+        => SignInternalAsync(sshPublicKey, deviceId, $"+{_opt.SshCertValidityDays}d", deviceId, ct);
+
+    /// <summary>
+    /// Signs a short-lived operator SSH key for the keyless Linux console. Same "agent" principal and
+    /// forwarding rights as an agent cert (so the bastion needs no change), but a short validity and an
+    /// "operator:&lt;username&gt;" key id for audit. Returns the OpenSSH cert or null.
+    /// </summary>
+    public Task<string?> SignOperatorAsync(string sshPublicKey, string username, CancellationToken ct)
+        => SignInternalAsync(sshPublicKey, "operator:" + username, $"+{_opt.OperatorCertValidityHours}h", username, ct);
+
+    private async Task<string?> SignInternalAsync(string sshPublicKey, string keyId, string validity, string logId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(sshPublicKey))
             return null;
@@ -40,9 +51,9 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
                 RedirectStandardError = true,
             };
             psi.ArgumentList.Add("-s"); psi.ArgumentList.Add(_opt.SshCaKeyPath);
-            psi.ArgumentList.Add("-I"); psi.ArgumentList.Add(deviceId);
+            psi.ArgumentList.Add("-I"); psi.ArgumentList.Add(keyId);
             psi.ArgumentList.Add("-n"); psi.ArgumentList.Add(_opt.User);              // principal = bastion user
-            psi.ArgumentList.Add("-V"); psi.ArgumentList.Add($"+{_opt.SshCertValidityDays}d");
+            psi.ArgumentList.Add("-V"); psi.ArgumentList.Add(validity);
             psi.ArgumentList.Add("-z"); psi.ArgumentList.Add(RandomNumberGenerator.GetInt32(1, int.MaxValue).ToString());
             psi.ArgumentList.Add(pubPath);
 
@@ -52,7 +63,7 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
 
             if (proc.ExitCode != 0 || !File.Exists(certPath))
             {
-                logger.LogWarning(L.SshCertificateAuthority_SshKeygenSigningFailedDevice, deviceId, err);
+                logger.LogWarning(L.SshCertificateAuthority_SshKeygenSigningFailedDevice, logId, err);
                 return null;
             }
             return (await File.ReadAllTextAsync(certPath, ct)).Trim();

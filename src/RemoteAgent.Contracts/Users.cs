@@ -17,6 +17,9 @@ public sealed class UserInfo
 
     /// <summary>Number of active Windows Hello credentials, meaning how many devices can sign in passwordlessly.</summary>
     [JsonPropertyName("helloCount")] public int HelloCount { get; set; }
+
+    /// <summary>True when this account may sign in to the Linux operator console (mints a keyless SSH cert).</summary>
+    [JsonPropertyName("keylessOperator")] public bool KeylessOperator { get; set; }
 }
 
 /// <summary>Creates a new user (admin). The server generates a temporary password.</summary>
@@ -60,13 +63,14 @@ public sealed class PasswordResetRequest
     [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
 }
 
-/// <summary>Updates a user (name / role / active state). Null fields are left unchanged.</summary>
+/// <summary>Updates a user (name / role / active state / Linux-console access). Null fields are left unchanged.</summary>
 public sealed class UserUpdate
 {
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("email")] public string? Email { get; set; }
     [JsonPropertyName("role")] public string? Role { get; set; }
     [JsonPropertyName("isActive")] public bool? IsActive { get; set; }
+    [JsonPropertyName("keylessOperator")] public bool? KeylessOperator { get; set; }
 }
 
 /// <summary>An access grant for a user, targeting either a group or a device.</summary>

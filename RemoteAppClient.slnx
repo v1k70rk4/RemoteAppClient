@@ -5,6 +5,8 @@
     <Project Path="src/RemoteAgent.Updater/RemoteAgent.Updater.csproj" />
     <Project Path="src/RemoteAgent/RemoteAgent.csproj" />
     <Project Path="src/RemoteClient/RemoteClient.csproj" />
+    <Project Path="src/RemoteClient.Core/RemoteClient.Core.csproj" />
+    <Project Path="src/RemoteClient.Linux/RemoteClient.Linux.csproj" />
     <Project Path="src/RemoteServer/RemoteServer.csproj" />
   </Folder>
 </Solution>

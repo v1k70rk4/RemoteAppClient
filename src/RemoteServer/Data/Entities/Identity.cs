@@ -23,6 +23,14 @@ public sealed class User
     public bool MustChangePassword { get; set; } = true;
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// When true, a successful login that includes an SSH public key gets a short-lived operator SSH
+    /// certificate minted in the response (the Linux operator console uses it to open the bastion tunnel
+    /// without a local SYSTEM agent). OFF by default; Windows consoles never use this path.
+    /// </summary>
+    public bool KeylessOperator { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? PasswordChangedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }

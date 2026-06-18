@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace RemoteClient.Localization;
 
-internal static partial class Strings
+public static partial class Strings
 {
     private static readonly Dictionary<string, string> En = new()
     {
@@ -542,6 +542,8 @@ internal static partial class Strings
         [nameof(UsersView_UserDeleted)] = "{0} deleted.",
         [nameof(UsersView_AddNewUser)] = "Add new user",
         [nameof(UsersView_ForceSignOut)] = "Force sign-out",
+        [nameof(UsersView_KeylessOperator)] = "Keyless operator (Linux console)",
+        [nameof(LinuxConsole_UpdateAvailable)] = "A newer version is available on GitHub: {0}",
         [nameof(UsersView_AlsoClearTOTPAuthenticatorUser)] = "Also clear TOTP (authenticator) - user must set it up again",
         [nameof(UsersView_PasswordReset)] = "Password reset",
         [nameof(UsersView_GeneratesAndDisplaysATemporary)] = "Generates and displays a temporary password. The user must change it at next sign-in.\nIf an email address and email service are available, you can also send a reset code so the user can set a password.\nIf the authenticator was lost, TOTP can also be cleared; it will be set up again at next sign-in.",

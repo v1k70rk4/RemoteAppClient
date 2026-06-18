@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Multiserver Linux RemoteAppClient Lite
+Comment=Operator console for RemoteAppClient (viewer-only)
+Exec=/usr/bin/remoteclient
+Icon=remoteclient
+Terminal=false
+Categories=Network;RemoteAccess;
+StartupWMClass=RemoteClient.Linux

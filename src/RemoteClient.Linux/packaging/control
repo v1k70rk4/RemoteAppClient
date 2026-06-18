@@ -1,0 +1,12 @@
+Package: remoteclient
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: amd64
+Installed-Size: @INSTALLED@
+Depends: openssh-client, ssvnc | tigervnc-viewer, libicu76 | libicu74 | libicu73 | libicu72, libx11-6, libice6, libsm6, libfontconfig1, libglib2.0-0
+Maintainer: Coimbra ITS <rviktor@gmail.com>
+Description: RemoteAppClient operator console (Linux)
+ Viewer-only operator console for RemoteAppClient: sign in, list managed
+ devices, and open a VNC session through the bastion tunnel. No local agent
+ is required - it mints a short-lived operator SSH certificate on sign-in.

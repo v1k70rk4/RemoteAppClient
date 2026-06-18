@@ -37,6 +37,7 @@ public sealed class UsersView : UserControl, IContentView
     private readonly MaterialTextBox2 _emailBox = new() { Hint = L.ForgotPasswordForm_EmailAddress, Width = 380 };
     private readonly MaterialComboBox _roleCombo = new() { Hint = L.NewUserForm_Role, Width = 200 };
     private readonly MaterialSwitch _activeSwitch = new() { Text = L.BootstrapView_Active, AutoSize = true };
+    private readonly MaterialSwitch _keylessSwitch = new() { Text = L.UsersView_KeylessOperator, AutoSize = true };
     private readonly MaterialLabel _generalStatus = new() { AutoSize = true, Margin = new Padding(4, 12, 0, 0) };
     private Panel _generalPanel = null!;
 
@@ -160,11 +161,13 @@ public sealed class UsersView : UserControl, IContentView
         _nameBox.Margin = new Padding(4, 8, 4, 8);
         _emailBox.Margin = new Padding(4, 8, 4, 8);
         _roleCombo.Margin = new Padding(4, 8, 4, 8);
-        _activeSwitch.Margin = new Padding(4, 8, 4, 12);
+        _activeSwitch.Margin = new Padding(4, 8, 4, 4);
+        _keylessSwitch.Margin = new Padding(4, 4, 4, 12);
         body.Controls.Add(_nameBox);
         body.Controls.Add(_emailBox);
         body.Controls.Add(_roleCombo);
         body.Controls.Add(_activeSwitch);
+        body.Controls.Add(_keylessSwitch);
         body.Controls.Add(save);
         body.Controls.Add(new MaterialDivider { Width = 420, Margin = new Padding(4, 16, 4, 8) });
         body.Controls.Add(new MaterialLabel { Text = "Munkamenetek", FontType = MaterialSkinManager.fontType.Subtitle2, AutoSize = true, Margin = new Padding(4, 0, 0, 4) });
@@ -262,6 +265,7 @@ public sealed class UsersView : UserControl, IContentView
         _emailBox.Text = u.Email ?? "";
         _roleCombo.SelectedItem = u.Role == "admin" ? "admin" : "operator";
         _activeSwitch.Checked = u.IsActive;
+        _keylessSwitch.Checked = u.KeylessOperator;
         _generalStatus.Text = ""; _passwordStatus.Text = "";
 
         // Rebuild per-user tabs.
@@ -303,9 +307,10 @@ public sealed class UsersView : UserControl, IContentView
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@')) { _generalStatus.Text = L.NewUserForm_EnterAValidEmailAddress; return; }
         try
         {
-            await _api.UpdateUserAsync(u.Id, role, active, _nameBox.Text.Trim(), _emailBox.Text.Trim());
-            _generalStatus.Text = "Mentve.";
-            _editing = new UserInfo { Id = u.Id, Username = u.Username, Name = _nameBox.Text.Trim(), Email = _emailBox.Text.Trim(), Role = role, IsActive = active, HelloCount = u.HelloCount };
+            var keyless = _keylessSwitch.Checked;
+            await _api.UpdateUserAsync(u.Id, role, active, _nameBox.Text.Trim(), _emailBox.Text.Trim(), keyless);
+            _generalStatus.Text = L.Common_Saved;
+            _editing = new UserInfo { Id = u.Id, Username = u.Username, Name = _nameBox.Text.Trim(), Email = _emailBox.Text.Trim(), Role = role, IsActive = active, KeylessOperator = keyless, HelloCount = u.HelloCount };
             _editorTitle.Text = string.IsNullOrWhiteSpace(_editing.Name) ? u.Username : $"{_editing.Name}  ({u.Username})";
         }
         catch (Exception ex) { _generalStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }

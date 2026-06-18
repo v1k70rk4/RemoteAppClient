@@ -121,7 +121,7 @@ app.Use(async (ctx, next) =>
 app.MapGet("/", () => "RemoteServer up.");
 
 // === Sign-in / 2FA, reachable through the device SSH tunnel; endpoints validate themselves. ===
-app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IEmailSender email, IOptions<ServerOptions> opt, CancellationToken ct) =>
+app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IEmailSender email, IOptions<ServerOptions> opt, SshCertificateAuthority sshCa, CancellationToken ct) =>
 {
     LoginRequest? req;
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.LoginRequest, ct); }
@@ -188,6 +188,24 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         user.TotpSecret = protector.Protect(secret);
         resp.TotpSecret = secret;
         resp.TotpUri = TotpService.BuildUri(secret, user.Username, "RemoteAppClient");
+    }
+
+    // Linux keyless operator console: mint a short-lived SSH cert for the supplied key so the console can
+    // open the bastion tunnel without a local SYSTEM agent. Gated by the per-account flag; Windows clients
+    // never send a key, so they never get one. The cert TTL matches the session, so they expire together.
+    if (!string.IsNullOrWhiteSpace(req.SshPublicKey) && user.KeylessOperator)
+    {
+        var cert = await sshCa.SignOperatorAsync(req.SshPublicKey, user.Username, ct);
+        if (cert is not null)
+        {
+            var bastion = opt.Value.Bastion;
+            resp.OperatorCert = cert;
+            resp.BastionHost = bastion.Host;
+            resp.BastionPort = bastion.Port;
+            resp.BastionUser = bastion.User;
+            resp.BastionHostKey = bastion.HostKey;
+            await AuditAsync(db, ctx, "operator-cert-minted", null, null, actorOverride: user.Username);
+        }
     }
 
     await db.SaveChangesAsync(ct);
@@ -1429,7 +1447,7 @@ app.MapGet("/admin/users", async (AppDbContext db, CancellationToken ct) =>
     {
         Id = u.Id, Username = u.Username, Name = u.Name, Email = u.Email, Role = AuthService.RoleOf(u),
         IsActive = u.IsActive, MustChangePassword = u.MustChangePassword, TotpConfirmed = u.TotpConfirmed, LastLoginAt = u.LastLoginAt,
-        HelloCount = hello.GetValueOrDefault(u.Id),
+        HelloCount = hello.GetValueOrDefault(u.Id), KeylessOperator = u.KeylessOperator,
     }).ToList();
     return Results.Json(list, AgentJsonContext.Default.ListUserInfo);
 });
@@ -1483,6 +1501,7 @@ app.MapPut("/admin/users/{id:guid}", async (Guid id, HttpContext ctx, AppDbConte
         user.IsActive = act;
         if (!act) await auth.RevokeAllForUserAsync(id, ct); // deactivation signs the user out immediately
     }
+    if (upd.KeylessOperator is { } keyless) user.KeylessOperator = keyless; // gates the Linux operator console
     await db.SaveChangesAsync(ct);
     await AuditAsync(db, ctx, "user-update", null, user.Username);
     return Results.NoContent();

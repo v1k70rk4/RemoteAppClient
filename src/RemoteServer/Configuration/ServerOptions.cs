@@ -77,6 +77,10 @@ public sealed class BastionOptions
     /// <summary>Validity of issued SSH certificates in days.</summary>
     public int SshCertValidityDays { get; set; } = 825;
 
+    /// <summary>Validity (hours) of short-lived operator SSH certificates minted on login for the keyless
+    /// Linux operator console. Matches the session lifetime so the cert and session expire together.</summary>
+    public int OperatorCertValidityHours { get; set; } = 12;
+
     /// <summary>Range for stable per-device tunnel ports (inclusive min, exclusive max).</summary>
     public int TunnelPortMin { get; set; } = 50000;
     public int TunnelPortMax { get; set; } = 60000;

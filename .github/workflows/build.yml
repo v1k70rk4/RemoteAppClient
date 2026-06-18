@@ -73,6 +73,32 @@ jobs:
           path: RemoteServer-linux-x64.tar.gz
           if-no-files-found: error
 
+  client-linux:
+    name: Linux operator console (.deb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Linux console
+        run: dotnet publish src/RemoteClient.Linux/RemoteClient.Linux.csproj -c Release -r linux-x64 --self-contained -o publish/client-linux
+
+      # dpkg-deb ships with the Ubuntu runner; derive the package version from the csproj <Version>.
+      - name: Build .deb
+        run: |
+          VER=$(grep -oP '(?<=<Version>)[^<]+' src/RemoteClient.Linux/RemoteClient.Linux.csproj | head -1 | cut -d. -f1-3)
+          bash src/RemoteClient.Linux/packaging/build-deb.sh publish/client-linux "$VER" icon/RemoteAccessBlue_256x256.png .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: client-linux-deb
+          path: remoteclient_*.deb
+          if-no-files-found: error
+
   audit:
     name: NuGet vulnerability audit
     runs-on: windows-latest   # the solution has net10.0-windows projects; restore them natively
@@ -96,7 +122,7 @@ jobs:
 
   release:
     name: Release (on tag)
-    needs: [ windows, server, audit ]
+    needs: [ windows, server, client-linux, audit ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -110,4 +136,5 @@ jobs:
           files: |
             artifacts/windows-x64/*
             artifacts/server-linux-x64/*
+            artifacts/client-linux-deb/*
           generate_release_notes: true

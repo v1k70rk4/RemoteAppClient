@@ -494,9 +494,9 @@ public sealed class AdminApi : IDisposable
         return (false, code2);
     }
 
-    public async Task UpdateUserAsync(Guid id, string? role, bool? isActive, string? name = null, string? email = null, CancellationToken ct = default)
+    public async Task UpdateUserAsync(Guid id, string? role, bool? isActive, string? name = null, string? email = null, bool? keylessOperator = null, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new UserUpdate { Role = role, IsActive = isActive, Name = name, Email = email }, AgentJsonContext.Default.UserUpdate);
+        using var content = JsonContent.Create(new UserUpdate { Role = role, IsActive = isActive, Name = name, Email = email, KeylessOperator = keylessOperator }, AgentJsonContext.Default.UserUpdate);
         using var resp = await _http.PutAsync($"/admin/users/{id}", content, ct);
         resp.EnsureSuccessStatusCode();
     }

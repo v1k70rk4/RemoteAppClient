@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace RemoteClient.Localization;
 
-internal static partial class Strings
+public static partial class Strings
 {
     private static readonly Dictionary<string, string> Hu = new()
     {
@@ -542,6 +542,8 @@ internal static partial class Strings
         [nameof(UsersView_UserDeleted)] = "{0} törölve.",
         [nameof(UsersView_AddNewUser)] = "Új User hozzáadása",
         [nameof(UsersView_ForceSignOut)] = "Kitiltás (kiléptetés)",
+        [nameof(UsersView_KeylessOperator)] = "Kulcs nélküli operátor (Linux konzol)",
+        [nameof(LinuxConsole_UpdateAvailable)] = "Újabb verzió érhető el a GitHubon: {0}",
         [nameof(UsersView_AlsoClearTOTPAuthenticatorUser)] = "TOTP (authenticator) is törlése — újra kell beállítania",
         [nameof(UsersView_PasswordReset)] = "Jelszó reset",
         [nameof(UsersView_GeneratesAndDisplaysATemporary)] = "Ideiglenes jelszót generál és kiírja. A felhasználónak a következő belépéskor cserélnie kell.\nHa van e-mail cím + e-mail-szolgáltatás, reset-kódot is küldhetsz, amivel a user maga állít jelszót.\nHa elhagyta az authenticatort, a TOTP is törölhető — a következő belépéskor újra beállítja.",

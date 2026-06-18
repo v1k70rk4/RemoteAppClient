@@ -19,6 +19,23 @@ public sealed class ClientConfig
     /// <summary>Server admin API port on the box (Kestrel, localhost).</summary>
     public int AdminApiPort { get; set; } = 5000;
 
+    /// <summary>Linux operator console: last server URL and username, prefilled on the next sign-in.</summary>
+    public string? LastServerUrl { get; set; }
+    public string? LastUsername { get; set; }
+
+    /// <summary>Linux console VNC scale passed to ssvncviewer: "auto" (fit-to-window, follows resize/maximize -
+    /// recommended), a fraction ("3/4"), a ratio ("0.8"), "WxH", or "none". (Note: "fit" renders tiny - avoid.)
+    /// The operator can also adjust live with the s / + / - / 1-6 keys in the viewer.</summary>
+    public string VncScale { get; set; } = "auto";
+
+    /// <summary>Linux console VNC color depth: true = ssvncviewer -bgr233 (256-color, low bandwidth - good over a
+    /// tunnel); false = full color. Adjustable from the Settings panel.</summary>
+    public bool VncColor256 { get; set; } = true;
+
+    /// <summary>Linux console UI language: "auto" (follow the OS culture), "en" or "hu". Applied once at
+    /// startup; the Settings panel offers a switch that takes effect after a restart.</summary>
+    public string Language { get; set; } = "auto";
+
     /// <summary>Theme mode: "light" | "dark" | "auto" (auto follows Windows settings).</summary>
     public string ThemeMode { get; set; } = "dark";
 

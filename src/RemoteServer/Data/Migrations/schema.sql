@@ -130,6 +130,7 @@ CREATE TABLE `Users` (
     `TotpConfirmed` tinyint(1) NOT NULL,
     `MustChangePassword` tinyint(1) NOT NULL,
     `IsActive` tinyint(1) NOT NULL,
+    `KeylessOperator` tinyint(1) NOT NULL,
     `CreatedAt` datetime(6) NOT NULL,
     `PasswordChangedAt` datetime(6) NULL,
     `LastLoginAt` datetime(6) NULL,

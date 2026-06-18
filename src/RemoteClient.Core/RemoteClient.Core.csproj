@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared, platform-neutral operator logic used by both the Windows (WinForms) and the
+       Linux (Avalonia) consoles: admin API client, file client, config, branding cache,
+       localization. No Windows dependencies, so it builds for plain net10.0. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RemoteClient</RootNamespace>
+    <AssemblyName>RemoteClient.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteAgent.Contracts\RemoteAgent.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

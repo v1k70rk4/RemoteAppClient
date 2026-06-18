@@ -3,7 +3,7 @@ using System.Globalization;
 
 namespace RemoteClient.Localization;
 
-internal static partial class Strings
+public static partial class Strings
 {
     public const string English = "en";
     public const string Hungarian = "hu";
@@ -596,6 +596,8 @@ internal static partial class Strings
     public static string UsersView_UserDeleted => Get(nameof(UsersView_UserDeleted));
     public static string UsersView_AddNewUser => Get(nameof(UsersView_AddNewUser));
     public static string UsersView_ForceSignOut => Get(nameof(UsersView_ForceSignOut));
+    public static string UsersView_KeylessOperator => Get(nameof(UsersView_KeylessOperator));
+    public static string LinuxConsole_UpdateAvailable => Get(nameof(LinuxConsole_UpdateAvailable));
     public static string UsersView_AlsoClearTOTPAuthenticatorUser => Get(nameof(UsersView_AlsoClearTOTPAuthenticatorUser));
     public static string UsersView_PasswordReset => Get(nameof(UsersView_PasswordReset));
     public static string UsersView_GeneratesAndDisplaysATemporary => Get(nameof(UsersView_GeneratesAndDisplaysATemporary));
