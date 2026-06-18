@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Lite operator console: a viewer-only Windows client (Devices + Settings + About only). Server-independent
+       (you enter the server), no local SYSTEM agent - it uses the ephemeral operator-cert transport, exactly like
+       the Linux console. Reuses the full client's WinForms views; keeps its own config folder (RemoteClient.Lite). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>DpiUnaware</ApplicationHighDpiMode>
+    <RootNamespace>RemoteClient.Lite</RootNamespace>
+    <AssemblyName>RemoteClient.Lite</AssemblyName>
+    <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
+    <Version>1.7.1.0</Version>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteClient\RemoteClient.csproj" />
+    <ProjectReference Include="..\RemoteClient.Core\RemoteClient.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MaterialSkin.2" Version="2.3.1" />
+  </ItemGroup>
+
+</Project>

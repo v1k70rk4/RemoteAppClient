@@ -63,10 +63,14 @@ public sealed class ClientConfig
         !string.IsNullOrWhiteSpace(SshUser) &&
         !string.IsNullOrWhiteSpace(SshKeyPath);
 
+    /// <summary>Config subfolder under %APPDATA% (or ~/.config). The Lite console overrides this at startup so
+    /// it keeps its own settings separate from the full Windows client.</summary>
+    public static string AppFolderName { get; set; } = "RemoteClient";
+
     public static string Path =>
         System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "RemoteClient", "config.json");
+            AppFolderName, "config.json");
 
     public static ClientConfig Load()
     {

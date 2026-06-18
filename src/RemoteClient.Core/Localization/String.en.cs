@@ -542,7 +542,7 @@ public static partial class Strings
         [nameof(UsersView_UserDeleted)] = "{0} deleted.",
         [nameof(UsersView_AddNewUser)] = "Add new user",
         [nameof(UsersView_ForceSignOut)] = "Force sign-out",
-        [nameof(UsersView_KeylessOperator)] = "Keyless operator (Linux console)",
+        [nameof(UsersView_KeylessOperator)] = "Keyless operator",
         [nameof(LinuxConsole_UpdateAvailable)] = "A newer version is available on GitHub: {0}",
         [nameof(UsersView_AlsoClearTOTPAuthenticatorUser)] = "Also clear TOTP (authenticator) - user must set it up again",
         [nameof(UsersView_PasswordReset)] = "Password reset",

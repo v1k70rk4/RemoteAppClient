@@ -542,7 +542,7 @@ public static partial class Strings
         [nameof(UsersView_UserDeleted)] = "{0} törölve.",
         [nameof(UsersView_AddNewUser)] = "Új User hozzáadása",
         [nameof(UsersView_ForceSignOut)] = "Kitiltás (kiléptetés)",
-        [nameof(UsersView_KeylessOperator)] = "Kulcs nélküli operátor (Linux konzol)",
+        [nameof(UsersView_KeylessOperator)] = "Kulcs nélküli operátor",
         [nameof(LinuxConsole_UpdateAvailable)] = "Újabb verzió érhető el a GitHubon: {0}",
         [nameof(UsersView_AlsoClearTOTPAuthenticatorUser)] = "TOTP (authenticator) is törlése — újra kell beállítania",
         [nameof(UsersView_PasswordReset)] = "Jelszó reset",

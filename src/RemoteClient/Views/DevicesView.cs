@@ -14,7 +14,7 @@ namespace RemoteClient.Views;
 public sealed class DevicesView : UserControl, IContentView
 {
     private readonly AdminApi _api;
-    private readonly BrokerClient _broker;
+    private readonly Func<int, CancellationToken, Task<int>> _forward;
     private readonly ClientConfig _cfg;
     private readonly bool _isAdmin;
     private string _viewerScale;   // TightVNC viewer scale: "auto" (fit to window) or a percent "1".."400"; per-operator, from the account
@@ -49,9 +49,9 @@ public sealed class DevicesView : UserControl, IContentView
     private DeviceTelemetryPanel? _telemetryPanel;
     private DeviceBetaPanel? _betaPanel;
 
-    public DevicesView(AdminApi api, BrokerClient broker, ClientConfig cfg, bool isAdmin, string viewerScale = "auto", string viewerColor = "full")
+    public DevicesView(AdminApi api, Func<int, CancellationToken, Task<int>> forward, ClientConfig cfg, bool isAdmin, string viewerScale = "auto", string viewerColor = "full")
     {
-        _api = api; _broker = broker; _cfg = cfg; _isAdmin = isAdmin;
+        _api = api; _forward = forward; _cfg = cfg; _isAdmin = isAdmin;
         _viewerScale = string.IsNullOrWhiteSpace(viewerScale) ? "auto" : viewerScale;
         _viewerColor = string.IsNullOrWhiteSpace(viewerColor) ? "full" : viewerColor;
         Dock = DockStyle.Fill;
@@ -366,7 +366,7 @@ public sealed class DevicesView : UserControl, IContentView
 
             SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
             await Task.Delay(1500);
-            var localPort = await _broker.ForwardAsync(result.RemotePort);
+            var localPort = await _forward(result.RemotePort, CancellationToken.None);
             LaunchViewer(localPort, d);
             SetStatus(L.Format(L.DevicesView_VNCStarted, d.Hostname));
         }
@@ -400,7 +400,7 @@ public sealed class DevicesView : UserControl, IContentView
 
             SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
             await Task.Delay(1500);
-            var localPort = await _broker.ForwardAsync(result.FileRemotePort);
+            var localPort = await _forward(result.FileRemotePort, CancellationToken.None);
             new FileManagerWindow(localPort, result.FileToken!, string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname).Show();
             SetStatus(L.FileManager_Title);
         }

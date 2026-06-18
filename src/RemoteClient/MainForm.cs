@@ -710,7 +710,7 @@ public sealed class MainForm : MaterialForm
         _viewerColor = string.IsNullOrWhiteSpace(_login?.ViewerColor) ? "full" : _login!.ViewerColor!;
 
         // Create views + menu according to role; operators only see Devices.
-        _devicesView = new DevicesView(_api!, _broker!, _cfg, _role == "admin", _viewerScale, _viewerColor);
+        _devicesView = new DevicesView(_api!, _broker!.ForwardAsync, _cfg, _role == "admin", _viewerScale, _viewerColor);
         AddNav(L.MainForm_Devices, _devicesView);
         if (_role == "admin")
         {

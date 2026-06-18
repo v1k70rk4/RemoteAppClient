@@ -132,16 +132,17 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
         return Results.Json(gate, AgentJsonContext.Default.LoginResponse);
 
-    // Device-level login lockout: when locked, no sign-in is allowed until an admin unlocks it.
-    var device = await FindDeviceAsync(db, req.DeviceId, ct);
-    if (device?.LoginLockedAt is not null)
+    // Brute-force tracking target: the enrolled device by id, or — for keyless operators (no device) — a
+    // synthetic source-IP record (see ResolveLoginTargetAsync). Keyless locks are by IP and auto-expire.
+    var (device, opIp, locked) = await ResolveLoginTargetAsync(db, ctx, req.DeviceId, ct);
+    if (locked)
         return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
 
     var user = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
         .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
     if (user is null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
     {
-        await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed",
+        await RegisterLoginFailAsync(db, email, ctx, device, opIp, req.Username, "login-failed",
             user is null ? "unknown_user" : "bad_password", ct);
         return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 401);
     }
@@ -156,7 +157,7 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
         {
             // Invalid TOTP counts as a failed attempt, but totp_required (no code submitted yet) does not.
             if (!string.IsNullOrWhiteSpace(req.Totp))
-                await RegisterLoginFailAsync(db, email, ctx, device, req.Username, "login-failed", "bad_totp", ct);
+                await RegisterLoginFailAsync(db, email, ctx, device, opIp, req.Username, "login-failed", "bad_totp", ct);
             return Results.Json(new AuthError { Error = string.IsNullOrWhiteSpace(req.Totp) ? "totp_required" : "totp_invalid" },
                 AgentJsonContext.Default.AuthError, statusCode: 401);
         }
@@ -358,8 +359,8 @@ app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext 
 
     var uname = req.Username.Trim();
     var mail = req.Email.Trim();
-    var device = await FindDeviceAsync(db, req.DeviceId, ct);
-    if (device?.LoginLockedAt is not null) return Results.NoContent(); // locked device; silently do not send
+    var (device, opIp, locked) = await ResolveLoginTargetAsync(db, ctx, req.DeviceId, ct);
+    if (locked) return Results.NoContent(); // locked source (device or IP); silently do not send
 
     var user = await db.Users.FirstOrDefaultAsync(u => u.Username == uname && u.IsActive, ct);
     if (user is not null && string.Equals(user.Email, mail, StringComparison.OrdinalIgnoreCase))
@@ -372,7 +373,7 @@ app.MapPost("/auth/password/request-code", async (HttpContext ctx, AppDbContext 
     else
     {
         // Mismatch (wrong email or no such user): logged failed attempt plus counter.
-        await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-code-failed",
+        await RegisterLoginFailAsync(db, email, ctx, device, opIp, uname, "password-code-failed",
             user is null ? "unknown_user" : "email_mismatch", ct);
     }
     // Response is always OK for anti-enumeration.
@@ -390,8 +391,8 @@ app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, Aut
     if ((req.NewPassword?.Length ?? 0) < 10)
         return Results.Json(new AuthError { Error = "weak_password" }, AgentJsonContext.Default.AuthError, statusCode: 400);
 
-    var device = await FindDeviceAsync(db, req.DeviceId, ct);
-    if (device?.LoginLockedAt is not null)
+    var (device, opIp, locked) = await ResolveLoginTargetAsync(db, ctx, req.DeviceId, ct);
+    if (locked)
         return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
 
     var uname = req.Username.Trim();
@@ -400,7 +401,7 @@ app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, Aut
         || user.ResetCodeExpiresAt < DateTimeOffset.UtcNow
         || !string.Equals(user.ResetCodeHash, Sha256Hex(req.Code.Trim().ToUpperInvariant()), StringComparison.Ordinal))
     {
-        await RegisterLoginFailAsync(db, email, ctx, device, uname, "password-reset-failed",
+        await RegisterLoginFailAsync(db, email, ctx, device, opIp, uname, "password-reset-failed",
             user is null ? "unknown_user" : "bad_token", ct);
         return Results.Json(new AuthError { Error = "invalid_code" }, AgentJsonContext.Default.AuthError, statusCode: 400);
     }
@@ -611,7 +612,9 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
             pendingInfo[grp.Key] = $"{target} {ver} · {cmd.Status}";
     }
 
-    var list = devices.Select(d => new DeviceInfo
+    var list = devices
+        .Where(d => !d.DeviceId.StartsWith("opsrc:", StringComparison.Ordinal))   // hide synthetic source-IP lock records
+        .Select(d => new DeviceInfo
     {
         DeviceId = d.DeviceId,
         Hostname = d.Hostname,
@@ -1770,7 +1773,7 @@ static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Gu
         db.AuditLogs.Add(new RemoteServer.Data.Entities.AuditLog
         {
             Actor = actor, Action = action, TargetDeviceId = target, DetailJson = detail,
-            Ip = ctx.Connection.RemoteIpAddress?.ToString(),
+            Ip = PublicIpOf(ctx),   // real client IP (X-Real-IP / X-Forwarded-For behind nginx), not the proxy hop
         });
         await db.SaveChangesAsync(ctx.RequestAborted);
     }
@@ -1856,9 +1859,39 @@ static string Sha256Hex(string s) =>
 
 // === Device-level login lockout for brute-force protection. ===
 const int LoginFailLockThreshold = 5;
+// Keyless operators are locked by SOURCE IP (a synthetic "opsrc:" device), and that lock AUTO-EXPIRES after
+// this many minutes (operators roam / IPs are transient) — unlike enrolled-device locks, which are admin-unlock.
+const int OperatorIpLockMinutes = 60;
 
 static async Task<RemoteServer.Data.Entities.Device?> FindDeviceAsync(AppDbContext db, string? deviceId, CancellationToken ct) =>
     string.IsNullOrWhiteSpace(deviceId) ? null : await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+
+/// <summary>
+/// Resolves the brute-force tracking target for a sign-in / recovery attempt. With a device id: the enrolled
+/// device (admin-unlock lockout). Without one (keyless operators): a synthetic "opsrc:&lt;ip&gt;" source-IP
+/// record reusing the device fail-counter, but with an AUTO-EXPIRING lock (operators roam). Never locks a user.
+/// Returns the device (null until the first failure creates it), the source IP for that creation, and whether
+/// access is currently locked.
+/// </summary>
+static async Task<(RemoteServer.Data.Entities.Device? Device, string? OpIp, bool Locked)>
+    ResolveLoginTargetAsync(AppDbContext db, HttpContext ctx, string? deviceId, CancellationToken ct)
+{
+    var device = await FindDeviceAsync(db, deviceId, ct);
+    if (device is not null || !string.IsNullOrWhiteSpace(deviceId))
+        return (device, null, device?.LoginLockedAt is not null);
+
+    var opIp = PublicIpOf(ctx);
+    if (opIp is null) return (null, null, false);
+
+    var opId = "opsrc:" + opIp;
+    var op = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == opId, ct);
+    if (op?.LoginLockedAt is { } lockedAt)
+    {
+        if (lockedAt.AddMinutes(OperatorIpLockMinutes) > DateTimeOffset.UtcNow) return (op, opIp, true);
+        op.LoginFailCount = 0; op.LoginLockedAt = null; // lock window elapsed → start fresh
+    }
+    return (op, opIp, false);
+}
 
 /// <summary>
 /// Failed attempt: logs it for the user when known (actor=username) and for the device
@@ -1866,8 +1899,15 @@ static async Task<RemoteServer.Data.Entities.Device?> FindDeviceAsync(AppDbConte
 /// the device and emails admins.
 /// </summary>
 static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, HttpContext ctx,
-    RemoteServer.Data.Entities.Device? device, string username, string action, string reason, CancellationToken ct)
+    RemoteServer.Data.Entities.Device? device, string? opSourceIp, string username, string action, string reason, CancellationToken ct)
 {
+    // Keyless path: materialize the synthetic source-IP device on the FIRST failure (clean logins never create one).
+    if (device is null && !string.IsNullOrWhiteSpace(opSourceIp))
+    {
+        device = new RemoteServer.Data.Entities.Device { DeviceId = "opsrc:" + opSourceIp, Hostname = opSourceIp, PublicIpAddress = opSourceIp };
+        db.Devices.Add(device);
+    }
+
     bool justLocked = false;
     if (device is not null)
     {
@@ -1899,7 +1939,15 @@ static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, Ht
 
 static async Task ResetLoginFailAsync(AppDbContext db, RemoteServer.Data.Entities.Device? device, CancellationToken ct)
 {
-    if (device is null || (device.LoginFailCount == 0 && device.LoginLockedAt is null)) return;
+    if (device is null) return;
+    // A synthetic source-IP record proved legit on a successful sign-in → drop it (keeps the device list clean).
+    if (device.DeviceId.StartsWith("opsrc:", StringComparison.Ordinal))
+    {
+        db.Devices.Remove(device);
+        await db.SaveChangesAsync(ct);
+        return;
+    }
+    if (device.LoginFailCount == 0 && device.LoginLockedAt is null) return;
     device.LoginFailCount = 0;
     device.LoginLockedAt = null;
     await db.SaveChangesAsync(ct);

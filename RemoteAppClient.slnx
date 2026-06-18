@@ -7,6 +7,7 @@
     <Project Path="src/RemoteClient/RemoteClient.csproj" />
     <Project Path="src/RemoteClient.Core/RemoteClient.Core.csproj" />
     <Project Path="src/RemoteClient.Linux/RemoteClient.Linux.csproj" />
+    <Project Path="src/RemoteClient.Lite/RemoteClient.Lite.csproj" />
     <Project Path="src/RemoteServer/RemoteServer.csproj" />
   </Folder>
 </Solution>

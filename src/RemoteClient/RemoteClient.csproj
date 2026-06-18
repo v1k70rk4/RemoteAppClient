@@ -32,6 +32,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The Lite operator console (separate exe) reuses these WinForms views/helpers. -->
+    <InternalsVisibleTo Include="RemoteClient.Lite" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- TOTP QR code rendering with PngByteQRCode, without System.Drawing generation. -->
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <!-- Modern Material Design look with dark/light theme, cards, and tabs. -->
