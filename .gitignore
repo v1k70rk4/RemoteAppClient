@@ -1,12 +1,9 @@
-## .NET build kimenet
 bin/
 obj/
 *.user
 
-## Publish
 publish/
 
-## Titkok — SOHA ne kerüljön repo-ba
 *.pfx
 *.pem
 *.key
@@ -16,10 +13,11 @@ cloudflare.ini
 appsettings.*.Local.json
 secrets.json
 
-## Letöltött harmadik féltől (fetch-tightvnc.sh szerzi be, nem verziózzuk)
 third_party/
 
 ## IDE
 .vs/
 .idea/
 *.suo
+
+docs/adr/
