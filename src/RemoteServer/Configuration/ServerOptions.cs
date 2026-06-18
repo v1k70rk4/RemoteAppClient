@@ -79,7 +79,7 @@ public sealed class BastionOptions
 
     /// <summary>Validity (hours) of short-lived operator SSH certificates minted on login for the keyless
     /// Linux operator console. Matches the session lifetime so the cert and session expire together.</summary>
-    public int OperatorCertValidityHours { get; set; } = 12;
+    public int OperatorCertValidityHours { get; set; } = 8;
 
     /// <summary>Range for stable per-device tunnel ports (inclusive min, exclusive max).</summary>
     public int TunnelPortMin { get; set; } = 50000;

@@ -16,7 +16,7 @@ env:
 
 jobs:
   windows:
-    name: Windows components (agent / updater / client)
+    name: Windows components (agent / updater / client / lite)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -37,6 +37,9 @@ jobs:
       - name: Publish client
         run: dotnet publish src/RemoteClient/RemoteClient.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
 
+      - name: Publish Lite client
+        run: dotnet publish src/RemoteClient.Lite/RemoteClient.Lite.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
+
       - name: List output
         shell: pwsh
         run: Get-ChildItem publish -Filter *.exe | ForEach-Object { '{0}  {1:N0} bytes' -f $_.Name, $_.Length }
@@ -48,6 +51,7 @@ jobs:
             publish/RemoteAgent.exe
             publish/RemoteAgent.Updater.exe
             publish/RemoteClient.exe
+            publish/RemoteClient.Lite.exe
           if-no-files-found: error
 
   server:
@@ -137,4 +141,3 @@ jobs:
             artifacts/windows-x64/*
             artifacts/server-linux-x64/*
             artifacts/client-linux-deb/*
-          generate_release_notes: true

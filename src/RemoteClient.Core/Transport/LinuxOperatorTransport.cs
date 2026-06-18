@@ -141,7 +141,9 @@ public sealed class LinuxOperatorTransport : IDisposable
     public async Task<int> ForwardAsync(int remotePort, CancellationToken ct = default)
     {
         int local = FreeLocalPort();
-        var psi = new ProcessStartInfo("ssh") { UseShellExecute = false };
+        // CreateNoWindow hides the OpenSSH console on Windows (the Lite client shells out to ssh.exe; otherwise
+        // each forward pops a black console window — two per VNC connect). No effect on Linux.
+        var psi = new ProcessStartInfo("ssh") { UseShellExecute = false, CreateNoWindow = true };
         string[] args =
         [
             "-i", _keyPath,
@@ -188,7 +190,7 @@ public sealed class LinuxOperatorTransport : IDisposable
 
     private static async Task GenerateKeyAsync(string keyPath, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo("ssh-keygen") { UseShellExecute = false, RedirectStandardError = true };
+        var psi = new ProcessStartInfo("ssh-keygen") { UseShellExecute = false, RedirectStandardError = true, CreateNoWindow = true };
         foreach (var a in new[] { "-t", "ed25519", "-N", "", "-q", "-f", keyPath }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("ssh_keygen_failed");
         await p.WaitForExitAsync(ct);

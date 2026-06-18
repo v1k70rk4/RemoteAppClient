@@ -12,7 +12,7 @@ namespace RemoteServer.Services;
 /// </summary>
 public sealed class AuthService(AppDbContext db)
 {
-    public static readonly TimeSpan SessionTtl = TimeSpan.FromHours(12);
+    public static readonly TimeSpan SessionTtl = TimeSpan.FromHours(8); // one work day; the operator SSH cert is minted to match (OperatorCertValidityHours)
 
     /// <summary>How long a "remember this device" 2FA trust stays valid before TOTP is required again.</summary>
     public static readonly TimeSpan TrustTtl = TimeSpan.FromDays(90);

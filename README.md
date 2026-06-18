@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 1.8.0](#whats-new-in-180)
 - [What's New in 1.7.0](#whats-new-in-170)
 - [What's New in 1.6.0](#whats-new-in-160)
 - [What It Does](#what-it-does)
@@ -53,6 +54,40 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 1.8.0
+
+1.8.0 adds **agentless operator consoles for Linux and Windows** and hardens the keyless sign-in path.
+Highlights since 1.7.0:
+
+**Operator consoles for Linux & Windows (new)**
+- Two viewer-only consoles — **"Multiserver Linux RemoteAppClient Lite"** (Avalonia; `.deb` + AppImage) and a
+  **Windows Lite** (WinForms; portable single-file `.exe`). Both show only **Devices, Settings, and About** —
+  no admin features, even for admin accounts.
+- **Server-independent / multi-server**: you type the server at sign-in; nothing is installed on the operator's
+  machine and no agent is required there.
+- **Agentless transport**: on sign-in the server mints a **short-lived operator SSH certificate** (gated by the
+  per-account *keyless-operator* flag) and the console opens its own bastion tunnel — no local SYSTEM agent.
+  This deliberately relaxes the Windows-SYSTEM rule for the separate Lite build only; the full client is unchanged.
+- The Linux console is fully **localized (hu/en) with a language switch**, and both consoles show a
+  **GitHub-release update notice** (portable clients have no self-update).
+
+**Security**
+- The **keyless-operator flag** (per account, set from the Windows console: Users → user → *Keyless operator*)
+  gates the new consoles; off by default.
+- **8-hour operator session + certificate** (one work day), aligned and auto-expiring.
+- **Keyless brute-force protection**: failed sign-ins and password-recovery from a keyless source are
+  rate-limited **by source IP** — a synthetic, auto-expiring lock that **never locks the user account** — with
+  the **real client IP** recorded in the audit (operator-cert mints and failures show who, when, and from where).
+- **Dependabot** (dependency updates) and **CodeQL** (code scanning) run in CI.
+
+**Under the hood**
+- Shared **`RemoteClient.Core`** (net10.0, no Windows deps) is reused by all three clients; `DevicesView` was
+  decoupled from the agent broker via a forward delegate, so either transport drives the same view.
+- New CI jobs build the Linux `.deb` and the Windows Lite `.exe` and attach them to tagged releases.
+- .NET 10, EF Core 9 + Pomelo (MariaDB). No `Devices`/schema change since 1.7.0.
 
 ---
 
