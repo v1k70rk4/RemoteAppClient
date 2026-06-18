@@ -87,7 +87,10 @@ Highlights since 1.7.0:
 - Shared **`RemoteClient.Core`** (net10.0, no Windows deps) is reused by all three clients; `DevicesView` was
   decoupled from the agent broker via a forward delegate, so either transport drives the same view.
 - New CI jobs build the Linux `.deb` and the Windows Lite `.exe` and attach them to tagged releases.
-- .NET 10, EF Core 9 + Pomelo (MariaDB). No `Devices`/schema change since 1.7.0.
+- .NET 10, EF Core 9 + Pomelo (MariaDB). **One new column since 1.7.0: `Users.KeylessOperator`** (the
+  keyless-operator flag). Fresh installs get it from `schema.sql`; upgrading from 1.7.0 needs a one-liner:
+  `ALTER TABLE Users ADD COLUMN KeylessOperator tinyint(1) NOT NULL DEFAULT 0`. The IP-based lockout reuses
+  the existing `Devices` lockout columns, so there is no `Devices` change.
 
 ---
 
