@@ -284,6 +284,11 @@ public static partial class Strings
     public static string DevicesView_Connect => Get(nameof(DevicesView_Connect));
     public static string DevicesView_Device => Get(nameof(DevicesView_Device));
     public static string DevicesView_LastOnline => Get(nameof(DevicesView_LastOnline));
+    public static string DevicesView_LinkFlaky => Get(nameof(DevicesView_LinkFlaky));
+    public static string DevicesView_LinkFlakyTip => Get(nameof(DevicesView_LinkFlakyTip));
+    public static string DeviceTelemetryPanel_LinkQuality => Get(nameof(DeviceTelemetryPanel_LinkQuality));
+    public static string DeviceTelemetryPanel_LinkStable => Get(nameof(DeviceTelemetryPanel_LinkStable));
+    public static string DeviceTelemetryPanel_LinkFlakyDetail => Get(nameof(DeviceTelemetryPanel_LinkFlakyDetail));
     public static string DevicesView_Update => Get(nameof(DevicesView_Update));
     public static string DevicesView_UnlockSignIn => Get(nameof(DevicesView_UnlockSignIn));
     public static string DevicesView_Approve => Get(nameof(DevicesView_Approve));

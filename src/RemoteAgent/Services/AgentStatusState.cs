@@ -9,6 +9,7 @@ public sealed class AgentStatusState
 {
     private volatile bool _c2Connected;
     private long _lastContactTicks; // DateTimeOffset.UtcNow.UtcTicks, 0 = never
+    private long _lastHeartbeatTicks; // agent liveness tick, 0 = never
 
     public bool C2Connected => _c2Connected;
 
@@ -31,4 +32,17 @@ public sealed class AgentStatusState
     /// <summary>Successful server communication occurred through C2 or telemetry.</summary>
     public void MarkServerContact() =>
         Interlocked.Exchange(ref _lastContactTicks, DateTimeOffset.UtcNow.UtcTicks);
+
+    /// <summary>Agent liveness tick, bumped periodically while the work loop is alive. The Helper reads it
+    /// over the status pipe (StatusReport.LastHeartbeatUtc) to detect a hung agent.</summary>
+    public DateTimeOffset? LastHeartbeatUtc
+    {
+        get
+        {
+            var t = Interlocked.Read(ref _lastHeartbeatTicks);
+            return t == 0 ? null : new DateTimeOffset(t, TimeSpan.Zero);
+        }
+    }
+
+    public void Heartbeat() => Interlocked.Exchange(ref _lastHeartbeatTicks, DateTimeOffset.UtcNow.UtcTicks);
 }

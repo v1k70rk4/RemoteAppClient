@@ -39,6 +39,10 @@ public sealed class StatusReport
     /// <summary>Time of the last successful server contact, either C2 connection or telemetry.</summary>
     [JsonPropertyName("lastServerContactUtc")] public DateTimeOffset? LastServerContactUtc { get; set; }
 
+    /// <summary>Agent liveness tick, updated by the agent roughly every 15 s. The Helper reads it over this
+    /// status pipe to detect a hung agent (stale or missing tick), replacing the old heartbeat file.</summary>
+    [JsonPropertyName("lastHeartbeatUtc")] public DateTimeOffset? LastHeartbeatUtc { get; set; }
+
     /// <summary>Local agent device ID sent by the client in login/reset requests for the device-level failure counter.</summary>
     [JsonPropertyName("deviceId")] public string? DeviceId { get; set; }
 }

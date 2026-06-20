@@ -1,8 +1,10 @@
 using System.Diagnostics;
-using System.Globalization;
+using System.IO.Pipes;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using RemoteAgent.Admin;
+using RemoteAgent.Commands;
 using L = RemoteAgent.Updater.Localization.Strings;
 
 namespace RemoteAgent.Updater;
@@ -15,16 +17,16 @@ namespace RemoteAgent.Updater;
 ///     service, replaces the executable, and restarts it. A running service cannot
 ///     replace its own binary, so this lives in a separate executable/service.
 ///
-///  2) WATCHDOG: watches the agent heartbeat file
-///     (&lt;ProgramData&gt;\RemoteAgent\agent.heartbeat).
+///  2) WATCHDOG: checks the agent's liveness over its read-only status named pipe
+///     ("RemoteAgent.status", StatusReport.LastHeartbeatUtc).
 ///     - if the service is not running, it tries to start it;
-///     - if the service appears running but the heartbeat is stale, the agent is hung
-///       (SCM only sees process exit): stop, kill by PID if it does not stop in time,
-///       then restart.
+///     - if the service appears running but the pipe is unresponsive or the heartbeat tick is
+///       stale, the agent is hung (SCM only sees process exit): stop, kill by PID if it does not
+///       stop in time, then restart.
 ///     Backoff and circuit breaker prevent a tight failure loop; reboot is the natural reset.
 ///
-/// The Helper has no network or command authority. It only reacts to local markers and
-/// heartbeat files. Only the authenticated Agent talks to the server. Incidents are
+/// The Helper has no network or command authority. It only reacts to local update markers and the
+/// agent's status pipe. Only the authenticated Agent talks to the server. Incidents are
 /// written to a local status file and uploaded by the Agent as telemetry.
 /// </summary>
 public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : BackgroundService
@@ -34,11 +36,13 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
     private static readonly string DataDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RemoteAgent");
     private static readonly string UpdateDir = Path.Combine(DataDir, "update");
-    private static readonly string HeartbeatFile = Path.Combine(DataDir, "agent.heartbeat");
     private static readonly string StatusFile = Path.Combine(DataDir, "supervisor.status");
+    private const string StatusPipeName = "RemoteAgent.status";
 
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan HeartbeatStale = TimeSpan.FromSeconds(90);
+    private const int HungConfirmPolls = 2;          // consecutive unhealthy polls required before a forced restart
+    private const int PipeConnectTimeoutMs = 5000;   // the status pipe must answer within this, else the agent is treated as hung
     private static readonly TimeSpan StartGrace = TimeSpan.FromSeconds(60);   // do not judge hang immediately after start
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(20);  // graceful stop window before killing
     private const int MaxConsecutiveFailures = 5;
@@ -49,6 +53,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
     private DateTimeOffset _lastAgentAction = DateTimeOffset.UtcNow;
     private DateTimeOffset _parkedUntil = DateTimeOffset.MinValue;
     private int _consecutiveFailures;
+    private int _unhealthyPolls;   // consecutive polls with a stale/missing heartbeat (transient-blip filter)
     private int _agentRestarts;
     private string? _lastIncident;
 
@@ -91,21 +96,30 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
             if (DateTimeOffset.UtcNow - _lastAgentAction < StartGrace)
                 return;
 
-            var age = HeartbeatAge();
-            if (age <= HeartbeatStale)
+            var age = await HeartbeatAgeAsync(ct);
+            if (age is { } fresh && fresh <= HeartbeatStale)
             {
-                // Healthy means both running and heartbeat present; only this resets failure state.
+                // Healthy means both running and a recent heartbeat; only this resets failure state.
+                _unhealthyPolls = 0;
                 _consecutiveFailures = 0;
                 _parkedUntil = DateTimeOffset.MinValue;
                 return;
             }
 
+            // A single missing/unreadable heartbeat is usually a transient file race with the agent's 15 s
+            // write, not a hang; only act once it stays unhealthy across two consecutive polls.
+            if (++_unhealthyPolls < HungConfirmPolls)
+                return;
+
             // Running but silent means hung. When parked, do not hammer SCM.
             if (DateTimeOffset.UtcNow < _parkedUntil)
                 return;
 
-            _lastIncident = L.Format(L.SupervisorWorker_AgentHungHeartbeatAbout0, age.TotalSeconds);
+            _lastIncident = age is { } stale
+                ? L.Format(L.SupervisorWorker_AgentHungHeartbeatAbout0, stale.TotalSeconds)
+                : L.SupervisorWorker_AgentHungNoHeartbeat;
             logger.LogWarning("{Incident}", _lastIncident);
+            _unhealthyPolls = 0;
             await RestartHungAgentAsync(ct);
             await RegisterFailureAsync(); // hung-service churn should also trip the breaker
             return;
@@ -154,18 +168,23 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         await WriteStatusAsync();
     }
 
-    private static TimeSpan HeartbeatAge()
+    /// <summary>Agent liveness age read over the status named pipe (now - StatusReport.LastHeartbeatUtc).
+    /// Null when the pipe does not answer in time (agent hung/dead). An older agent that serves the pipe but
+    /// has no heartbeat field counts as fresh (TimeSpan.Zero) — the pipe answering already proves it is alive.</summary>
+    private static async Task<TimeSpan?> HeartbeatAgeAsync(CancellationToken ct)
     {
         try
         {
-            if (!File.Exists(HeartbeatFile)) return TimeSpan.MaxValue;
-            var txt = File.ReadAllText(HeartbeatFile).Trim();
-            if (DateTimeOffset.TryParse(txt, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var ts))
-                return DateTimeOffset.UtcNow - ts;
-            return DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(HeartbeatFile); // fallback
+            await using var pipe = new NamedPipeClientStream(".", StatusPipeName, PipeDirection.In, PipeOptions.Asynchronous);
+            await pipe.ConnectAsync(PipeConnectTimeoutMs, ct);
+            using var ms = new MemoryStream();
+            await pipe.CopyToAsync(ms, ct);
+            if (ms.Length == 0) return null;
+            var report = JsonSerializer.Deserialize(ms.ToArray(), AgentJsonContext.Default.StatusReport);
+            if (report is null) return null;
+            return report.LastHeartbeatUtc is { } beat ? DateTimeOffset.UtcNow - beat : TimeSpan.Zero;
         }
-        catch { return TimeSpan.MaxValue; }
+        catch { return null; } // pipe unavailable / connect timeout = agent not serving = hung
     }
 
     // ---------------- UPDATE SWAP ----------------

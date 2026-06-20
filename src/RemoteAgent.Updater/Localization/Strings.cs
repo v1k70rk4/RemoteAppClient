@@ -61,6 +61,7 @@ internal static partial class Strings
     }
 
     public static string SupervisorWorker_AgentHungHeartbeatAbout0 => Get(nameof(SupervisorWorker_AgentHungHeartbeatAbout0));
+    public static string SupervisorWorker_AgentHungNoHeartbeat => Get(nameof(SupervisorWorker_AgentHungNoHeartbeat));
     public static string SupervisorWorker_RemoteAgentIsNotRunningState => Get(nameof(SupervisorWorker_RemoteAgentIsNotRunningState));
     public static string SupervisorWorker_AgentStoppedRestarted => Get(nameof(SupervisorWorker_AgentStoppedRestarted));
     public static string SupervisorWorker_AgentStartFailed => Get(nameof(SupervisorWorker_AgentStartFailed));

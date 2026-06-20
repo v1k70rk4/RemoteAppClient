@@ -14,11 +14,20 @@ public sealed class AgentConnectionRegistry
 {
     private readonly ConcurrentDictionary<string, WebSocket> _connections = new();
 
+    /// <summary>Per-device rolling C2 (re)connect history, in-memory only. Frequent reconnects = flaky link:
+    /// the agent is likely alive but on a poor network, as opposed to a genuinely offline/dead device.</summary>
+    private readonly ConcurrentDictionary<string, ReconnectWindow> _reconnects = new();
+    private static readonly TimeSpan ReconnectWindowSpan = TimeSpan.FromHours(1);
+
     public IReadOnlyCollection<string> ConnectedDevices => _connections.Keys.ToArray();
 
     public bool IsConnected(string deviceId) => _connections.ContainsKey(deviceId);
 
-    public void Register(string deviceId, WebSocket socket) => _connections[deviceId] = socket;
+    public void Register(string deviceId, WebSocket socket)
+    {
+        _connections[deviceId] = socket;
+        _reconnects.GetOrAdd(deviceId, static _ => new ReconnectWindow()).Mark(); // track C2 churn for the flaky-link signal
+    }
 
     public void Unregister(string deviceId, WebSocket socket)
     {
@@ -36,5 +45,37 @@ public sealed class AgentConnectionRegistry
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(cmd, AgentJsonContext.Default.AgentCommand);
         await socket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, ct);
         return true;
+    }
+
+    /// <summary>How many times this device's C2 connection (re)established within the last hour. 0–1 is a stable
+    /// link; higher means the agent keeps dropping and reconnecting (flaky network), not a dead device.</summary>
+    public int RecentReconnects(string deviceId) =>
+        _reconnects.TryGetValue(deviceId, out var w) ? w.CountWithin(ReconnectWindowSpan) : 0;
+
+    /// <summary>Small thread-safe rolling window of recent connect timestamps for one device.</summary>
+    private sealed class ReconnectWindow
+    {
+        private const int Cap = 64; // bound memory for a pathologically flapping device
+        private readonly object _gate = new();
+        private readonly Queue<DateTimeOffset> _hits = new();
+
+        public void Mark()
+        {
+            lock (_gate)
+            {
+                _hits.Enqueue(DateTimeOffset.UtcNow);
+                while (_hits.Count > Cap) _hits.Dequeue();
+            }
+        }
+
+        public int CountWithin(TimeSpan window)
+        {
+            var cutoff = DateTimeOffset.UtcNow - window;
+            lock (_gate)
+            {
+                while (_hits.Count > 0 && _hits.Peek() < cutoff) _hits.Dequeue();
+                return _hits.Count;
+            }
+        }
     }
 }

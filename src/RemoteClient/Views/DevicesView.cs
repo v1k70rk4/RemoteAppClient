@@ -204,8 +204,10 @@ public sealed class DevicesView : UserControl, IContentView
             if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.Note) ? "—" : d.Note);
-            var online = item.SubItems.Add(d.Online ? "● online" : "○ offline");
-            online.ForeColor = d.Online ? Color.MediumSeaGreen : Color.Gray;
+            // Offline + recent C2 churn = "flaky" (agent likely alive, just a poor network) rather than dead.
+            var online = item.SubItems.Add(d.Online ? "● online" : d.LinkFlaky ? "◐ " + L.DevicesView_LinkFlaky : "○ offline");
+            online.ForeColor = d.Online ? Color.MediumSeaGreen : d.LinkFlaky ? Color.DarkOrange : Color.Gray;
+            if (d.LinkFlaky && !d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
             item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
             var pip = item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));

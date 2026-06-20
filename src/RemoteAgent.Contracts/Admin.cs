@@ -17,6 +17,18 @@ public sealed class DeviceInfo
     [JsonPropertyName("online")]
     public bool Online { get; set; }
 
+    /// <summary>C2 (re)connections observed for this device in the last hour (server connection registry).
+    /// 0–1 = stable; higher = flaky link (agent likely alive, poor network), not a dead device.</summary>
+    [JsonPropertyName("recentReconnects")]
+    public int RecentReconnects { get; set; }
+
+    /// <summary>Churn at or above this is shown as "flaky" rather than "stable". Shared display threshold.</summary>
+    public const int FlakyReconnectThreshold = 3;
+
+    /// <summary>Derived display flag: the link churns enough to call it flaky. Not serialized.</summary>
+    [JsonIgnore]
+    public bool LinkFlaky => RecentReconnects >= FlakyReconnectThreshold;
+
     [JsonPropertyName("lastSeenAt")]
     public DateTimeOffset? LastSeenAt { get; set; }
 
