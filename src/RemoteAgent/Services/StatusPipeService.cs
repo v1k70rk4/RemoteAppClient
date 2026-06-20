@@ -71,6 +71,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
                 BastionTransport = transport.Transport,
                 ActiveBastionPort = transport.LastWorkingPort,
                 LastServerContactUtc = state.LastServerContactUtc,
+                LastHeartbeatUtc = state.LastHeartbeatUtc,
                 Healthy = state.C2Connected,
                 DeviceId = _deviceId,
             };

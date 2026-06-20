@@ -42,6 +42,7 @@ public sealed class DeviceTelemetryPanel : UserControl
 
         Row(L.DevicesView_Device, d.Hostname);
         Row("Online", d.Online ? "online" : "offline");
+        Row(L.DeviceTelemetryPanel_LinkQuality, d.LinkFlaky ? L.Format(L.DeviceTelemetryPanel_LinkFlakyDetail, d.RecentReconnects) : L.DeviceTelemetryPanel_LinkStable);
         Row(L.DevicesView_LastOnline, d.LastSeenAt?.LocalDateTime.ToString("g"));
         Row(L.BootstrapView_Status, d.Status);
         Row(L.DeviceTelemetryPanel_Channel, string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");

@@ -7,6 +7,7 @@ internal static partial class Strings
     private static readonly Dictionary<string, string> En = new()
     {
         [nameof(SupervisorWorker_AgentHungHeartbeatAbout0)] = "agent hung (heartbeat about {0:F0}s old) - forced restart",
+        [nameof(SupervisorWorker_AgentHungNoHeartbeat)] = "agent hung (heartbeat file missing/unreadable) - forced restart",
         [nameof(SupervisorWorker_RemoteAgentIsNotRunningState)] = "RemoteAgent is not running ({State}) - starting.",
         [nameof(SupervisorWorker_AgentStoppedRestarted)] = "agent stopped -> restarted",
         [nameof(SupervisorWorker_AgentStartFailed)] = "agent start failed",

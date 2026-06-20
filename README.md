@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 1.8.5](#whats-new-in-185)
 - [What's New in 1.8.0](#whats-new-in-180)
 - [What's New in 1.7.0](#whats-new-in-170)
 - [What's New in 1.6.0](#whats-new-in-160)
@@ -54,6 +55,28 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 1.8.5
+
+A fleet **reliability and observability** release. **No database schema change since 1.8.0.**
+
+**Agent liveness over a named pipe**
+- The Helper (updater) now reads agent liveness from the agent's read-only status pipe
+  (`RemoteAgent.status` → `LastHeartbeatUtc`) instead of a heartbeat file, removing a file-race that could
+  report a bogus multi-billion-second "stale heartbeat" and force an unnecessary agent restart.
+- A two-poll confirmation keeps a single transient blip from restarting a healthy agent. The legacy
+  heartbeat file is still written for an older, file-based Helper during a rolling update and **self-retires**
+  once the co-located Helper is the new pipe-aware build.
+
+**Flaky-link detection (observability only)**
+- The device list now tells **"alive but on a poor network"** apart from **"offline / dead"**: a device with
+  frequent C2 reconnects shows as **`◐ flaky`** (amber) instead of **`○ offline`** (grey), with the reconnect
+  count in the tooltip and a *Link* row in the telemetry panel.
+- Computed **server-side** from C2 connection churn (in-memory, last hour). It is **pure observability and
+  never triggers a restart**, needs no schema change, and is backward/forward compatible (older clients
+  ignore the new field; an older server leaves it dormant).
 
 ---
 

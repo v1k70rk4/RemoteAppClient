@@ -620,6 +620,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         Hostname = d.Hostname,
         Status = d.Status.ToString(),
         Online = registry.IsConnected(d.DeviceId),
+        RecentReconnects = registry.RecentReconnects(d.DeviceId),
         LastSeenAt = d.LastSeenAt,
         VncSecret = protector.TryUnprotect(d.VncSecret),
         GroupId = d.GroupId,

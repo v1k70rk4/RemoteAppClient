@@ -7,6 +7,7 @@ internal static partial class Strings
     private static readonly Dictionary<string, string> Hu = new()
     {
         [nameof(SupervisorWorker_AgentHungHeartbeatAbout0)] = "agent beragadt (életjel ~{0:F0}s régi) — kényszerített újraindítás",
+        [nameof(SupervisorWorker_AgentHungNoHeartbeat)] = "agent beragadt (nincs/olvashatatlan életjel-fájl) — kényszerített újraindítás",
         [nameof(SupervisorWorker_RemoteAgentIsNotRunningState)] = "A RemoteAgent nem fut ({State}) — indítás.",
         [nameof(SupervisorWorker_AgentStoppedRestarted)] = "agent leállt → újraindítva",
         [nameof(SupervisorWorker_AgentStartFailed)] = "agent indítása sikertelen",
