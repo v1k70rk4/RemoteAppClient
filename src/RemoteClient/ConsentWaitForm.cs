@@ -19,7 +19,10 @@ public sealed class ConsentWaitForm : MaterialForm
     public ConsentWaitForm(AdminApi api, string nonce)
     {
         _api = api; _nonce = nonce;
-        ThemeManager.Skin.AddFormToManage(this);
+        // NOT AddFormToManage: that makes MaterialSkin re-theme EVERY managed form (greying the redesigned
+        // main window — same bug as the old file-manager window). The MaterialLabel/MaterialButton self-theme
+        // from the shared scheme; set the bg to match so the dialog looks identical without the side effect.
+        BackColor = ThemeManager.Background;
         Text = L.ConsentWaitForm_WaitingForResponse;
         Sizable = false;
         Width = 470; Height = 280;

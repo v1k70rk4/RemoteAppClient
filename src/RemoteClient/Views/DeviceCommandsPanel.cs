@@ -11,10 +11,10 @@ public sealed class DeviceCommandsPanel : UserControl
     private readonly AdminApi _api;
     private readonly string _deviceId;
     private readonly string _host;
-    private readonly MaterialButton _restart = ViewUi.ToolbarButton(L.DeviceCommandsPanel_Restart);
-    private readonly MaterialButton _forceRestart = ViewUi.ToolbarButton(L.DeviceCommandsPanel_ForceRestart, primary: false);
-    private readonly MaterialButton _cancel = ViewUi.ToolbarButton(L.DeviceCommandsPanel_CancelRestart, primary: false);
-    private readonly MaterialButton _logout = ViewUi.ToolbarButton(L.DeviceCommandsPanel_Logout, primary: false);
+    private readonly UiButton _restart = new(L.DeviceCommandsPanel_Restart, UiButton.Style.Outline);
+    private readonly UiButton _forceRestart = new(L.DeviceCommandsPanel_ForceRestart, UiButton.Style.Danger);
+    private readonly UiButton _cancel = new(L.DeviceCommandsPanel_CancelRestart, UiButton.Style.Outline);
+    private readonly UiButton _logout = new(L.DeviceCommandsPanel_Logout, UiButton.Style.Outline);
     private readonly MaterialLabel _status = new() { AutoSize = true, MaximumSize = new Size(460, 0), Margin = new Padding(4, 12, 0, 0) };
 
     public DeviceCommandsPanel(AdminApi api, DeviceInfo d)
@@ -22,23 +22,28 @@ public sealed class DeviceCommandsPanel : UserControl
         _api = api; _deviceId = d.DeviceId;
         _host = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
+        Padding = new Padding(16);
 
         _restart.Click += async (_, _) => await RunAsync("restart", L.Format(L.DeviceCommandsPanel_ConfirmRestart, _host));
         _forceRestart.Click += async (_, _) => await RunAsync("force-restart", L.Format(L.DeviceCommandsPanel_ConfirmForceRestart, _host));
         _cancel.Click += async (_, _) => await RunAsync("cancel", null); // a safe undo, no confirmation
         _logout.Click += async (_, _) => await RunAsync("logout", L.Format(L.DeviceCommandsPanel_ConfirmLogout, _host));
 
-        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
-        void Lbl(string t) => body.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(4, 10, 0, 0) });
-
-        Lbl(L.DeviceCommandsPanel_Help);
-        body.Controls.Add(_restart);
-        body.Controls.Add(_forceRestart);
-        body.Controls.Add(_cancel);
-        body.Controls.Add(new MaterialDivider { Width = 440, Margin = new Padding(4, 16, 4, 8) });
-        body.Controls.Add(_logout);
-        body.Controls.Add(_status);
-        Controls.Add(body);
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_Restart, L.DeviceCommandsPanel_RestartDesc, _restart) { Dock = DockStyle.Fill }, 0, 0);
+        grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_ForceRestart, L.DeviceCommandsPanel_ForceRestartDesc, _forceRestart) { Dock = DockStyle.Fill }, 1, 0);
+        grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_CancelRestart, L.DeviceCommandsPanel_CancelDesc, _cancel) { Dock = DockStyle.Fill }, 0, 1);
+        grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_Logout, L.DeviceCommandsPanel_LogoutDesc, _logout) { Dock = DockStyle.Fill }, 1, 1);
+        _status.Margin = new Padding(6, 12, 0, 0);
+        grid.Controls.Add(_status, 0, 2);
+        grid.SetColumnSpan(_status, 2);
+        Controls.Add(grid);
     }
 
     private async Task RunAsync(string action, string? confirm)

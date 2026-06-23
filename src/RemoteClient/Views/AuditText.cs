@@ -1,3 +1,4 @@
+using System.Drawing;
 using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
@@ -86,4 +87,46 @@ internal static class AuditText
 
     /// <summary>Successful access without consent, highlighted in orange.</summary>
     public static bool IsNoConsent(string action) => action == "connect-auto";
+
+    /// <summary>
+    /// A short colored category chip for the redesigned log rows: a terse uppercase tag + a fg/bg pair driven
+    /// by the event's severity (denials red, no-consent orange, rollouts purple, good outcomes green, …).
+    /// </summary>
+    public static (string Tag, Color Fg, Color Bg) Chip(string action)
+    {
+        var (fg, bg) = Palette(action);
+        return (Tag(action), fg, bg);
+    }
+
+    private static string Tag(string action) => action switch
+    {
+        "connect" or "connect-auto" or "access-denied" or "access-timeout" or "access-no-user"
+            or "access-no-answer" or "access-busy" or "access-available" or "access-scheduled"
+            or "access-cancelled" or "access-logged-out" or "access-failed" or "access-locked" => L.AuditText_TagAccess,
+        "device-power" => L.AuditText_TagCommand,
+        "device-message" or "access-delivered" => L.AuditText_TagMessage,
+        "device.enrolled" or "device-update" or "device-delete" or "device-unlock" or "device-locked"
+            or "bootstrap-create" => L.AuditText_TagDevice,
+        "login-failed" or "user-create" or "user-update" or "user-reset-password" or "user-password-reset-self"
+            or "user-totp-clear" or "user-revoke-sessions" or "password-code-requested"
+            or "password-code-failed" or "password-reset-failed" => L.AuditText_TagAuth,
+        "rollout" or "promote" or "package-upload" or "msi-build" => L.AuditText_TagUpdate,
+        "token-revoke" or "token-delete" or "token-edit" or "settings-update" or "settings-test-email" => L.AuditText_TagSystem,
+        _ => L.AuditText_TagEvent,
+    };
+
+    private static (Color, Color) Palette(string action)
+    {
+        if (IsNegative(action)) return (ThemeManager.DangerFg, ThemeManager.DangerBg);
+        if (IsNoConsent(action)) return (ThemeManager.WarnFg, ThemeManager.WarnBg);
+        return action switch
+        {
+            "rollout" or "promote" or "package-upload" or "msi-build" => (ThemeManager.BetaFg, ThemeManager.BetaBg),
+            "access-available" or "access-scheduled" or "access-cancelled" or "access-logged-out"
+                or "access-delivered" or "device.enrolled" or "device-unlock" => (ThemeManager.OkFg, ThemeManager.OkBg),
+            "token-revoke" or "token-delete" or "token-edit" or "settings-update" or "settings-test-email"
+                => (ThemeManager.Text2, ThemeManager.Panel3),
+            _ => (ThemeManager.Accent, ThemeManager.AccentSoft),
+        };
+    }
 }

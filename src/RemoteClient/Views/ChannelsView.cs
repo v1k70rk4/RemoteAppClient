@@ -6,26 +6,26 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Release channels in two tables (RTM | BETA), with current version per component and a "Released"
-/// flag indicating whether all updatable approved devices on the channel have the package version.
-/// Rollout/Promote sit below the tables. EXE upload and MSI build open as in-window editors.
+/// Release channels: RTM | BETA component cards (owner-drawn tables + Rollout/Promote) over a wide
+/// device component-versions table, with Upload EXE / Build MSI editors. See design_handoff_console_redesign.
 /// </summary>
 public sealed class ChannelsView : UserControl, IContentView
 {
     private readonly AdminApi _api;
-    private readonly Panel _mainHost = new() { Dock = DockStyle.Fill };
-    private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
-    private readonly ListView _rtmList = NewList();
-    private readonly ListView _betaList = NewList();
-    private readonly ListView _deviceVerList = NewDeviceList();
+    private readonly Panel _mainHost = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 14, 22, 12) };
+    private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 12, 22, 18), Visible = false };
+    private readonly OwnerList _rtmList = new(40);
+    private readonly OwnerList _betaList = new(40);
+    private readonly OwnerList _deviceVerList = new(44);
     private readonly List<DeviceInfo> _devices = new();
-    private int _devSortCol = -1;
-    private bool _devSortAsc = true;
+    private readonly List<ChannelPackageInfo> _rtmPkgs = new();
+    private readonly List<ChannelPackageInfo> _betaPkgs = new();
     private readonly System.Windows.Forms.Timer _devTimer = new() { Interval = 30000 };
     private bool _devRefreshing;
-    private readonly MaterialLabel _status = new();
+    private readonly MaterialLabel _status = new() { Dock = DockStyle.Fill };
 
-    private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
+    private readonly IconButton _back = new("chevron");
+    private string _editorTitle = "";
     private readonly Panel _editorContent = new() { Dock = DockStyle.Fill };
     private Control? _editorPanel;
 
@@ -33,13 +33,12 @@ public sealed class ChannelsView : UserControl, IContentView
     {
         _api = api;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
         BuildMain();
         BuildEditor();
         Controls.Add(_editorHost);
         Controls.Add(_mainHost);
-        ApplyTheme();
 
-        // Keep the device component-versions table current while this view's main page is shown.
         _devTimer.Tick += async (_, _) => { if (_mainHost.Visible) await RefreshDevicesAsync(); };
         _devTimer.Start();
     }
@@ -52,105 +51,127 @@ public sealed class ChannelsView : UserControl, IContentView
 
     private void BuildMain()
     {
-        var rtmBtns = ViewUi.Toolbar();
-        var rolloutRtm = ViewUi.ToolbarButton("Rollout RTM");
-        rolloutRtm.Click += async (_, _) => await RolloutChannelAsync("rtm", _rtmList);
-        rtmBtns.Controls.Add(rolloutRtm);
+        _rtmList.SetColumns(ChanCols());
+        _betaList.SetColumns(ChanCols());
+        _rtmList.PaintRow += PaintPkgRow;
+        _betaList.PaintRow += PaintPkgRow;
 
-        var betaBtns = ViewUi.Toolbar();
-        var rolloutBeta = ViewUi.ToolbarButton("Rollout BETA");
-        rolloutBeta.Click += async (_, _) => await RolloutChannelAsync("beta", _betaList);
-        var promote = ViewUi.ToolbarButton("Promote → RTM", primary: false);
-        promote.Click += async (_, _) => await PromoteChannelAsync();
-        betaBtns.Controls.AddRange([rolloutBeta, promote]);
+        _deviceVerList.SetColumns(
+            new OwnerList.Col(L.DevicesView_Device, 220), new OwnerList.Col(L.DeviceTelemetryPanel_Channel, 90),
+            new OwnerList.Col(L.DevicesView_Update, 150), new OwnerList.Col("Agent", 110),
+            new OwnerList.Col("Client", 110), new OwnerList.Col("Updater", 110), new OwnerList.Col("VNC", 92));
+        _deviceVerList.PaintRow += PaintDevRow;
 
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Top, Height = 252, ColumnCount = 2, RowCount = 1, BackColor = ThemeManager.Bg };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        grid.Controls.Add(ChannelCard("RTM", _rtmList, rtmBtns), 0, 0);
-        grid.Controls.Add(ChannelCard("BETA", _betaList, betaBtns), 1, 0);
+        grid.Controls.Add(ChannelColumn("RTM", _rtmList, false, () => _ = RolloutChannelAsync("rtm", _rtmList, _rtmPkgs), null), 0, 0);
+        grid.Controls.Add(ChannelColumn("BETA", _betaList, true, () => _ = RolloutChannelAsync("beta", _betaList, _betaPkgs), () => _ = PromoteChannelAsync()), 1, 0);
 
-        var bottom = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 4, 8, 4) };
-        var upload = ViewUi.ToolbarButton(L.ChannelsView_UploadExe, primary: false); upload.Margin = new Padding(4, 0, 8, 0);
+        var dev = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.Bg };
+        var devLabel = new Panel { Dock = DockStyle.Top, Height = 30, BackColor = ThemeManager.Bg };
+        devLabel.Paint += (_, e) => TextRenderer.DrawText(e.Graphics, L.ChannelsView_DeviceVersions, UiFont.SectionTitle, new Rectangle(2, 4, 400, 20), ThemeManager.Text, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+        _deviceVerList.Dock = DockStyle.Fill;
+        dev.Controls.Add(_deviceVerList);
+        dev.Controls.Add(devLabel);
+
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 50, BackColor = ThemeManager.Bg };
+        var upload = new UiButton(L.ChannelsView_UploadExe, UiButton.Style.Outline) { Location = new Point(0, 8) };
         upload.Click += (_, _) => OpenUpload();
-        var msi = ViewUi.ToolbarButton(L.ChannelsView_BuildMSI, primary: false); msi.Margin = new Padding(4, 0, 8, 0);
+        var msi = new UiButton(L.ChannelsView_BuildMSI, UiButton.Style.Outline) { Location = new Point(upload.Width + 10, 8) };
         msi.Click += async (_, _) => await OpenMsiAsync();
-        bottom.Controls.AddRange([upload, msi]);
+        bottom.Controls.Add(upload);
+        bottom.Controls.Add(msi);
 
-        // Device versions table (wide, sortable) under the channel tables.
-        _deviceVerList.ColumnClick += (_, e) => { if (_devSortCol == e.Column) _devSortAsc = !_devSortAsc; else { _devSortCol = e.Column; _devSortAsc = true; } FillDevices(); };
-        var devCard = new MaterialCard { Dock = DockStyle.Fill, Margin = new Padding(6), Padding = new Padding(0) };
-        var devHead = new MaterialLabel { Text = L.ChannelsView_DeviceVersions, Font = new Font("Segoe UI", 12F, FontStyle.Bold), Dock = DockStyle.Top, Height = 30, Padding = new Padding(12, 6, 0, 0) };
-        devCard.Controls.Add(_deviceVerList);
-        devCard.Controls.Add(devHead);
+        var statusHost = new Panel { Dock = DockStyle.Bottom, Height = 22, BackColor = ThemeManager.Bg };
+        statusHost.Controls.Add(_status);
 
-        // Channel tables fixed (~5 rows) on top; the wide device table fills the rest; buttons/status below.
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = new Padding(0), Padding = new Padding(0) };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 200));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        grid.Dock = DockStyle.Fill;
-        bottom.Dock = DockStyle.Fill;
-        var statusHost = ViewUi.StatusHost(_status); statusHost.Dock = DockStyle.Fill;
-        root.Controls.Add(grid, 0, 0);
-        root.Controls.Add(devCard, 0, 1);
-        root.Controls.Add(bottom, 0, 2);
-        root.Controls.Add(statusHost, 0, 3);
-        _mainHost.Controls.Add(root);
+        _mainHost.Controls.Add(dev);
+        _mainHost.Controls.Add(bottom);
+        _mainHost.Controls.Add(statusHost);
+        _mainHost.Controls.Add(grid);
+    }
+
+    private static OwnerList.Col[] ChanCols() =>
+    [
+        new OwnerList.Col(L.ChannelsView_Component, 150), new OwnerList.Col(L.ChannelsView_Version, 92),
+        new OwnerList.Col(L.ChannelsView_Uploaded, 140), new OwnerList.Col(L.ChannelsView_Released, 70),
+    ];
+
+    private Panel ChannelColumn(string name, OwnerList list, bool isBeta, Action rollout, Action? promote)
+    {
+        var col = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.Bg, Margin = new Padding(0, 0, isBeta ? 0 : 8, 0) };
+        var header = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = ThemeManager.Bg };
+        header.Paint += (_, e) =>
+        {
+            var (fg, bg) = isBeta ? (ThemeManager.BetaFg, ThemeManager.BetaBg) : (ThemeManager.Text2, ThemeManager.Panel3);
+            UiPaint.DrawPill(e.Graphics, 2, 22, name, fg, bg, UiFont.Label, false);
+        };
+        var roll = new UiButton($"Rollout {name}", UiButton.Style.Filled);
+        roll.Click += (_, _) => rollout();
+        header.Controls.Add(roll);
+        UiButton? prom = null;
+        if (promote is not null)
+        {
+            prom = new UiButton("Promote → RTM", UiButton.Style.Outline);
+            prom.Click += (_, _) => promote();
+            header.Controls.Add(prom);
+        }
+        header.Resize += (_, _) =>
+        {
+            roll.Location = new Point(header.Width - roll.Width, 4);
+            if (prom is not null) prom.Location = new Point(roll.Left - 8 - prom.Width, 4);
+        };
+        list.Dock = DockStyle.Fill;
+        col.Controls.Add(list);
+        col.Controls.Add(header);
+        return col;
+    }
+
+    private void PaintPkgRow(object? sender, RowPaintEventArgs e)
+    {
+        var p = (ChannelPackageInfo)e.Item;
+        e.Text(0, Cap(p.Component), UiFont.Body, ThemeManager.Text);
+        e.Text(1, p.Version, UiFont.Mono, ThemeManager.Text2);
+        e.Text(2, p.UploadedAt.LocalDateTime.ToString("yyyy.MM.dd HH:mm"), UiFont.MonoSmall, ThemeManager.Text3);
+        bool rel = RolledOut(p.Channel, p.Component, p.Version, _devices);
+        var c3 = e.Cell(3);
+        TextRenderer.DrawText(e.G, rel ? "✓" : "—", UiFont.MonoSemi, new Rectangle(c3.Left, c3.Top, 30, c3.Height),
+            rel ? ThemeManager.OkFg : ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+    }
+
+    private void PaintDevRow(object? sender, RowPaintEventArgs e)
+    {
+        var d = (DeviceInfo)e.Item;
+        e.Text(0, string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname, UiFont.MonoSemi, ThemeManager.Text);
+        bool beta = string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase);
+        var (cfg, cbg) = beta ? (ThemeManager.BetaFg, ThemeManager.BetaBg) : (ThemeManager.Text2, ThemeManager.Panel3);
+        UiPaint.DrawPill(e.G, e.Cell(1).Left, e.Cy, beta ? "BETA" : "rtm", cfg, cbg, UiFont.Label, false);
+        e.Text(2, d.UpdatePending ? "✓ " + (d.UpdatePendingInfo ?? "") : "—", UiFont.Mono, d.UpdatePending ? ThemeManager.WarnFg : ThemeManager.Text3);
+        e.Text(3, S(d.AgentVersion), UiFont.Mono, ThemeManager.Text2);
+        e.Text(4, S(d.ClientVersion), UiFont.Mono, ThemeManager.Text2);
+        e.Text(5, S(d.HelperVersion), UiFont.Mono, ThemeManager.Text2);
+        e.Text(6, S(d.VncVersion), UiFont.Mono, ThemeManager.Text2);
     }
 
     private void BuildEditor()
     {
-        var back = ViewUi.ToolbarButton(L.ChannelsView_Back, primary: false);
-        back.Click += async (_, _) => { ShowMain(); await RefreshAsync(); };
-        var general = new MaterialButton { Text = L.ChannelsView_General, AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Contained };
-        var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, general]);
-        _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _editorContent));
+        _back.SetBounds(0, 8, 36, 36);
+        _back.Click += async (_, _) => { ShowMain(); await RefreshAsync(); };
+        var header = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = ThemeManager.Bg };
+        header.Controls.Add(_back);
+        header.Paint += (_, e) => TextRenderer.DrawText(e.Graphics, _editorTitle, UiFont.PageTitle,
+            new Rectangle(48, 0, header.Width - 48, 46), ThemeManager.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        _editorHost.Controls.Add(_editorContent);
+        _editorHost.Controls.Add(header);
     }
 
-    private static ListView NewList()
-    {
-        var l = new ListView { View = View.Details, FullRowSelect = true, MultiSelect = false, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill };
-        l.Columns.Add(L.ChannelsView_Component, 100);
-        l.Columns.Add(L.ChannelsView_Version, 65);
-        l.Columns.Add(L.ChannelsView_Uploaded, 125);
-        l.Columns.Add(L.ChannelsView_Released, 70);
-        return l;
-    }
-
-    private static ListView NewDeviceList()
-    {
-        var l = new ListView { View = View.Details, FullRowSelect = true, MultiSelect = false, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill };
-        l.Columns.Add(L.DevicesView_Device, 170);
-        l.Columns.Add(L.DeviceTelemetryPanel_Channel, 80);
-        l.Columns.Add(L.DevicesView_Update, 150);
-        l.Columns.Add("Agent", 80);
-        l.Columns.Add("Client", 80);
-        l.Columns.Add("Updater", 80);
-        l.Columns.Add("VNC", 70);
-        return l;
-    }
-
-    private static MaterialCard ChannelCard(string title, ListView list, FlowLayoutPanel buttons)
-    {
-        var card = new MaterialCard { Dock = DockStyle.Fill, Margin = new Padding(6), Padding = new Padding(0) };
-        var head = new MaterialLabel { Text = title, Font = new Font("Segoe UI", 12F, FontStyle.Bold), Dock = DockStyle.Top, Height = 30, Padding = new Padding(12, 6, 0, 0) };
-        buttons.Dock = DockStyle.Bottom; buttons.AutoSize = true; buttons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        card.Controls.Add(list);
-        card.Controls.Add(buttons);
-        card.Controls.Add(head);
-        return card;
-    }
-
-    public void ApplyTheme() { ThemeManager.StyleView(this, _rtmList); ThemeManager.StyleList(_betaList); ThemeManager.StyleList(_deviceVerList); }
+    public void ApplyTheme() { BackColor = _mainHost.BackColor = _editorHost.BackColor = ThemeManager.Bg; Invalidate(true); }
 
     public async Task OnShownAsync() { ShowMain(); await RefreshAsync(); }
 
     private void ShowMain() { _editorHost.Visible = false; _mainHost.Visible = true; _mainHost.BringToFront(); }
-    private void ShowEditor() { _mainHost.Visible = false; _editorHost.Visible = true; _editorHost.BringToFront(); }
+    private void ShowEditor() { _mainHost.Visible = false; _editorHost.Visible = true; _editorHost.BringToFront(); _editorHost.Invalidate(true); }
 
     private async Task RefreshAsync()
     {
@@ -159,15 +180,14 @@ public sealed class ChannelsView : UserControl, IContentView
             var ch = await _api.GetChannelsAsync();
             var devices = await _api.GetDevicesAsync();
             _devices.Clear(); _devices.AddRange(devices);
-            Fill(_rtmList, ch.Where(p => string.Equals(p.Channel, "rtm", StringComparison.OrdinalIgnoreCase)), devices);
-            Fill(_betaList, ch.Where(p => string.Equals(p.Channel, "beta", StringComparison.OrdinalIgnoreCase)), devices);
+            FillChannel(_rtmList, _rtmPkgs, ch.Where(p => string.Equals(p.Channel, "rtm", StringComparison.OrdinalIgnoreCase)));
+            FillChannel(_betaList, _betaPkgs, ch.Where(p => string.Equals(p.Channel, "beta", StringComparison.OrdinalIgnoreCase)));
             FillDevices();
-            _status.Text = ch.Count == 0 ? L.ChannelsView_NoPackagesHaveBeenUploaded : L.Format(L.ChannelsView_RTMBETAComponents, _rtmList.Items.Count, _betaList.Items.Count);
+            _status.Text = ch.Count == 0 ? L.ChannelsView_NoPackagesHaveBeenUploaded : L.Format(L.ChannelsView_RTMBETAComponents, _rtmPkgs.Count, _betaPkgs.Count);
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
-    /// <summary>Re-fetches devices and refills only the versions table (leaves the RTM/BETA selection intact).</summary>
     private async Task RefreshDevicesAsync()
     {
         if (_devRefreshing) return;
@@ -178,66 +198,31 @@ public sealed class ChannelsView : UserControl, IContentView
             _devices.Clear(); _devices.AddRange(devices);
             FillDevices();
         }
-        catch { /* transient; refreshed again on the next tick */ }
+        catch { /* transient; refreshed on the next tick */ }
         finally { _devRefreshing = false; }
     }
 
-    private static void Fill(ListView list, IEnumerable<ChannelPackageInfo> items, List<DeviceInfo> devices)
+    private static void FillChannel(OwnerList list, List<ChannelPackageInfo> store, IEnumerable<ChannelPackageInfo> items)
     {
+        store.Clear();
+        store.AddRange(items.OrderBy(p => p.Component));
         list.BeginUpdate();
-        list.Items.Clear();
-        foreach (var p in items.OrderBy(p => p.Component))
-        {
-            var it = new ListViewItem(p.Component) { Tag = p, UseItemStyleForSubItems = false };
-            it.SubItems.Add(p.Version);
-            it.SubItems.Add(p.UploadedAt.LocalDateTime.ToString("yyyy.MM.dd HH:mm"));
-            var rolled = it.SubItems.Add(RolledOut(p.Channel, p.Component, p.Version, devices) ? "✓" : "—");
-            rolled.ForeColor = rolled.Text == "✓" ? Color.MediumSeaGreen : Color.Gray;
-            list.Items.Add(it);
-        }
+        list.Clear();
+        foreach (var p in store) list.Add(p);
         list.EndUpdate();
     }
 
     private void FillDevices()
     {
-        IEnumerable<DeviceInfo> items = _devices;
-        if (_devSortCol >= 0)
-        {
-            Func<DeviceInfo, string> key = _devSortCol switch
-            {
-                1 => d => d.Channel ?? "",
-                2 => d => d.UpdatePending ? (d.UpdatePendingInfo ?? "~") : "",
-                3 => d => d.AgentVersion ?? "",
-                4 => d => d.ClientVersion ?? "",
-                5 => d => d.HelperVersion ?? "",
-                6 => d => d.VncVersion ?? "",
-                _ => d => d.Hostname ?? "",
-            };
-            items = _devSortAsc
-                ? _devices.OrderBy(key, StringComparer.OrdinalIgnoreCase)
-                : _devices.OrderByDescending(key, StringComparer.OrdinalIgnoreCase);
-        }
-
         _deviceVerList.BeginUpdate();
-        _deviceVerList.Items.Clear();
-        foreach (var d in items)
-        {
-            var it = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname) { Tag = d, UseItemStyleForSubItems = false };
-            it.SubItems.Add(string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
-            var upd = it.SubItems.Add(d.UpdatePending ? "✓ " + (d.UpdatePendingInfo ?? "") : "—");
-            if (d.UpdatePending) upd.ForeColor = Color.Gray;
-            it.SubItems.Add(S(d.AgentVersion));
-            it.SubItems.Add(S(d.ClientVersion));
-            it.SubItems.Add(S(d.HelperVersion));
-            it.SubItems.Add(S(d.VncVersion));
-            _deviceVerList.Items.Add(it);
-        }
+        _deviceVerList.Clear();
+        foreach (var d in _devices.OrderBy(d => d.Hostname, StringComparer.OrdinalIgnoreCase)) _deviceVerList.Add(d);
         _deviceVerList.EndUpdate();
     }
 
     private static string S(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+    private static string Cap(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s[1..];
 
-    /// <summary>Whether all updatable approved devices on the channel are on the package version (= released).</summary>
     private static bool RolledOut(string channel, string comp, string version, List<DeviceInfo> devices)
     {
         var relevant = devices.Where(d =>
@@ -256,22 +241,15 @@ public sealed class ChannelsView : UserControl, IContentView
         _ => d.AgentVersion,
     }) ?? "";
 
-    private static string? SelectedComp(ListView list) =>
-        list.SelectedItems.Count == 0 ? null : ((ChannelPackageInfo)list.SelectedItems[0].Tag!).Component;
+    private static string? SelectedComp(OwnerList list) => (list.Selected as ChannelPackageInfo)?.Component;
 
-    private static string[] AllComps(ListView list) =>
-        list.Items.Cast<ListViewItem>().Select(i => ((ChannelPackageInfo)i.Tag!).Component).ToArray();
-
-    private async Task RolloutChannelAsync(string channel, ListView list)
+    private async Task RolloutChannelAsync(string channel, OwnerList list, List<ChannelPackageInfo> pkgs)
     {
         var sel = SelectedComp(list);
-        var comps = sel is not null ? [sel] : AllComps(list);
+        var comps = sel is not null ? new[] { sel } : pkgs.Select(p => p.Component).ToArray();
         if (comps.Length == 0) { _status.Text = L.ChannelsView_NoPackageOnThisChannel; return; }
-        var what = sel is not null
-            ? L.Format(L.ChannelsView_X, sel)
-            : L.Format(L.ChannelsView_ALL, string.Join(", ", comps));
-        if (MessageBox.Show(L.Format(L.ChannelsView_ReleaseTheChannelSComponent, channel.ToUpperInvariant(), what),
-                "Rollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        var what = sel is not null ? L.Format(L.ChannelsView_X, sel) : L.Format(L.ChannelsView_ALL, string.Join(", ", comps));
+        if (MessageBox.Show(L.Format(L.ChannelsView_ReleaseTheChannelSComponent, channel.ToUpperInvariant(), what), "Rollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         var done = new List<string>();
         foreach (var c in comps)
@@ -285,13 +263,10 @@ public sealed class ChannelsView : UserControl, IContentView
     private async Task PromoteChannelAsync()
     {
         var sel = SelectedComp(_betaList);
-        var comps = sel is not null ? [sel] : AllComps(_betaList);
+        var comps = sel is not null ? new[] { sel } : _betaPkgs.Select(p => p.Component).ToArray();
         if (comps.Length == 0) { _status.Text = L.ChannelsView_NoPackageOnTheBETA; return; }
-        var what = sel is not null
-            ? L.Format(L.ChannelsView_X, sel)
-            : L.Format(L.ChannelsView_ALL, string.Join(", ", comps));
-        if (MessageBox.Show(L.Format(L.ChannelsView_PromoteTheCurrentBETAComponent, what),
-                "Promote → RTM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        var what = sel is not null ? L.Format(L.ChannelsView_X, sel) : L.Format(L.ChannelsView_ALL, string.Join(", ", comps));
+        if (MessageBox.Show(L.Format(L.ChannelsView_PromoteTheCurrentBETAComponent, what), "Promote → RTM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         var done = new List<string>();
         foreach (var c in comps)
@@ -308,7 +283,7 @@ public sealed class ChannelsView : UserControl, IContentView
         try
         {
             var groups = await _api.GetGroupsAsync();
-            _editorTitle.Text = L.ChannelsView_BuildMSI_2;
+            _editorTitle = L.ChannelsView_BuildMSI_2;
             SetEditor(new MsiPanel(_api, groups));
             ShowEditor();
         }
@@ -317,7 +292,7 @@ public sealed class ChannelsView : UserControl, IContentView
 
     private void OpenUpload()
     {
-        _editorTitle.Text = L.ChannelsView_ExeUpload;
+        _editorTitle = L.ChannelsView_ExeUpload;
         var panel = new UploadPanel(_api);
         panel.Uploaded += async () => { ShowMain(); await RefreshAsync(); };
         SetEditor(panel);

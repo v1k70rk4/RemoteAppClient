@@ -12,7 +12,8 @@ public sealed class CredentialDialog : MaterialForm
         string? secretLabel = null, string? infoText = null)
     {
         secretLabel ??= L.CredentialDialog_TemporaryPassword;
-        ThemeManager.Skin.AddFormToManage(this);
+        // Not AddFormToManage: it re-themes (greys) the redesigned main window. Material controls self-theme.
+        BackColor = ThemeManager.Background;
         Text = title;
         Sizable = false;
         Width = 460; Height = 340;

@@ -6,91 +6,104 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Device groups: list plus in-window editor (Back | General). Search+refresh at top,
-/// Edit+Delete below the table on the right, New group below on the left.
+/// Device groups: redesigned list (search + Create new group + owner-drawn card table) plus an in-window
+/// editor (back + title + GroupGeneralPanel card). See design_handoff_console_redesign.
 /// </summary>
 public sealed class GroupsView : UserControl, IContentView
 {
     private readonly AdminApi _api;
-
-    private readonly Panel _listHost = new() { Dock = DockStyle.Fill };
-    private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
-    private readonly ListView _list = new();
-    private readonly MaterialLabel _status = new();
-    private readonly MaterialTextBox2 _search = new() { Hint = L.GroupsView_SearchGroupName, Width = 360 };
+    private readonly Panel _listHost = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 14, 22, 12) };
+    private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 14, 22, 18), Visible = false };
+    private readonly OwnerList _list = new(50);
+    private readonly TextField _search = new(L.GroupsView_SearchGroupName, 340, false, "search");
+    private readonly MaterialLabel _status = new() { Dock = DockStyle.Fill };
     private readonly List<GroupInfo> _groups = new();
     private Dictionary<string, int> _counts = new();
 
-    // Editor
-    private readonly MaterialButton _tabGeneral = new() { Text = L.ChannelsView_General, AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Contained };
-    private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
-    private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
+    private readonly Panel _editorBody = new() { Dock = DockStyle.Fill };
+    private readonly IconButton _back = new("chevron");
+    private string _editorTitle = "";
     private GroupGeneralPanel? _generalPanel;
 
     public GroupsView(AdminApi api)
     {
         _api = api;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
         BuildList();
         BuildEditor();
         Controls.Add(_editorHost);
         Controls.Add(_listHost);
-        ApplyTheme();
     }
 
     private void BuildList()
     {
-        var tools = ViewUi.Toolbar();
-        _search.Margin = new Padding(4, 0, 16, 0);
-        _search.TextChanged += (_, _) => RenderList();
-        tools.Controls.Add(_search);
-        var refresh = ViewUi.ToolbarButton(L.AboutView_Refresh, primary: false);
-        refresh.Click += async (_, _) => await RefreshAsync();
-        tools.Controls.Add(refresh);
+        _search.Location = new Point(0, 8);
+        _search.Changed += (_, _) => RenderList();
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
-        _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.BootstrapView_Group, 220);
-        _list.Columns.Add(L.GroupsView_ConsentRequired, 110);
-        _list.Columns.Add("Unattended", 110);
-        _list.Columns.Add(L.GroupsView_Devices, 80);
-        _list.DoubleClick += (_, _) => EditSelected();
+        var newBtn = new UiButton(L.GroupsView_CreateNewGroup, UiButton.Style.Filled, "plus");
+        newBtn.Click += (_, _) => OpenEditor(null);
 
-        // Below table, right: Edit + Delete for selected group.
-        var actionRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
-        var del = ViewUi.ToolbarButton(L.BootstrapView_Delete, primary: false); del.Margin = new Padding(4, 0, 4, 0);
-        del.Click += async (_, _) => await DeleteSelectedAsync();
-        var edit = ViewUi.ToolbarButton(L.GroupsView_Edit); edit.Margin = new Padding(4, 0, 4, 0);
-        edit.Click += (_, _) => EditSelected();
-        actionRow.Controls.Add(del);   // right side
-        actionRow.Controls.Add(edit);  // to its left
+        var toolbar = new Panel { Dock = DockStyle.Top, Height = 54, BackColor = ThemeManager.Bg };
+        toolbar.Controls.Add(_search);
+        toolbar.Controls.Add(newBtn);
+        toolbar.Resize += (_, _) => newBtn.Location = new Point(toolbar.Width - newBtn.Width, 8);
 
-        // Below, left: create new group as a list-level action independent of selection.
-        var newRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
-        var newBtn = ViewUi.ToolbarButton(L.GroupsView_CreateNewGroup); newBtn.Margin = new Padding(4, 0, 4, 0);
-        newBtn.Click += (_, _) => NewGroup();
-        newRow.Controls.Add(newBtn);
+        _list.Dock = DockStyle.Fill;
+        _list.SetColumns(
+            new OwnerList.Col(L.BootstrapView_Group, 240),
+            new OwnerList.Col(L.GroupsView_ConsentRequired, 160),
+            new OwnerList.Col("Unattended", 130),
+            new OwnerList.Col(L.GroupsView_Devices, 90, Right: true));
+        _list.PaintRow += PaintGroupRow;
+        _list.RowActivated += item => OpenEditor((GroupInfo)item);
 
-        _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, actionRow, newRow, ViewUi.StatusHost(_status)));
+        var statusHost = new Panel { Dock = DockStyle.Bottom, Height = 22, BackColor = ThemeManager.Bg };
+        statusHost.Controls.Add(_status);
+
+        _listHost.Controls.Add(_list);
+        _listHost.Controls.Add(statusHost);
+        _listHost.Controls.Add(toolbar);
+    }
+
+    private void PaintGroupRow(object? sender, RowPaintEventArgs e)
+    {
+        var grp = (GroupInfo)e.Item;
+        var c0 = e.Cell(0);
+        var tile = new Rectangle(c0.Left, e.Cy - 15, 30, 30);
+        UiPaint.FillRoundedRect(e.G, tile, 8, ThemeManager.Panel3);
+        UiIcons.Draw(e.G, "layers", new RectangleF(tile.X + 7, tile.Y + 7, 16, 16), ThemeManager.Text2);
+        TextRenderer.DrawText(e.G, grp.Name, UiFont.BodySemi, new Rectangle(tile.Right + 11, c0.Top, c0.Right - tile.Right - 11, c0.Height),
+            ThemeManager.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+
+        e.Text(1, grp.ConsentRequired ? L.Common_Yes : "—", UiFont.Body, grp.ConsentRequired ? ThemeManager.OkFg : ThemeManager.Text3);
+        e.Text(2, grp.UnattendedAllowed ? L.Common_Yes : L.DeviceGeneralPanel_No_2, UiFont.Body, grp.UnattendedAllowed ? ThemeManager.Text : ThemeManager.Text3);
+        e.Text(3, _counts.TryGetValue(grp.Name, out var c) ? c.ToString() : "0", UiFont.MonoSemi, ThemeManager.Text);
     }
 
     private void BuildEditor()
     {
-        var back = ViewUi.ToolbarButton(L.ChannelsView_Back, primary: false);
-        back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
-        var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral]);
-        _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _tabContent));
+        _back.SetBounds(0, 8, 36, 36);
+        _back.Click += (_, _) => { ShowList(); _ = RefreshAsync(); };
+        var header = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = ThemeManager.Bg };
+        header.Controls.Add(_back);
+        header.Paint += (_, e) => TextRenderer.DrawText(e.Graphics, _editorTitle, UiFont.PageTitle,
+            new Rectangle(48, 0, header.Width - 48, 46), ThemeManager.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+        _editorHost.Controls.Add(_editorBody);
+        _editorHost.Controls.Add(header);
     }
 
-    public void ApplyTheme() => ThemeManager.StyleView(this, _list);
+    public void ApplyTheme()
+    {
+        BackColor = _listHost.BackColor = _editorHost.BackColor = ThemeManager.Bg;
+        Invalidate(true);
+    }
 
     public async Task OnShownAsync() { ShowList(); await RefreshAsync(); }
 
     private void ShowList() { _editorHost.Visible = false; _listHost.Visible = true; _listHost.BringToFront(); }
     private void ShowEditor() { _listHost.Visible = false; _editorHost.Visible = true; _editorHost.BringToFront(); }
-
-    private GroupInfo? Selected() => _list.SelectedItems.Count == 0 ? null : (GroupInfo)_list.SelectedItems[0].Tag!;
 
     private async Task RefreshAsync()
     {
@@ -109,55 +122,33 @@ public sealed class GroupsView : UserControl, IContentView
 
     private void RenderList()
     {
-        var q = _search.Text.Trim();
+        var q = _search.Query;
         IEnumerable<GroupInfo> items = _groups;
         if (q.Length > 0) items = _groups.Where(g => g.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
 
         _list.BeginUpdate();
-        _list.Items.Clear();
-        foreach (var g in items)
-        {
-            var item = new ListViewItem(g.Name) { Tag = g };
-            item.SubItems.Add(g.ConsentRequired ? L.Common_Yes : "—");
-            item.SubItems.Add(g.UnattendedAllowed ? L.Common_Yes : L.DeviceGeneralPanel_No_2);
-            item.SubItems.Add(_counts.TryGetValue(g.Name, out var c) ? c.ToString() : "0");
-            _list.Items.Add(item);
-        }
+        _list.Clear();
+        foreach (var g in items) _list.Add(g);
         _list.EndUpdate();
     }
 
-    private void EditSelected()
-    {
-        if (Selected() is not { } g) { _status.Text = L.GroupsView_SelectAGroup; return; }
-        OpenEditor(g);
-    }
-
-    private void NewGroup() => OpenEditor(null);
-
     private void OpenEditor(GroupInfo? g)
     {
-        _editorTitle.Text = g is null ? L.GroupsView_NewGroup : L.Format(L.GroupsView_Group, g.Name);
+        _editorTitle = g is null ? L.GroupsView_NewGroup : L.Format(L.GroupsView_Group, g.Name);
         _generalPanel?.Dispose();
         _generalPanel = new GroupGeneralPanel(_api, g);
         _generalPanel.Saved += OnSaved;
-        _tabContent.Controls.Clear();
-        _tabContent.Controls.Add(_generalPanel);
+        _generalPanel.Cancelled += () => { ShowList(); _ = RefreshAsync(); };
+        _generalPanel.Deleted += () => { ShowList(); _ = RefreshAsync(); };
+        _editorBody.Controls.Clear();
+        _editorBody.Controls.Add(_generalPanel);
         ShowEditor();
+        _editorHost.Invalidate(true);
     }
 
     private void OnSaved()
     {
-        // After save: new group returns to list; edit stays open but refreshes the background list.
         if (_generalPanel?.IsNew == true) { ShowList(); _ = RefreshAsync(); }
         else _ = RefreshAsync();
-    }
-
-    private async Task DeleteSelectedAsync()
-    {
-        if (Selected() is not { } g) { _status.Text = L.GroupsView_SelectAGroup; return; }
-        if (MessageBox.Show(L.Format(L.GroupsView_DeleteGroupDevicesInIt, g.Name),
-                L.GroupsView_DeleteGroup, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-        try { await _api.DeleteGroupAsync(g.Id); await RefreshAsync(); }
-        catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 }

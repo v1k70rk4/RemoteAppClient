@@ -9,7 +9,7 @@ internal static class ViewUi
     /// <summary>Toolbar button with AutoSize so text/height scale with DPI.</summary>
     public static MaterialButton ToolbarButton(string text, bool primary = true)
     {
-        var b = new MaterialButton { Text = text, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
+        var b = new MaterialButton { Text = text, AutoSize = true, Margin = new Padding(4, 0, 4, 0), UseAccentColor = true };
         if (!primary) { b.Type = MaterialButton.MaterialButtonType.Outlined; b.HighEmphasis = false; }
         return b;
     }

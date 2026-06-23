@@ -6,20 +6,21 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Uploads one or more exe/msi packages to a release channel as an embedded panel in the
-/// Channels upload tab. Component and version are read from the file but can be overridden;
-/// bulk upload is supported.
+/// Uploads one or more exe/msi packages to a release channel — a toolbar (channel + component override +
+/// Add files) over an owner-drawn queue (File / Component / Version) with Set version / Remove / Clear /
+/// Upload. Component + version are read from each file but can be overridden. See design_handoff.
 /// </summary>
 public sealed class UploadPanel : UserControl
 {
     private readonly AdminApi _api;
-    private readonly MaterialComboBox _channel = new() { Hint = L.DeviceTelemetryPanel_Channel };
-    private readonly MaterialComboBox _override = new() { Hint = L.ChannelsView_Component };
-    private readonly MaterialTextBox2 _verInput = new() { Hint = L.ChannelsView_Version, Width = 120 };
-    private readonly ListView _list = new();
-    private readonly MaterialLabel _status = new();
+    private readonly UiCombo _channel = new(120);
+    private readonly UiCombo _override = new(160);
+    private readonly TextField _verInput = new(L.ChannelsView_Version, 170, mono: true);
+    private readonly OwnerList _list = new(42);
+    private readonly MaterialLabel _status = new() { Dock = DockStyle.Fill };
+    private readonly List<Pkg> _queue = new();
 
-    /// <summary>Raised after successful upload so the Channels view can refresh and return.</summary>
+    /// <summary>Raised after a successful upload so the Channels view can refresh and return.</summary>
     public event Action? Uploaded;
 
     private sealed record Pkg(string Path, string Component, string Version);
@@ -28,54 +29,62 @@ public sealed class UploadPanel : UserControl
     {
         _api = api;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
+        Padding = new Padding(22, 8, 22, 12);
 
-        _channel.Width = 120; _channel.Margin = new Padding(4, 0, 12, 0);
-        _channel.Items.AddRange(["rtm", "beta"]); _channel.SelectedIndex = 1;
-        _override.Width = 150; _override.Margin = new Padding(4, 0, 12, 0);
-        _override.Items.AddRange(["(auto)", "agent", "updater", "client", "vnc"]); _override.SelectedIndex = 0;
+        _channel.Items.AddRange(["rtm", "beta"]); _channel.SelectedIndex = 1; _channel.Margin = new Padding(0, 0, 10, 0);
+        _override.Items.AddRange(["(auto)", "agent", "updater", "client", "vnc"]); _override.SelectedIndex = 0; _override.Margin = new Padding(0, 0, 10, 0);
         _override.SelectedIndexChanged += (_, _) => ReapplyComponent();
-        _verInput.Margin = new Padding(4, 0, 4, 0);
 
-        var addBtn = new MaterialButton { Text = L.UploadPanel_AddFiles, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
+        var addBtn = new UiButton(L.UploadPanel_AddFiles, UiButton.Style.Outline, "plus");
         addBtn.Click += (_, _) => AddFiles();
-
-        // Top: channel, component, add files.
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(10, 8, 10, 6) };
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 50, WrapContents = false, BackColor = ThemeManager.Bg, Padding = new Padding(0, 6, 0, 0) };
         toolbar.Controls.AddRange([_channel, _override, addBtn]);
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill; _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.UploadPanel_File, 320);
-        _list.Columns.Add(L.ChannelsView_Component, 120);
-        _list.Columns.Add(L.ChannelsView_Version, 180);
+        _list.Dock = DockStyle.Fill;
+        _list.SetColumns(new OwnerList.Col(L.UploadPanel_File, 380), new OwnerList.Col(L.ChannelsView_Component, 140), new OwnerList.Col(L.ChannelsView_Version, 160));
+        _list.PaintRow += (_, e) =>
+        {
+            var p = (Pkg)e.Item;
+            e.Text(0, Path.GetFileName(p.Path), UiFont.Mono, ThemeManager.Text);
+            e.Text(1, Cap(p.Component), UiFont.Body, ThemeManager.Text2);
+            e.Text(2, string.IsNullOrWhiteSpace(p.Version) ? L.UploadPanel_Unknown : p.Version, UiFont.Mono, ThemeManager.Text2);
+        };
 
-        // Right below table, first row: version, set version, remove.
-        var rmBtn = new MaterialButton { Text = L.UploadPanel_Remove, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-        rmBtn.Click += (_, _) => { foreach (ListViewItem it in _list.SelectedItems) it.Remove(); };
-        var setVerBtn = new MaterialButton { Text = L.UploadPanel_SetVersion, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-        setVerBtn.Click += (_, _) => ApplyVersion();
-        var row1 = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
-        row1.Controls.AddRange([rmBtn, setVerBtn, _verInput]); // RightToLeft -> left-to-right: version | set version | remove
+        var actions = new Panel { Dock = DockStyle.Bottom, Height = 48, BackColor = ThemeManager.Bg };
+        _verInput.Location = new Point(0, 5);
+        var setVer = new UiButton(L.UploadPanel_SetVersion, UiButton.Style.Outline) { Location = new Point(_verInput.Width + 8, 6) };
+        setVer.Click += (_, _) => ApplyVersion();
+        var rm = new UiButton(L.UploadPanel_Remove, UiButton.Style.Outline) { Location = new Point(_verInput.Width + 8 + setVer.Width + 8, 6) };
+        rm.Click += (_, _) => RemoveSelected();
+        var upload = new UiButton(L.UploadPanel_Upload);
+        upload.Click += async (_, _) => await UploadAsync();
+        var clr = new UiButton(L.UploadPanel_ClearAll, UiButton.Style.Outline);
+        clr.Click += (_, _) => { _queue.Clear(); Refill(); };
+        actions.Controls.AddRange([_verInput, setVer, rm, clr, upload]);
+        actions.Resize += (_, _) =>
+        {
+            upload.Location = new Point(actions.Width - upload.Width, 6);
+            clr.Location = new Point(upload.Left - 8 - clr.Width, 6);
+        };
 
-        // Second row: clear all, upload.
-        var clrBtn = new MaterialButton { Text = L.UploadPanel_ClearAll, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-        clrBtn.Click += (_, _) => _list.Items.Clear();
-        var uploadBtn = new MaterialButton { Text = L.UploadPanel_Upload, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
-        uploadBtn.Click += async (_, _) => await UploadAsync();
-        var row2 = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 0, 8, 4) };
-        row2.Controls.AddRange([uploadBtn, clrBtn]); // RightToLeft -> left-to-right: clear all | upload
+        var statusHost = new Panel { Dock = DockStyle.Bottom, Height = 22, BackColor = ThemeManager.Bg };
+        statusHost.Controls.Add(_status);
 
-        var statusPanel = new Panel { Dock = DockStyle.Bottom, Height = 28 };
-        _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true;
-        _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
-        statusPanel.Controls.Add(_status);
-
-        // Dock order: Fill, then Bottom rows from top to bottom, then Top.
         Controls.Add(_list);
-        Controls.Add(row1);
-        Controls.Add(row2);
-        Controls.Add(statusPanel);
+        Controls.Add(actions);
+        Controls.Add(statusHost);
         Controls.Add(toolbar);
-        ThemeManager.StyleList(_list);
+    }
+
+    private static string Cap(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s[1..];
+
+    private void Refill()
+    {
+        _list.BeginUpdate();
+        _list.Clear();
+        foreach (var p in _queue) _list.Add(p);
+        _list.EndUpdate();
     }
 
     private void AddFiles()
@@ -83,38 +92,29 @@ public sealed class UploadPanel : UserControl
         using var d = new OpenFileDialog { Filter = L.UploadPanel_InstallerExeMsiExeMsi, Multiselect = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         foreach (var path in d.FileNames)
-        {
-            var comp = ComponentFor(path);
-            var ver = ReadVersion(path);
-            var item = new ListViewItem(Path.GetFileName(path)) { Tag = new Pkg(path, comp, ver), ToolTipText = path };
-            item.SubItems.Add(comp);
-            item.SubItems.Add(string.IsNullOrWhiteSpace(ver) ? L.UploadPanel_Unknown : ver);
-            _list.Items.Add(item);
-        }
-        _status.Text = L.Format(L.UploadPanel_FilesInTheList, _list.Items.Count);
+            _queue.Add(new Pkg(path, ComponentFor(path), ReadVersion(path)));
+        Refill();
+        _status.Text = L.Format(L.UploadPanel_FilesInTheList, _queue.Count);
     }
 
     private void ReapplyComponent()
     {
-        foreach (ListViewItem it in _list.Items)
-        {
-            if (it.Tag is not Pkg p) continue;
-            var comp = ComponentFor(p.Path);
-            it.Tag = p with { Component = comp };
-            it.SubItems[1].Text = comp;
-        }
+        for (int i = 0; i < _queue.Count; i++) _queue[i] = _queue[i] with { Component = ComponentFor(_queue[i].Path) };
+        Refill();
     }
 
     private void ApplyVersion()
     {
-        var v = _verInput.Text.Trim();
+        var v = _verInput.Value.Trim();
         if (v.Length == 0) { _status.Text = L.UploadPanel_EnterAVersionForExample; return; }
-        foreach (ListViewItem it in _list.SelectedItems)
-        {
-            if (it.Tag is not Pkg p) continue;
-            it.Tag = p with { Version = v };
-            it.SubItems[2].Text = v;
-        }
+        if (_list.Selected is not Pkg sel) return;
+        int i = _queue.IndexOf(sel);
+        if (i >= 0) { _queue[i] = sel with { Version = v }; Refill(); }
+    }
+
+    private void RemoveSelected()
+    {
+        if (_list.Selected is Pkg sel) { _queue.Remove(sel); Refill(); }
     }
 
     private string ComponentFor(string path)
@@ -141,17 +141,16 @@ public sealed class UploadPanel : UserControl
 
     private async Task UploadAsync()
     {
-        if (_list.Items.Count == 0) { _status.Text = L.UploadPanel_AddAtLeastOneExe; return; }
+        if (_queue.Count == 0) { _status.Text = L.UploadPanel_AddAtLeastOneExe; return; }
         var channel = (string)_channel.SelectedItem!;
         try
         {
             Enabled = false;
             int done = 0;
-            foreach (ListViewItem it in _list.Items)
+            foreach (var p in _queue)
             {
-                if (it.Tag is not Pkg p) continue;
                 if (string.IsNullOrWhiteSpace(p.Version)) { _status.Text = L.Format(L.UploadPanel_NoVersionSkipped, Path.GetFileName(p.Path)); continue; }
-                _status.Text = L.Format(L.UploadPanel_Upload_2, done + 1, _list.Items.Count, Path.GetFileName(p.Path), channel, p.Component, p.Version);
+                _status.Text = L.Format(L.UploadPanel_Upload_2, done + 1, _queue.Count, Path.GetFileName(p.Path), channel, p.Component, p.Version);
                 await _api.UploadPackageAsync(channel, p.Component, p.Version, p.Path);
                 done++;
             }

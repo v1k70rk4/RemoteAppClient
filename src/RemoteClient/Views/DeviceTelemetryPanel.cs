@@ -10,19 +10,43 @@ namespace RemoteClient.Views;
 /// live VNC session panel, where <see cref="Update"/> re-renders it from a fresh snapshot.</summary>
 public sealed class DeviceTelemetryPanel : UserControl
 {
+    private readonly Panel _card = new() { Dock = DockStyle.Fill, Padding = new Padding(2, 50, 2, 2) };
     private readonly FlowLayoutPanel _flow = new()
     {
         Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false,
-        AutoScroll = true, Padding = new Padding(12, 10, 8, 8),
+        AutoScroll = true, Padding = new Padding(0, 2, 0, 10),
     };
     private DeviceInfo? _last;
 
     public DeviceTelemetryPanel(DeviceInfo d)
     {
         Dock = DockStyle.Fill;
-        Controls.Add(_flow);
+        BackColor = ThemeManager.Bg;
+        Padding = new Padding(16);
+        _card.BackColor = ThemeManager.Panel;
+        _card.Paint += PaintCard;
+        _flow.BackColor = ThemeManager.Panel;
+        _flow.ClientSizeChanged += (_, _) => FitRows();
+        _card.Controls.Add(_flow);
+        Controls.Add(_card);
         Build(d);
         _ = WarmLocalTransportAsync(); // fill the operator-side transport for the connect-path row
+    }
+
+    private void PaintCard(object? sender, PaintEventArgs e)
+    {
+        UiPaint.DrawCard(e.Graphics, new Rectangle(0, 0, _card.Width - 1, _card.Height - 1), 12, ThemeManager.Panel, ThemeManager.BorderSoft);
+        TextRenderer.DrawText(e.Graphics, L.DevicesView_Telemetry, UiFont.SectionTitle, new Rectangle(18, 16, _card.Width - 36, 20),
+            ThemeManager.Text, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+        using var pen = new Pen(ThemeManager.BorderSoft);
+        e.Graphics.DrawLine(pen, 16, 47, _card.Width - 16, 47);
+    }
+
+    private void FitRows()
+    {
+        int w = _flow.ClientSize.Width;
+        if (w <= 0) return;
+        foreach (Control c in _flow.Controls) c.Width = w;
     }
 
     /// <summary>Re-renders all rows for a refreshed snapshot (used by the live session panel).</summary>
@@ -34,14 +58,14 @@ public sealed class DeviceTelemetryPanel : UserControl
         _flow.SuspendLayout();
         _flow.Controls.Clear();
 
-        void Row(string caption, string? value)
+        void Row(string caption, string? value, Color? color = null, Font? font = null)
         {
-            _flow.Controls.Add(new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 8, 0, 0) });
-            _flow.Controls.Add(new MaterialLabel { Text = string.IsNullOrWhiteSpace(value) ? "—" : value, AutoSize = true, MaximumSize = new Size(420, 0) });
+            int w = _flow.ClientSize.Width > 0 ? _flow.ClientSize.Width : 560;
+            _flow.Controls.Add(new KvRow(caption, string.IsNullOrWhiteSpace(value) ? "—" : value!, color ?? ThemeManager.Text, font ?? UiFont.Mono) { Width = w });
         }
 
         Row(L.DevicesView_Device, d.Hostname);
-        Row("Online", d.Online ? "online" : "offline");
+        Row("Online", d.Online ? L.DevicesView_Online : L.DevicesView_Offline, d.Online ? ThemeManager.OkFg : ThemeManager.OffFg, UiFont.Body);
         Row(L.DeviceTelemetryPanel_LinkQuality, d.LinkFlaky ? L.Format(L.DeviceTelemetryPanel_LinkFlakyDetail, d.RecentReconnects) : L.DeviceTelemetryPanel_LinkStable);
         Row(L.DevicesView_LastOnline, d.LastSeenAt?.LocalDateTime.ToString("g"));
         Row(L.BootstrapView_Status, d.Status);
@@ -63,8 +87,8 @@ public sealed class DeviceTelemetryPanel : UserControl
         if (!string.IsNullOrWhiteSpace(d.LastIncident)) Row(L.DeviceTelemetryPanel_LastIncident, d.LastIncident);
         Row("deviceId", d.DeviceId);
         Row(L.AboutView_Connection, ConnectPath(d));
-        _flow.Controls.Add(new MaterialLabel { Text = " ", AutoSize = true, Margin = new Padding(0, 0, 0, 10) }); // trailing spacer so the last row is never clipped
 
+        FitRows();
         _flow.ResumeLayout();
     }
 

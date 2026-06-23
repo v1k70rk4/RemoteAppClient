@@ -20,7 +20,8 @@ public sealed class EditTokenForm : MaterialForm
 
     public EditTokenForm(BootstrapTokenInfo t)
     {
-        ThemeManager.Skin.AddFormToManage(this);
+        // Not AddFormToManage: it re-themes (greys) the redesigned main window. Material controls self-theme.
+        BackColor = ThemeManager.Background;
         Text = L.Format(L.EditTokenForm_EditBlob, t.Id.ToString("N")[..8]);
         Sizable = false;
         Width = 420; Height = 300;

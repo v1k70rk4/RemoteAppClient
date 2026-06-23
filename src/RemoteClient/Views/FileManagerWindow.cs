@@ -58,8 +58,8 @@ internal sealed class RemoteBackend(FileClient fc) : IFsBackend
 internal sealed class FilePane : UserControl
 {
     private readonly IFsBackend _backend;
-    private readonly ComboBox _drives = new() { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly Label _pathLbl = new() { Dock = DockStyle.Top, AutoEllipsis = true, Height = 22, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(4, 0, 0, 0) };
+    private readonly ComboBox _drives = new() { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = ThemeManager.Panel, ForeColor = ThemeManager.Text };
+    private readonly Label _pathLbl = new() { Dock = DockStyle.Top, AutoEllipsis = true, Height = 22, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(4, 0, 0, 0), BackColor = ThemeManager.Bg, ForeColor = ThemeManager.Text2 };
     private readonly ListView _list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true };
     private readonly CancellationToken _ct;
     private bool _suppressDrive;
@@ -70,11 +70,15 @@ internal sealed class FilePane : UserControl
 
     public FilePane(IFsBackend backend, string title, CancellationToken ct)
     {
-        _backend = backend; _ct = ct; Dock = DockStyle.Fill;
+        _backend = backend; _ct = ct; Dock = DockStyle.Fill; BackColor = ThemeManager.Bg;
         _list.Columns.Add(title, 240);
         _list.Columns.Add(L.FileManager_Size, 90, HorizontalAlignment.Right);
         _list.Columns.Add(L.FileManager_Modified, 130);
-        if (ThemeManager.IsDark) { _list.BackColor = Color.FromArgb(40, 40, 40); _list.ForeColor = Color.Gainsboro; }
+        _list.BackColor = ThemeManager.Panel; _list.ForeColor = ThemeManager.Text;
+        _list.OwnerDraw = true;
+        _list.DrawColumnHeader += DrawHeader;
+        _list.DrawItem += DrawRow;
+        _list.DrawSubItem += (_, se) => se.DrawDefault = false;
         _list.DoubleClick += async (_, _) => await OpenSelectedAsync();
         _list.KeyDown += async (_, e) =>
         {
@@ -169,6 +173,30 @@ internal sealed class FilePane : UserControl
         var rest = _list.Width - sizeW - modW - SystemInformation.VerticalScrollBarWidth - 4;
         _list.Columns[0].Width = Math.Max(200, rest);
     }
+
+    private void DrawHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
+    {
+        using (var bg = new SolidBrush(ThemeManager.Panel2)) e.Graphics.FillRectangle(bg, e.Bounds);
+        TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", UiFont.Label, new Rectangle(e.Bounds.X + 8, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height),
+            ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        using var pen = new Pen(ThemeManager.BorderSoft);
+        e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top + 5, e.Bounds.Right - 1, e.Bounds.Bottom - 5);
+    }
+
+    private void DrawRow(object? sender, DrawListViewItemEventArgs e)
+    {
+        var g = e.Graphics;
+        using (var bg = new SolidBrush(e.Item.Selected ? ThemeManager.Panel2 : ThemeManager.Panel)) g.FillRectangle(bg, e.Bounds);
+        int x = e.Bounds.Left;
+        for (int i = 0; i < _list.Columns.Count && i < e.Item.SubItems.Count; i++)
+        {
+            int cw = _list.Columns[i].Width;
+            var flags = (i == 1 ? TextFormatFlags.Right : TextFormatFlags.Left) | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis;
+            TextRenderer.DrawText(g, e.Item.SubItems[i].Text, i == 0 ? UiFont.Body : UiFont.MonoSmall,
+                new Rectangle(x + 8, e.Bounds.Top, cw - 12, e.Bounds.Height), i == 0 ? ThemeManager.Text : ThemeManager.Text2, flags);
+            x += cw;
+        }
+    }
 }
 
 /// <summary>Total Commander-style two-pane file manager: local PC (left) ↔ remote device (right).</summary>
@@ -176,7 +204,7 @@ public sealed class FileManagerWindow : MaterialForm
 {
     private readonly FilePane _left, _right;
     private FilePane _active;
-    private readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 26, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0) };
+    private readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 26, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0), BackColor = ThemeManager.Bg, ForeColor = ThemeManager.Text2 };
     private readonly MaterialProgressBar _progress = new() { Dock = DockStyle.Bottom, Height = 10, Visible = false };
     private readonly Label _progressLbl = new() { Dock = DockStyle.Bottom, Height = 18, TextAlign = ContentAlignment.MiddleCenter, Visible = false };
     private readonly FileClient _fc;
@@ -186,12 +214,15 @@ public sealed class FileManagerWindow : MaterialForm
     public FileManagerWindow(int localPort, string token, string hostname)
     {
         _fc = new FileClient(localPort, token);
-        ThemeManager.Skin.AddFormToManage(this);
+        // Deliberately NOT AddFormToManage(this): doing so makes MaterialSkin re-theme EVERY managed form
+        // (incl. the main window), resetting owner-drawn text inputs to its light input color. The dark
+        // title bar still renders from the shared scheme; this window's body is styled manually.
         Text = $"{L.FileManager_Title} — {hostname}";
         Size = new Size(1000, 620);
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         KeyPreview = true;
+        BackColor = ThemeManager.Bg;
 
         _left = new FilePane(new LocalBackend(), L.FileManager_LocalPC, _cts.Token);
         _right = new FilePane(new RemoteBackend(_fc), hostname, _cts.Token);
@@ -203,14 +234,14 @@ public sealed class FileManagerWindow : MaterialForm
         split.Panel1.Controls.Add(_left);
         split.Panel2.Controls.Add(_right);
 
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(6) };
-        void Btn(string t, Func<Task> a) { var b = new MaterialButton { Text = t, Type = MaterialButton.MaterialButtonType.Outlined, AutoSize = true, Margin = new Padding(4, 4, 4, 4) }; b.Click += async (_, _) => await Guard(a); bar.Controls.Add(b); }
+        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 54, Padding = new Padding(8, 8, 8, 8), BackColor = ThemeManager.Bg };
+        void Btn(string t, Func<Task> a) { var b = new UiButton(t, UiButton.Style.Outline) { Margin = new Padding(4, 0, 4, 0) }; b.Click += async (_, _) => await Guard(a); bar.Controls.Add(b); }
         Btn($"{L.FileManager_Copy} (F5)", CopyAsync);
         Btn($"{L.FileManager_NewFolder} (F7)", MkdirAsync);
         Btn($"{L.FileManager_Delete} (F8)", DeleteAsync);
         Btn($"{L.FileManager_Rename} (F2)", RenameAsync);
         Btn(L.AboutView_Refresh, () => _active.RefreshAsync());
-        var cancelBtn = new MaterialButton { Text = $"{L.FileManager_Cancel} (Esc)", Type = MaterialButton.MaterialButtonType.Outlined, AutoSize = true, Margin = new Padding(4, 4, 4, 4) };
+        var cancelBtn = new UiButton($"{L.FileManager_Cancel} (Esc)", UiButton.Style.Outline) { Margin = new Padding(4, 0, 4, 0) };
         cancelBtn.Click += (_, _) => _copyCts?.Cancel();
         bar.Controls.Add(cancelBtn);
 

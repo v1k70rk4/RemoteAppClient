@@ -1,106 +1,83 @@
-using System.Diagnostics;
 using System.Drawing;
-using MaterialSkin;
 using MaterialSkin.Controls;
 using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>About view: program icon/name/client version, component versions/state, server, channel, and connection.</summary>
+/// <summary>About view: program icon/name/client version + key/value cards (Connection, Server & support,
+/// Components on this device). Refresh re-queries the local agent. See design_handoff_console_redesign.</summary>
 public sealed class AboutView : UserControl, IContentView
 {
+    private const int CardW = 600, ContentW = CardW - 36;
+
     private readonly ClientConfig _cfg;
-    private readonly TableLayoutPanel _tbl = new() { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, Padding = new Padding(24, 4, 24, 12) };
-    private readonly MaterialLabel _status = new();
-    private int _row;
+    private readonly FlowLayoutPanel _cards = new() { Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+    private readonly Panel _scroll = new() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(22, 4, 22, 22) };
+    private readonly MaterialLabel _status = new() { Dock = DockStyle.Fill };
 
     public AboutView(ClientConfig cfg)
     {
         _cfg = cfg;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
 
-        _tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        _tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        // Header: icon, name, and client version.
-        var header = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Padding = new Padding(24, 18, 24, 6) };
+        var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = ThemeManager.Bg, Padding = new Padding(22, 0, 22, 0) };
         try
         {
             var ico = Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
-            if (ico is not null) header.Controls.Add(new PictureBox { Image = ico.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(48, 48), Margin = new Padding(0, 0, 12, 0) });
+            if (ico is not null) header.Controls.Add(new PictureBox { Image = ico.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(44, 44), Location = new Point(22, 16) });
         }
         catch { /* icon is optional */ }
-        var titleCol = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
-        titleCol.Controls.Add(new MaterialLabel { Text = "RemoteAppClient", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true });
-        titleCol.Controls.Add(new MaterialLabel { Text = L.AboutView_ClientVersion + ClientUpdater.RunningVersionString(), AutoSize = true });
-        header.Controls.Add(titleCol);
-
-        var refresh = ViewUi.ToolbarButton(L.AboutView_Refresh, primary: false);
+        header.Paint += (_, e) =>
+        {
+            TextRenderer.DrawText(e.Graphics, "RemoteAppClient", UiFont.PageTitle, new Rectangle(78, 16, CardW - 200, 24),
+                ThemeManager.Text, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(e.Graphics, L.AboutView_ClientVersion + ClientUpdater.RunningVersionString(), UiFont.Small,
+                new Rectangle(78, 42, CardW - 200, 18), ThemeManager.Text2, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+        };
+        var refresh = new UiButton(L.AboutView_Refresh, UiButton.Style.Outline);
+        refresh.Location = new Point(22 + CardW - refresh.Width, 18);
         refresh.Click += async (_, _) => await LoadAsync();
-        var refreshRow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(24, 0, 24, 4) };
-        refreshRow.Controls.Add(refresh);
+        header.Controls.Add(refresh);
 
-        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-        scroll.Controls.Add(_tbl);
+        var statusHost = new Panel { Dock = DockStyle.Bottom, Height = 24, BackColor = ThemeManager.Bg, Padding = new Padding(24, 0, 0, 0) };
+        statusHost.Controls.Add(_status);
 
-        Controls.Add(scroll);
-        Controls.Add(refreshRow);
+        _scroll.Controls.Add(_cards);
+        Controls.Add(_scroll);
+        Controls.Add(statusHost);
         Controls.Add(header);
-        Controls.Add(ViewUi.StatusHost(_status));
     }
 
-    public void ApplyTheme() => ThemeManager.StyleView(this);
+    public void ApplyTheme() { BackColor = ThemeManager.Bg; Invalidate(true); }
 
     public async Task OnShownAsync() => await LoadAsync();
 
-    private void Section(string title)
+    private Card MakeCard(string title, List<(string Cap, string Val, Color? Color, Font? Font)> rows)
     {
-        var l = new MaterialLabel { Text = title, Font = new Font("Segoe UI", 12F, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 14, 0, 4) };
-        _tbl.Controls.Add(l, 0, _row);
-        _tbl.SetColumnSpan(l, 2);
-        _row++;
-    }
-
-    private void Row(string caption, string value, Color? color = null)
-    {
-        var cap = new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 3, 24, 0) };
-        var val = new MaterialLabel { Text = value, AutoSize = true, Margin = new Padding(0, 3, 0, 0) };
-        if (color is { } c) val.ForeColor = c;
-        _tbl.Controls.Add(cap, 0, _row);
-        _tbl.Controls.Add(val, 1, _row);
-        _row++;
-    }
-
-    /// <summary>Clickable email row using mailto:.</summary>
-    private void RowMail(string caption, string email)
-    {
-        var cap = new MaterialLabel { Text = caption, AutoSize = true, FontType = MaterialSkinManager.fontType.Caption, Margin = new Padding(0, 3, 24, 0) };
-        var val = new MaterialLabel { Text = email, AutoSize = true, Margin = new Padding(0, 3, 0, 0), ForeColor = Color.DodgerBlue, Cursor = Cursors.Hand };
-        val.Font = new Font(val.Font, FontStyle.Underline);
-        val.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("mailto:" + email) { UseShellExecute = true }); } catch { /* no mail client */ } };
-        _tbl.Controls.Add(cap, 0, _row);
-        _tbl.Controls.Add(val, 1, _row);
-        _row++;
+        var body = new Panel();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var (cap, val, color, font) = rows[i];
+            body.Controls.Add(new KvRow(cap, string.IsNullOrWhiteSpace(val) ? "—" : val, color ?? ThemeManager.Text, font ?? UiFont.Mono)
+            { Location = new Point(0, i * 38), Width = ContentW });
+        }
+        return new Card(title, null, body) { Width = CardW, Height = 46 + rows.Count * 38 + 10, Margin = new Padding(0, 0, 0, 14) };
     }
 
     private async Task LoadAsync()
     {
         _status.Text = L.AboutView_FetchingStatus;
         var s = await StatusClient.QueryAgentAsync();
-        _tbl.SuspendLayout();
-        _tbl.Controls.Clear();
-        _row = 0;
 
-        Section(L.AboutView_Connection);
+        var conn = new List<(string, string, Color?, Font?)>();
         if (s is null)
-        {
-            Row(L.AboutView_LocalAgent, L.AboutView_Unavailable, Color.IndianRed);
-        }
+            conn.Add((L.AboutView_LocalAgent, L.AboutView_Unavailable, ThemeManager.DangerFg, UiFont.Body));
         else
         {
-            Row(L.AboutView_ServerC2, s.C2Connected ? "● Online" : "● Offline", s.C2Connected ? Color.MediumSeaGreen : Color.IndianRed);
-            Row("Tunnel", s.TunnelActive ? L.AboutView_Ready : L.AboutView_Stopped);
-            Row(L.AboutView_Transport, s.ActiveBastionPort switch
+            conn.Add((L.AboutView_ServerC2, s.C2Connected ? "● Online" : "● Offline", s.C2Connected ? ThemeManager.OkFg : ThemeManager.DangerFg, UiFont.Body));
+            conn.Add(("Tunnel", s.TunnelActive ? L.AboutView_Ready : L.AboutView_Stopped, null, UiFont.Body));
+            string transport = s.ActiveBastionPort switch
             {
                 443 => "443 (sslh)",
                 22 => "22 (ssh)",
@@ -113,30 +90,38 @@ public sealed class AboutView : UserControl, IContentView
                     "wss443" => "443 (WSS)",
                     _ => "Auto (443 → WSS)",
                 },
-            });
-            Row(L.AboutView_LastServerContact, s.LastServerContactUtc?.LocalDateTime.ToString("g") ?? "—");
+            };
+            conn.Add((L.AboutView_Transport, transport, null, UiFont.Mono));
+            conn.Add((L.AboutView_LastServerContact, s.LastServerContactUtc?.LocalDateTime.ToString("g") ?? "—", null, UiFont.Mono));
         }
 
-        Section(L.AboutView_Server);
-        Row(L.AboutView_Address, AgentInfo.ServerName());
-        Row(L.AboutView_UpdateChannel, string.Equals(_cfg.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
-
-        var brand = BrandingCache.Load();
-        if (brand is not null && (!string.IsNullOrWhiteSpace(brand.OwnerName) || !string.IsNullOrWhiteSpace(brand.SupportPhone) || !string.IsNullOrWhiteSpace(brand.SupportEmail)))
+        var srv = new List<(string, string, Color?, Font?)>
         {
-            Section(L.AboutView_Support);
-            if (!string.IsNullOrWhiteSpace(brand.OwnerName)) Row(L.AboutView_Owner, brand.OwnerName!);
-            if (!string.IsNullOrWhiteSpace(brand.SupportPhone)) Row(L.AboutView_Phone, brand.SupportPhone!);
-            if (!string.IsNullOrWhiteSpace(brand.SupportEmail)) RowMail("E-mail", brand.SupportEmail!);
+            (L.AboutView_Address, AgentInfo.ServerName(), null, UiFont.Mono),
+            (L.AboutView_UpdateChannel, string.Equals(_cfg.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm", null, UiFont.Body),
+        };
+        var brand = BrandingCache.Load();
+        if (brand is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(brand.OwnerName)) srv.Add((L.AboutView_Owner, brand.OwnerName!, null, UiFont.Body));
+            if (!string.IsNullOrWhiteSpace(brand.SupportPhone)) srv.Add((L.AboutView_Phone, brand.SupportPhone!, null, UiFont.Mono));
+            if (!string.IsNullOrWhiteSpace(brand.SupportEmail)) srv.Add(("E-mail", brand.SupportEmail!, ThemeManager.Accent, UiFont.Body));
         }
 
-        Section(L.AboutView_ComponentsOnThisDevice);
-        Row("Agent", s is null ? "—" : $"{s.Version} · {(s.C2Connected ? L.AboutView_RunningOnline : L.AboutView_Running)}", s is null ? Color.Gray : Color.MediumSeaGreen);
-        Row("Helper (updater)", s?.HelperVersion ?? "—");
-        Row(L.AboutView_ClientConsole, ClientUpdater.RunningVersionString() + " · " + L.AboutView_Running);
-        Row("TightVNC", s?.VncVersion ?? "—");
+        var comp = new List<(string, string, Color?, Font?)>
+        {
+            ("Agent", s is null ? "—" : $"{s.Version} · {(s.C2Connected ? L.AboutView_RunningOnline : L.AboutView_Running)}", s is null ? ThemeManager.Text3 : ThemeManager.OkFg, UiFont.Body),
+            ("Helper (updater)", s?.HelperVersion ?? "—", null, UiFont.Mono),
+            (L.AboutView_ClientConsole, ClientUpdater.RunningVersionString() + " · " + L.AboutView_Running, null, UiFont.Body),
+            ("TightVNC", s?.VncVersion ?? "—", null, UiFont.Mono),
+        };
 
-        _tbl.ResumeLayout();
+        _cards.SuspendLayout();
+        _cards.Controls.Clear();
+        _cards.Controls.Add(MakeCard(L.AboutView_Connection, conn));
+        _cards.Controls.Add(MakeCard(L.AboutView_Server, srv));
+        _cards.Controls.Add(MakeCard(L.AboutView_ComponentsOnThisDevice, comp));
+        _cards.ResumeLayout();
         _status.Text = s is null ? L.AboutView_TheLocalAgentIsNot : L.AboutView_Upd;
     }
 }

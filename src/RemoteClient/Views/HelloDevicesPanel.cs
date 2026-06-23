@@ -5,57 +5,61 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>User Windows Hello devices (list + revoke), embedded in the Windows Hello tab.</summary>
+/// <summary>User Windows Hello devices (owner-drawn list + revoke), embedded in the Windows Hello tab.</summary>
 public sealed class HelloDevicesPanel : UserControl
 {
     private readonly AdminApi _api;
     private readonly Guid _userId;
-    private readonly ListView _list = new();
-    private readonly MaterialLabel _status = new();
+    private readonly OwnerList _list = new(44);
+    private readonly MaterialLabel _status = new() { Dock = DockStyle.Fill };
 
     public HelloDevicesPanel(AdminApi api, Guid userId)
     {
         _api = api; _userId = userId;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
+        Padding = new Padding(22, 14, 22, 12);
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false; _list.Dock = DockStyle.Fill; _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.HelloDevicesPanel_Device, 220);
-        _list.Columns.Add(L.BootstrapView_Created, 150);
-        _list.Columns.Add(L.HelloDevicesPanel_LastUsed, 150);
+        _list.Dock = DockStyle.Fill;
+        _list.SetColumns(
+            new OwnerList.Col(L.HelloDevicesPanel_Device, 380),
+            new OwnerList.Col(L.BootstrapView_Created, 200),
+            new OwnerList.Col(L.HelloDevicesPanel_LastUsed, 200));
+        _list.PaintRow += (_, e) =>
+        {
+            var c = (HelloCredentialInfo)e.Item;
+            e.Text(0, c.DeviceName, UiFont.Body, ThemeManager.Text);
+            e.Text(1, c.CreatedAt.LocalDateTime.ToString("g"), UiFont.MonoSmall, ThemeManager.Text3);
+            e.Text(2, c.LastUsedAt?.LocalDateTime.ToString("g") ?? "—", UiFont.MonoSmall, ThemeManager.Text3);
+        };
 
-        var tools = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(8, 6, 8, 6) };
-        var refreshBtn = new MaterialButton { Text = L.AboutView_Refresh, AutoSize = true, Margin = new Padding(4, 0, 4, 0) };
+        var actions = new Panel { Dock = DockStyle.Bottom, Height = 46, BackColor = ThemeManager.Bg };
+        var refreshBtn = new UiButton(L.AboutView_Refresh, UiButton.Style.Outline) { Location = new Point(0, 6) };
         refreshBtn.Click += async (_, _) => await ShownAsync();
-        var revokeBtn = new MaterialButton { Text = L.BootstrapView_Revoke, AutoSize = true, Margin = new Padding(4, 0, 4, 0), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        var revokeBtn = new UiButton(L.BootstrapView_Revoke, UiButton.Style.Warn) { Location = new Point(refreshBtn.Width + 8, 6) };
         revokeBtn.Click += async (_, _) => await RevokeAsync();
-        tools.Controls.AddRange([refreshBtn, revokeBtn]);
+        actions.Controls.Add(refreshBtn);
+        actions.Controls.Add(revokeBtn);
 
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 30 };
-        _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true;
-        _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
-        bottom.Controls.Add(_status);
+        var statusHost = new Panel { Dock = DockStyle.Bottom, Height = 22, BackColor = ThemeManager.Bg };
+        statusHost.Controls.Add(_status);
 
         Controls.Add(_list);
-        Controls.Add(tools);
-        Controls.Add(bottom);
+        Controls.Add(actions);
+        Controls.Add(statusHost);
     }
 
-    private HelloCredentialInfo? Selected() => _list.SelectedItems.Count == 0 ? null : (HelloCredentialInfo)_list.SelectedItems[0].Tag!;
+    private HelloCredentialInfo? Selected() => _list.Selected as HelloCredentialInfo;
 
     public async Task ShownAsync()
     {
-        ThemeManager.StyleList(_list);
         try
         {
             var creds = await _api.GetUserHelloAsync(_userId);
-            _list.Items.Clear();
-            foreach (var c in creds)
-            {
-                var it = new ListViewItem(c.DeviceName) { Tag = c };
-                it.SubItems.Add(c.CreatedAt.LocalDateTime.ToString("g"));
-                it.SubItems.Add(c.LastUsedAt?.LocalDateTime.ToString("g") ?? "—");
-                _list.Items.Add(it);
-            }
+            _list.BeginUpdate();
+            _list.Clear();
+            foreach (var c in creds) _list.Add(c);
+            _list.EndUpdate();
             _status.Text = creds.Count == 0 ? L.HelloDevicesPanel_NoWindowsHelloDevicesFor : L.Format(L.HelloDevicesPanel_HelloDevice, creds.Count);
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }

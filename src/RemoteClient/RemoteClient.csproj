@@ -17,7 +17,7 @@
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
 
     <!-- Version read by self-update and by upload tooling from the exe. Bump on release. -->
-    <Version>1.8.5.0</Version>
+    <Version>1.8.9.0</Version>
 
     <!-- Self-update needs one exe because DLLs cannot be replaced while loaded.
          Self-contained means no .NET runtime required on the target device. Publish emits that exe. -->
@@ -41,6 +41,12 @@
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <!-- Modern Material Design look with dark/light theme, cards, and tabs. -->
     <PackageReference Include="MaterialSkin.2" Version="2.3.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Bundled IBM Plex (OFL) design fonts: embedded so they travel inside the single-file, self-updating
+         exe and load without a system install (see Fonts/README.txt and UiFont). Empty folder = no-op. -->
+    <EmbeddedResource Include="Fonts\*.ttf" />
   </ItemGroup>
 
 </Project>

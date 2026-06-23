@@ -6,18 +6,19 @@ using L = RemoteClient.Localization.Strings;
 namespace RemoteClient.Views;
 
 /// <summary>
-/// Tokenless install: bootstrap blob generation, optionally scoped to group/expiry/install limit,
-/// plus issued blob management (usage, expiry, state, revoke/delete).
+/// Tokenless install: a generate card (group / expiry / install limit + Generate blob) plus an owner-drawn
+/// table of issued blobs (Type chip + Status dot) with Edit / Save MSI / Revoke / Delete actions.
+/// See design_handoff_console_redesign.
 /// </summary>
 public sealed class BootstrapView : UserControl, IContentView
 {
     private readonly AdminApi _api;
-    private readonly MaterialTextBox2 _search = new() { Hint = L.BootstrapView_SearchGroupMSIFileInstall, Width = 360 };
-    private readonly MaterialComboBox _group = new() { Hint = L.BootstrapView_Group };
-    private readonly MaterialComboBox _expiry = new() { Hint = L.EditTokenForm_Expiry };
-    private readonly MaterialComboBox _maxUses = new() { Hint = L.EditTokenForm_MaxInstalls };
-    private readonly ListView _list = new();
-    private readonly MaterialLabel _status = new();
+    private readonly TextField _search = new(L.BootstrapView_SearchGroupMSIFileInstall, 360, false, "search");
+    private readonly UiCombo _group = new(180);
+    private readonly UiCombo _expiry = new(140);
+    private readonly UiCombo _maxUses = new(140);
+    private readonly OwnerList _list = new(46);
+    private readonly MaterialLabel _status = new() { Dock = DockStyle.Fill };
     private readonly List<BootstrapTokenInfo> _tokens = new();
 
     private sealed record GroupItem(Guid? Id, string Name) { public override string ToString() => Name; }
@@ -28,57 +29,120 @@ public sealed class BootstrapView : UserControl, IContentView
     {
         _api = api;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
 
-        _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
-        _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
         _expiry.Items.AddRange([new ExpiryItem(null, L.EditTokenForm_NoExpiry), new ExpiryItem(24, L.BootstrapView_X24Hours), new ExpiryItem(168, L.BootstrapView_X7Days), new ExpiryItem(720, L.BootstrapView_X30Days)]);
         _expiry.SelectedIndex = 0;
-        _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
         _maxUses.Items.AddRange([new UsesItem(100000, L.EditTokenForm_Unlimited), new UsesItem(1, L.BootstrapView_X1Install), new UsesItem(5, "5"), new UsesItem(10, "10"), new UsesItem(50, "50")]);
         _maxUses.SelectedIndex = 0;
 
-        // Top: search and refresh.
-        var topTools = ViewUi.Toolbar();
-        _search.Margin = new Padding(4, 0, 16, 0);
-        _search.TextChanged += (_, _) => RenderList();
-        topTools.Controls.Add(_search);
-        var refresh = ViewUi.ToolbarButton(L.AboutView_Refresh, primary: false);
+        var root = new Panel { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 12), BackColor = ThemeManager.Bg };
+
+        // --- toolbar (search + refresh) ---
+        _search.Location = new Point(0, 8);
+        _search.Changed += (_, _) => RenderList();
+        var refresh = new UiButton(L.AboutView_Refresh, UiButton.Style.Outline);
         refresh.Click += async (_, _) => await RefreshAsync();
-        topTools.Controls.Add(refresh);
+        var toolbar = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = ThemeManager.Bg };
+        toolbar.Controls.Add(_search);
+        toolbar.Controls.Add(refresh);
+        toolbar.Resize += (_, _) => refresh.Location = new Point(toolbar.Width - refresh.Width, 8);
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
-        _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.BootstrapView_InstallID, 100);
-        _list.Columns.Add(L.BootstrapView_Type, 90);
-        _list.Columns.Add(L.BootstrapView_Group, 120);
-        _list.Columns.Add(L.BootstrapView_Used, 90);
-        _list.Columns.Add(L.EditTokenForm_Expiry, 120);
-        _list.Columns.Add(L.BootstrapView_Status, 90);
-        _list.Columns.Add(L.BootstrapView_Created, 120);
-        _list.Columns.Add(L.BootstrapView_MSIFile, 220);
+        // --- list ---
+        _list.Dock = DockStyle.Fill;
+        _list.SetColumns(
+            new OwnerList.Col(L.BootstrapView_InstallID, 110),
+            new OwnerList.Col(L.BootstrapView_Type, 116),
+            new OwnerList.Col(L.BootstrapView_Group, 120),
+            new OwnerList.Col(L.BootstrapView_Used, 92),
+            new OwnerList.Col(L.EditTokenForm_Expiry, 140),
+            new OwnerList.Col(L.BootstrapView_Status, 120),
+            new OwnerList.Col(L.BootstrapView_MSIFile, 220));
+        _list.PaintRow += PaintBlobRow;
+        _list.RowActivated += _ => _ = EditAsync();
 
-        // Right below table: edit, revoke, delete, save MSI.
-        var actionRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6, 4, 8, 2) };
-        void Act(string text, Func<Task> onClick) { var b = ViewUi.ToolbarButton(text, primary: false); b.Margin = new Padding(4, 0, 4, 0); b.Click += async (_, _) => await onClick(); actionRow.Controls.Add(b); }
-        Act(L.BootstrapView_SaveMSI, SaveMsiAsync);   // jobboldalt
-        Act(L.BootstrapView_Delete, DeleteAsync);
-        Act(L.BootstrapView_Revoke, RevokeAsync);
-        Act(L.BootstrapView_Edit, EditAsync);        // balra
+        // --- action buttons under the table ---
+        var actionRow = BuildActions();
 
-        // Left below that: group, expiry, max installs, generate blob.
-        _group.Width = 200; _group.Margin = new Padding(4, 0, 12, 0);
-        _expiry.Width = 130; _expiry.Margin = new Padding(4, 0, 12, 0);
-        _maxUses.Width = 150; _maxUses.Margin = new Padding(4, 0, 12, 0);
-        var genBtn = ViewUi.ToolbarButton(L.BootstrapView_GenerateBlob);
-        genBtn.Click += async (_, _) => await GenerateAsync();
-        var genRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(8, 0, 8, 4) };
-        genRow.Controls.AddRange([_group, _expiry, _maxUses, genBtn]);
+        var statusHost = new Panel { Dock = DockStyle.Bottom, Height = 22, BackColor = ThemeManager.Bg };
+        statusHost.Controls.Add(_status);
 
-        Controls.Add(ViewUi.Rows(1, topTools, _list, actionRow, genRow, ViewUi.StatusHost(_status)));
+        root.Controls.Add(_list);
+        root.Controls.Add(actionRow);
+        root.Controls.Add(statusHost);
+        root.Controls.Add(toolbar);
+        root.Controls.Add(BuildGenerateCard());
+
+        Controls.Add(root);
         ApplyTheme();
     }
 
-    public void ApplyTheme() => ThemeManager.StyleView(this, _list);
+    private Card BuildGenerateCard()
+    {
+        var genBtn = new UiButton(L.BootstrapView_GenerateBlob, UiButton.Style.Filled, "plus");
+        genBtn.Click += async (_, _) => await GenerateAsync();
+
+        var body = new Panel();
+        _group.Location = new Point(0, 24);
+        _expiry.Location = new Point(196, 24);
+        _maxUses.Location = new Point(346, 24);
+        genBtn.Location = new Point(500, 24);
+        body.Controls.Add(_group);
+        body.Controls.Add(_expiry);
+        body.Controls.Add(_maxUses);
+        body.Controls.Add(genBtn);
+        body.Paint += (_, e) =>
+        {
+            void Lbl(string t, int x) => TextRenderer.DrawText(e.Graphics, t, UiFont.Label, new Rectangle(x, 2, 180, 16), ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+            Lbl(L.BootstrapView_Group, 0);
+            Lbl(L.EditTokenForm_Expiry, 196);
+            Lbl(L.EditTokenForm_MaxInstalls, 346);
+        };
+        return new Card(L.BootstrapView_GenerateTitle, L.BootstrapView_GenerateDesc, body) { Dock = DockStyle.Top, Height = 156, Margin = new Padding(0, 0, 0, 14) };
+    }
+
+    private Panel BuildActions()
+    {
+        var actions = new Panel { Dock = DockStyle.Bottom, Height = 48, BackColor = ThemeManager.Bg };
+        var edit = new UiButton(L.BootstrapView_Edit, UiButton.Style.Outline) { Location = new Point(0, 8) };
+        edit.Click += async (_, _) => await EditAsync();
+        var saveMsi = new UiButton(L.BootstrapView_SaveMSI, UiButton.Style.Outline) { Location = new Point(edit.Width + 8, 8) };
+        saveMsi.Click += async (_, _) => await SaveMsiAsync();
+        var revoke = new UiButton(L.BootstrapView_Revoke, UiButton.Style.Warn);
+        revoke.Click += async (_, _) => await RevokeAsync();
+        var del = new UiButton(L.BootstrapView_Delete, UiButton.Style.Danger);
+        del.Click += async (_, _) => await DeleteAsync();
+        actions.Controls.AddRange([edit, saveMsi, revoke, del]);
+        actions.Resize += (_, _) =>
+        {
+            del.Location = new Point(actions.Width - del.Width, 8);
+            revoke.Location = new Point(del.Left - 8 - revoke.Width, 8);
+        };
+        return actions;
+    }
+
+    private void PaintBlobRow(object? sender, RowPaintEventArgs e)
+    {
+        var t = (BootstrapTokenInfo)e.Item;
+        e.Text(0, t.Id.ToString("N")[..8], UiFont.MonoSemi, ThemeManager.Text);
+
+        var (kindFg, kindBg) = KindColor(t);
+        UiPaint.DrawPill(e.G, e.Cell(1).Left, e.Cy, KindOf(t), kindFg, kindBg, UiFont.Label, false);
+
+        e.Text(2, t.GroupName ?? "—", UiFont.Body, ThemeManager.Text2);
+        e.Text(3, $"{t.UseCount} / {(t.MaxUses >= 100000 ? "∞" : t.MaxUses.ToString())}", UiFont.Mono, ThemeManager.Text2);
+        e.Text(4, t.ExpiresAt?.LocalDateTime.ToString("g") ?? "—", UiFont.MonoSmall, ThemeManager.Text3);
+
+        var (stText, stColor) = State(t);
+        var c5 = e.Cell(5);
+        using (var b = new SolidBrush(stColor)) e.G.FillEllipse(b, c5.Left, e.Cy - 3, 7, 7);
+        TextRenderer.DrawText(e.G, stText, UiFont.BodySemi, new Rectangle(c5.Left + 14, c5.Top, c5.Width - 14, c5.Height), stColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+        e.Text(6, t.MsiFileName ?? "—", UiFont.MonoSmall, ThemeManager.Text2);
+    }
+
+    public void ApplyTheme() { BackColor = ThemeManager.Bg; Invalidate(true); }
 
     public async Task OnShownAsync()
     {
@@ -112,8 +176,7 @@ public sealed class BootstrapView : UserControl, IContentView
             if (string.IsNullOrWhiteSpace(blob)) { _status.Text = L.BootstrapView_EmptyResponse; return; }
             try { Clipboard.SetText(blob); } catch { }
             MessageBox.Show(
-                L.BootstrapView_BootstrapBlobCopiedToClipboard + blob +
-                L.BootstrapView_InstallOnTheCustomerMachine,
+                L.BootstrapView_BootstrapBlobCopiedToClipboard + blob + L.BootstrapView_InstallOnTheCustomerMachine,
                 "Bootstrap blob", MessageBoxButtons.OK, MessageBoxIcon.Information);
             _status.Text = L.BootstrapView_BlobGeneratedAndCopiedTo;
             await RefreshAsync();
@@ -121,19 +184,25 @@ public sealed class BootstrapView : UserControl, IContentView
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
-    private BootstrapTokenInfo? Selected() => _list.SelectedItems.Count == 0 ? null : (BootstrapTokenInfo)_list.SelectedItems[0].Tag!;
+    private BootstrapTokenInfo? Selected() => _list.Selected as BootstrapTokenInfo;
 
-    private static string StateOf(BootstrapTokenInfo t) =>
-        t.RevokedAt is not null ? "Visszavonva"
-        : t.ExpiresAt is { } e && e < DateTimeOffset.UtcNow ? L.BootstrapView_Expired
-        : t.UseCount >= t.MaxUses ? "Elfogyott"
-        : L.BootstrapView_Active;
+    private static (string Text, Color Color) State(BootstrapTokenInfo t)
+    {
+        if (t.RevokedAt is not null) return ("Visszavonva", ThemeManager.Text3);
+        if (t.ExpiresAt is { } e && e < DateTimeOffset.UtcNow) return (L.BootstrapView_Expired, ThemeManager.DangerFg);
+        if (t.UseCount >= t.MaxUses) return ("Elfogyott", ThemeManager.WarnFg);
+        return (L.BootstrapView_Active, ThemeManager.OkFg);
+    }
 
     /// <summary>Blob origin: generated for MSI, manual blob, or manual one-time token.</summary>
     private static string KindOf(BootstrapTokenInfo t) =>
         !string.IsNullOrWhiteSpace(t.MsiFileName) || t.Note is "msi-bootstrap" ? "MSI"
         : t.Note is "bootstrap" ? L.BootstrapView_ManualBlob
         : L.BootstrapView_ManualToken;
+
+    private static (Color Fg, Color Bg) KindColor(BootstrapTokenInfo t) =>
+        !string.IsNullOrWhiteSpace(t.MsiFileName) || t.Note is "msi-bootstrap" ? (ThemeManager.Accent, ThemeManager.AccentSoft)
+        : (ThemeManager.Text2, ThemeManager.Panel3);
 
     private async Task RefreshAsync()
     {
@@ -149,7 +218,7 @@ public sealed class BootstrapView : UserControl, IContentView
 
     private void RenderList()
     {
-        var q = _search.Text.Trim();
+        var q = _search.Query;
         IEnumerable<BootstrapTokenInfo> items = _tokens;
         if (q.Length > 0)
             items = _tokens.Where(t =>
@@ -159,19 +228,8 @@ public sealed class BootstrapView : UserControl, IContentView
                 KindOf(t).Contains(q, StringComparison.OrdinalIgnoreCase));
 
         _list.BeginUpdate();
-        _list.Items.Clear();
-        foreach (var t in items)
-        {
-            var item = new ListViewItem(t.Id.ToString("N")[..8]) { Tag = t };
-            item.SubItems.Add(KindOf(t));
-            item.SubItems.Add(t.GroupName ?? "—");
-            item.SubItems.Add($"{t.UseCount} / {(t.MaxUses >= 100000 ? "∞" : t.MaxUses.ToString())}");
-            item.SubItems.Add(t.ExpiresAt?.LocalDateTime.ToString("g") ?? "—");
-            item.SubItems.Add(StateOf(t));
-            item.SubItems.Add(t.CreatedAt.LocalDateTime.ToString("g"));
-            item.SubItems.Add(t.MsiFileName ?? "—");
-            _list.Items.Add(item);
-        }
+        _list.Clear();
+        foreach (var t in items) _list.Add(t);
         _list.EndUpdate();
     }
 
@@ -189,9 +247,7 @@ public sealed class BootstrapView : UserControl, IContentView
         }
         catch (Exception ex)
         {
-            _status.Text = ex.Message == "max_below_used"
-                ? L.BootstrapView_MaxInstallsCannotBeLower
-                : L.ForgotPasswordForm_Error + ex.Message;
+            _status.Text = ex.Message == "max_below_used" ? L.BootstrapView_MaxInstallsCannotBeLower : L.ForgotPasswordForm_Error + ex.Message;
         }
     }
 

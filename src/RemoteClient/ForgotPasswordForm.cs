@@ -27,7 +27,8 @@ public sealed class ForgotPasswordForm : MaterialForm
     public ForgotPasswordForm(AdminApi api)
     {
         _api = api;
-        ThemeManager.Skin.AddFormToManage(this);
+        // Not AddFormToManage: it re-themes (greys) the redesigned main window. Material controls self-theme.
+        BackColor = ThemeManager.Background;
         Text = L.ForgotPasswordForm_PasswordRecovery;
         Sizable = false;
         Width = 440; Height = 600;

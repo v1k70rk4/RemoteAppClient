@@ -21,7 +21,8 @@ public sealed class NewUserForm : MaterialForm
 
     public NewUserForm()
     {
-        ThemeManager.Skin.AddFormToManage(this);
+        // Not AddFormToManage: it re-themes (greys) the redesigned main window. Material controls self-theme.
+        BackColor = ThemeManager.Background;
         Text = L.NewUserForm_NewUser;
         Sizable = false;
         Width = 420; Height = 430;

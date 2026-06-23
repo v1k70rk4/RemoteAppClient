@@ -16,7 +16,7 @@ public sealed class SessionInfoWindow : MaterialForm
     private readonly AdminApi _api;
     private readonly string _deviceId;
     private readonly Guid? _groupId;
-    private readonly MaterialMultiLineTextBox2 _note = new();
+    private readonly TextField _note = new("", 220, multiline: true);
     private readonly MaterialLabel _noteStatus = new() { AutoSize = true, ForeColor = Color.Gray };
     private readonly DeviceTelemetryPanel _telemetry;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 30000 };
@@ -25,7 +25,8 @@ public sealed class SessionInfoWindow : MaterialForm
     public SessionInfoWindow(AdminApi api, DeviceInfo d, Rectangle area, int width, bool keepOnTop)
     {
         _api = api; _deviceId = d.DeviceId; _groupId = d.GroupId;
-        ThemeManager.Skin.AddFormToManage(this);
+        // Not AddFormToManage: it would make MaterialSkin re-theme the main window's text inputs to a light
+        // color. The dark title bar still renders from the shared scheme; the body is styled manually.
         Text = string.IsNullOrWhiteSpace(d.Hostname) ? d.DeviceId : d.Hostname;
         Sizable = true;
         // Split view: float beside the viewer (always on top). Background view: sit behind the
@@ -35,18 +36,19 @@ public sealed class SessionInfoWindow : MaterialForm
         MinimumSize = new Size(240, 280);
         StartPosition = FormStartPosition.Manual;
         Bounds = new Rectangle(area.Right - width, area.Top, width, area.Height);
+        BackColor = ThemeManager.Bg;
 
         _telemetry = new DeviceTelemetryPanel(d) { Dock = DockStyle.Fill };
 
         // Editable note on top — operators jot notes here during a session. Dock=Top so the box
         // always follows the panel width (no overflow when the window is narrow or resized).
-        var notePanel = new Panel { Dock = DockStyle.Top, Height = 214, Padding = new Padding(10, 6, 10, 6) };
+        var notePanel = new Panel { Dock = DockStyle.Top, Height = 214, Padding = new Padding(10, 6, 10, 6), BackColor = ThemeManager.Bg };
         var noteHeader = new MaterialLabel { Text = L.DeviceGeneralPanel_Note, FontType = MaterialSkinManager.fontType.Subtitle2, AutoSize = true, Dock = DockStyle.Top };
         _note.Text = d.Note ?? "";
         _note.Dock = DockStyle.Top;
         _note.Height = 128;
         var noteButtons = new Panel { Dock = DockStyle.Top, Height = 44 };
-        var save = new MaterialButton { Text = L.EditTokenForm_Save, AutoSize = false, Width = 96, Location = new Point(0, 6), Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
+        var save = new UiButton(L.EditTokenForm_Save, UiButton.Style.Outline) { Location = new Point(0, 6) };
         save.Click += async (_, _) => await SaveNoteAsync();
         _noteStatus.AutoSize = true; _noteStatus.Location = new Point(104, 14);
         noteButtons.Controls.Add(save);

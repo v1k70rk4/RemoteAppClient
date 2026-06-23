@@ -5,15 +5,16 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Builds and downloads an MSI for a group from a channel, embedded in the Channels MSI build tab.</summary>
+/// <summary>Builds and downloads an MSI for a group from a channel — a card with group/channel + two toggles
+/// + Build &amp; download. Embedded in the Channels MSI build editor. See design_handoff_console_redesign.</summary>
 public sealed class MsiPanel : UserControl
 {
     private readonly AdminApi _api;
-    private readonly MaterialComboBox _group = new() { Hint = L.BootstrapView_Group, Width = 320 };
-    private readonly MaterialComboBox _channel = new() { Hint = L.DeviceTelemetryPanel_Channel, Width = 200 };
-    private readonly MaterialSwitch _client = new() { Text = L.MsiPanel_InstallConsoleClient, Checked = true, AutoSize = true };
-    private readonly MaterialSwitch _shortcut = new() { Text = L.MsiPanel_StartMenuShortcutForThe, Checked = true, AutoSize = true };
-    private readonly MaterialLabel _status = new() { AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(4, 12, 0, 0) };
+    private readonly UiCombo _group = new(504);
+    private readonly UiCombo _channel = new(504);
+    private readonly UiToggle _client = new() { Checked = true };
+    private readonly UiToggle _shortcut = new() { Checked = true };
+    private readonly MaterialLabel _status = new() { AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(2, 10, 0, 0) };
 
     private sealed record GroupItem(Guid? Id, string Name) { public override string ToString() => Name; }
 
@@ -21,6 +22,7 @@ public sealed class MsiPanel : UserControl
     {
         _api = api;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
 
         _group.Items.Add(new GroupItem(null, L.BootstrapView_NoGroup));
         foreach (var g in groups) _group.Items.Add(new GroupItem(g.Id, g.Name));
@@ -28,18 +30,30 @@ public sealed class MsiPanel : UserControl
         _channel.Items.AddRange(["rtm", "beta"]); _channel.SelectedIndex = 0;
         _client.CheckedChanged += (_, _) => _shortcut.Enabled = _client.Checked;
 
-        var build = ViewUi.ToolbarButton(L.MsiPanel_BuildAndDownload);
+        var build = new UiButton(L.MsiPanel_BuildAndDownload);
         build.Click += async (_, _) => await BuildAsync();
 
-        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
-        void Lbl(string t) => body.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, Margin = new Padding(4, 10, 0, 0) });
-        Lbl(L.BootstrapView_Group); _group.Margin = new Padding(4, 4, 4, 8); body.Controls.Add(_group);
-        Lbl(L.DeviceTelemetryPanel_Channel); _channel.Margin = new Padding(4, 4, 4, 8); body.Controls.Add(_channel);
-        _client.Margin = new Padding(4, 8, 4, 4); body.Controls.Add(_client);
-        _shortcut.Margin = new Padding(4, 0, 4, 12); body.Controls.Add(_shortcut);
+        const int cardW = 540, cw = cardW - 36;
+        build.Width = cw;
+        var body = new Panel();
+        _group.Location = new Point(0, 22);
+        _channel.Location = new Point(0, 84);
+        body.Controls.Add(_group);
+        body.Controls.Add(_channel);
+        body.Controls.Add(new SettingRow(L.MsiPanel_InstallConsoleClient, "", _client) { Location = new Point(0, 132), Size = new Size(cw, 48) });
+        body.Controls.Add(new SettingRow(L.MsiPanel_StartMenuShortcutForThe, "", _shortcut) { Location = new Point(0, 180), Size = new Size(cw, 48) });
+        build.Location = new Point(0, 242);
+        _status.Location = new Point(2, 290);
         body.Controls.Add(build);
         body.Controls.Add(_status);
-        Controls.Add(body);
+        body.Paint += (_, e) =>
+        {
+            void Lbl(string t, int y) => TextRenderer.DrawText(e.Graphics, t, UiFont.Label, new Rectangle(0, y, cw, 16), ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+            Lbl(L.BootstrapView_Group, 2);
+            Lbl(L.DeviceTelemetryPanel_Channel, 64);
+        };
+
+        Controls.Add(new Card(null, null, body) { Width = cardW, Height = 322, Location = new Point(0, 8) });
     }
 
     private async Task BuildAsync()

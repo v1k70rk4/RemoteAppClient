@@ -21,3 +21,4 @@ third_party/
 *.suo
 
 docs/adr/
+/design_handoff_console_redesign

@@ -8,4 +8,7 @@ public interface IContentView
 
     /// <summary>Refreshes manually colored inner controls such as ListView after theme changes.</summary>
     void ApplyTheme() { }
+
+    /// <summary>Optional topbar subtitle under the page title (e.g. live counts). Null = none.</summary>
+    string? Subtitle => null;
 }

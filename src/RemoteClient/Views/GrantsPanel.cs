@@ -5,15 +5,16 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>User grants (group/device access), embedded in the user editor Permissions tab.</summary>
+/// <summary>User grants (group/device access), embedded in the user editor Permissions tab: an add toolbar
+/// (group + device) and an owner-drawn Type/Name table with Remove. See design_handoff_console_redesign.</summary>
 public sealed class GrantsPanel : UserControl
 {
     private readonly AdminApi _api;
     private readonly Guid _userId;
-    private readonly ListView _list = new();
-    private readonly MaterialComboBox _groups = new() { Hint = L.BootstrapView_Group };
-    private readonly MaterialComboBox _devices = new() { Hint = L.DevicesView_Device };
-    private readonly MaterialLabel _status = new();
+    private readonly OwnerList _list = new(44);
+    private readonly UiCombo _groups = new(240);
+    private readonly UiCombo _devices = new(240);
+    private readonly MaterialLabel _status = new() { Dock = DockStyle.Fill };
     private bool _loaded;
 
     private sealed record GroupItem(Guid Id, string Name) { public override string ToString() => Name; }
@@ -23,47 +24,45 @@ public sealed class GrantsPanel : UserControl
     {
         _api = api; _userId = userId;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
+        Padding = new Padding(22, 14, 22, 12);
 
-        _list.View = View.Details; _list.FullRowSelect = true; _list.Dock = DockStyle.Fill; _list.BorderStyle = BorderStyle.None;
-        _list.Columns.Add(L.BootstrapView_Type, 90);
-        _list.Columns.Add(L.GrantsPanel_NameDevice, 440);
+        _list.Dock = DockStyle.Fill;
+        _list.SetColumns(new OwnerList.Col(L.BootstrapView_Type, 110), new OwnerList.Col(L.GrantsPanel_NameDevice, 520));
+        _list.PaintRow += (_, e) =>
+        {
+            var g = (GrantInfo)e.Item;
+            bool isGroup = g.GroupId is not null;
+            var (fg, bg) = isGroup ? (ThemeManager.Accent, ThemeManager.AccentSoft) : (ThemeManager.BetaFg, ThemeManager.BetaBg);
+            UiPaint.DrawPill(e.G, e.Cell(0).Left, e.Cy, isGroup ? L.BootstrapView_Group : L.DevicesView_Device, fg, bg, UiFont.Label, false);
+            e.Text(1, isGroup ? (g.GroupName ?? g.GroupId.ToString()!) : (g.DeviceHostname ?? g.DeviceId ?? ""), UiFont.Mono, ThemeManager.Text);
+        };
 
-        var remove = new MaterialButton { Text = L.GrantsPanel_RemoveSelected, AutoSize = true, Type = MaterialButton.MaterialButtonType.Outlined, HighEmphasis = false };
-        remove.Click += async (_, _) => await RemoveSelectedAsync();
-        // Below the table, aligned right.
-        var removeRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(8, 8, 8, 0), WrapContents = false, FlowDirection = FlowDirection.RightToLeft };
-        removeRow.Controls.Add(remove);
-
-        _groups.Width = 250;
-        var addGroup = new MaterialButton { Text = L.GrantsPanel_Group, AutoSize = true, Margin = new Padding(10, 4, 4, 0) };
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 54, WrapContents = false, BackColor = ThemeManager.Bg, Padding = new Padding(0, 8, 0, 0) };
+        _groups.Margin = new Padding(0, 0, 8, 0);
+        var addGroup = new UiButton(L.GrantsPanel_Group, UiButton.Style.Outline, "plus") { Margin = new Padding(0, 0, 20, 0) };
         addGroup.Click += async (_, _) => await AddGroupAsync();
-        var groupRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
-        groupRow.Controls.AddRange([_groups, addGroup]);
-
-        _devices.Width = 250;
-        var addDevice = new MaterialButton { Text = L.GrantsPanel_Device, AutoSize = true, Margin = new Padding(10, 4, 4, 0) };
+        _devices.Margin = new Padding(0, 0, 8, 0);
+        var addDevice = new UiButton(L.GrantsPanel_Device, UiButton.Style.Outline, "plus");
         addDevice.Click += async (_, _) => await AddDeviceAsync();
-        var deviceRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
-        deviceRow.Controls.AddRange([_devices, addDevice]);
+        toolbar.Controls.AddRange([_groups, addGroup, _devices, addDevice]);
 
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 32 };
-        _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true;
-        _status.TextAlign = ContentAlignment.MiddleLeft; _status.Padding = new Padding(12, 0, 12, 0);
-        bottom.Controls.Add(_status);
+        var actions = new Panel { Dock = DockStyle.Bottom, Height = 46, BackColor = ThemeManager.Bg };
+        var remove = new UiButton(L.GrantsPanel_RemoveSelected, UiButton.Style.Warn) { Location = new Point(0, 6) };
+        remove.Click += async (_, _) => await RemoveSelectedAsync();
+        actions.Controls.Add(remove);
 
-        // _list fills first; among Bottom rows, the first added (removeRow) sits highest,
-        // directly below the list, and status is at the bottom.
+        var statusHost = new Panel { Dock = DockStyle.Bottom, Height = 22, BackColor = ThemeManager.Bg };
+        statusHost.Controls.Add(_status);
+
         Controls.Add(_list);
-        Controls.Add(removeRow);
-        Controls.Add(groupRow);
-        Controls.Add(deviceRow);
-        Controls.Add(bottom);
+        Controls.Add(actions);
+        Controls.Add(statusHost);
+        Controls.Add(toolbar);
     }
 
-    /// <summary>Called when the tab opens: loads first time, refreshes afterwards.</summary>
     public async Task ShownAsync()
     {
-        ThemeManager.StyleList(_list);
         if (!_loaded)
         {
             _loaded = true;
@@ -85,13 +84,10 @@ public sealed class GrantsPanel : UserControl
         try
         {
             var grants = await _api.GetGrantsAsync(_userId);
-            _list.Items.Clear();
-            foreach (var g in grants)
-            {
-                var item = new ListViewItem(g.GroupId is not null ? L.BootstrapView_Group : L.DevicesView_Device) { Tag = g };
-                item.SubItems.Add(g.GroupId is not null ? (g.GroupName ?? g.GroupId.ToString()!) : (g.DeviceHostname ?? g.DeviceId ?? ""));
-                _list.Items.Add(item);
-            }
+            _list.BeginUpdate();
+            _list.Clear();
+            foreach (var g in grants) _list.Add(g);
+            _list.EndUpdate();
             _status.Text = $"{grants.Count} grant.";
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
@@ -113,7 +109,7 @@ public sealed class GrantsPanel : UserControl
 
     private async Task RemoveSelectedAsync()
     {
-        if (_list.SelectedItems.Count == 0 || _list.SelectedItems[0].Tag is not GrantInfo g) return;
+        if (_list.Selected is not GrantInfo g) return;
         try { await _api.RemoveGrantAsync(_userId, g.Id); await RefreshAsync(); }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }

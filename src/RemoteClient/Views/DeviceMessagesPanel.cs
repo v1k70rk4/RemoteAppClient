@@ -5,17 +5,18 @@ using L = RemoteClient.Localization.Strings;
 
 namespace RemoteClient.Views;
 
-/// <summary>Device Messages tab: ask the user "is the machine free now?" and send a plain message.</summary>
+/// <summary>Device Messages tab: ask the user "is the machine free now?" and send a plain message —
+/// two cards (ask availability / send a message) per design_handoff_console_redesign.</summary>
 public sealed class DeviceMessagesPanel : UserControl
 {
     private readonly AdminApi _api;
     private readonly string _deviceId;
     private readonly Func<Task>? _connect;
     private readonly bool _consentRequired;
-    private readonly MaterialButton _ask = ViewUi.ToolbarButton(L.DeviceMessagesPanel_AskAvailability);
-    private readonly MaterialMultiLineTextBox2 _text = new() { Hint = L.DeviceMessagesPanel_MessageHint, Width = 380, Height = 90 };
-    private readonly MaterialButton _send = ViewUi.ToolbarButton(L.DeviceMessagesPanel_Send, primary: false);
-    private readonly MaterialLabel _status = new() { AutoSize = true, MaximumSize = new Size(420, 0), Margin = new Padding(4, 12, 0, 0) };
+    private readonly UiButton _ask = new(L.DeviceMessagesPanel_AskAvailability, UiButton.Style.Filled, "chat");
+    private readonly TextField _text = new(L.DeviceMessagesPanel_MessageHint, 380, multiline: true);
+    private readonly UiButton _send = new(L.DeviceMessagesPanel_Send, UiButton.Style.Outline);
+    private readonly MaterialLabel _status = new() { AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(2, 10, 0, 0) };
 
     /// <param name="connect">Invoked when the user answers "yes" — connects to the device right away.</param>
     public DeviceMessagesPanel(AdminApi api, DeviceInfo d, Func<Task>? connect = null)
@@ -23,21 +24,33 @@ public sealed class DeviceMessagesPanel : UserControl
         _api = api; _deviceId = d.DeviceId; _connect = connect;
         _consentRequired = d.ConsentRequired ?? false;
         Dock = DockStyle.Fill;
+        BackColor = ThemeManager.Bg;
+        Padding = new Padding(16);
 
         _ask.Click += async (_, _) => await AskAsync();
         _send.Click += async (_, _) => await SendAsync();
 
-        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12, 10, 12, 8) };
-        void Lbl(string t) => body.Controls.Add(new MaterialLabel { Text = t, FontType = MaterialSkin.MaterialSkinManager.fontType.Caption, AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(4, 10, 0, 0) });
+        const int cardW = 540, contentW = cardW - 36;
 
-        Lbl(L.DeviceMessagesPanel_AvailabilityHelp);
-        body.Controls.Add(_ask);
-        body.Controls.Add(new MaterialDivider { Width = 420, Margin = new Padding(4, 16, 4, 8) });
-        Lbl(L.DeviceMessagesPanel_MessageHint);
-        body.Controls.Add(_text);
-        body.Controls.Add(_send);
-        body.Controls.Add(_status);
-        Controls.Add(body);
+        var askBody = new Panel();
+        _ask.Location = new Point(0, 0);
+        askBody.Controls.Add(_ask);
+        var askCard = new Card(L.DeviceMessagesPanel_AskTitle, L.DeviceMessagesPanel_AvailabilityHelp, askBody)
+            { Width = cardW, Height = 66 + 38 + 16, Margin = new Padding(0, 0, 0, 16) };
+
+        var sendBody = new Panel();
+        _text.SetBounds(0, 0, contentW, 92);
+        _send.Location = new Point(contentW - _send.Width, 104);
+        sendBody.Controls.Add(_text);
+        sendBody.Controls.Add(_send);
+        var sendCard = new Card(L.DeviceMessagesPanel_SendTitle, null, sendBody)
+            { Width = cardW, Height = 46 + 92 + 12 + 38 + 16, Margin = new Padding(0) };
+
+        var stack = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true };
+        stack.Controls.Add(askCard);
+        stack.Controls.Add(sendCard);
+        stack.Controls.Add(_status);
+        Controls.Add(stack);
     }
 
     private async Task AskAsync()

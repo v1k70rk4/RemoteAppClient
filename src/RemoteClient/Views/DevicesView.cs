@@ -25,18 +25,22 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly ListView _list = new();
     private readonly MaterialLabel _status = new();
-    private readonly MaterialTextBox2 _search = new() { Hint = L.DevicesView_SearchHostnameOrNote, Width = 360 };
+    private readonly TextField _search = new(L.DevicesView_SearchHostnameOrNote, 340, false, "search");
     private readonly MaterialButton _connectBtn = new() { Text = L.DevicesView_Connect, AutoSize = true };
+    private readonly StatCard _statTotal = new(L.DevicesView_StatTotal);
+    private readonly StatCard _statOnline = new(L.DevicesView_Online);
+    private readonly StatCard _statOffline = new(L.DevicesView_Offline);
+    private readonly StatCard _statPending = new(L.DevicesView_StatPending);
+    private readonly UiCombo _groupFilter = new(150);
+    private readonly UiCombo _statusFilter = new(140);
+    private readonly ToolTip _tip = new();
+    private readonly System.Windows.Forms.Timer _autoRefresh = new() { Interval = 10_000 };
+    private bool _suppressFilter;
+    private bool _refreshing;
 
     // Editor
-    private readonly MaterialButton _tabGeneral = TabBtn(L.ChannelsView_General);
-    private readonly MaterialButton _tabPermissions = TabBtn(L.UsersView_Permissions);
-    private readonly MaterialButton _tabMessages = TabBtn(L.DevicesView_Messages);
-    private readonly MaterialButton _tabCommands = TabBtn(L.DevicesView_Commands);
-    private readonly MaterialButton _tabLog = TabBtn("LOG");
-    private readonly MaterialButton _tabTelemetry = TabBtn(L.DevicesView_Telemetry);
-    private readonly MaterialButton _tabBeta = TabBtn("BETA");
-    private readonly MaterialLabel _editorTitle = new() { Font = new Font("Segoe UI", 13F, FontStyle.Bold), AutoSize = true, Margin = new Padding(12, 10, 0, 0) };
+    private readonly TabStrip _tabs = new();
+    private readonly DetailHeader _header = new(L.FileManager_Files, L.DevicesView_Connect);
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill };
     private DeviceInfo? _editing;
     private int _sortColumn = -1;
@@ -60,36 +64,64 @@ public sealed class DevicesView : UserControl, IContentView
         Controls.Add(_editorHost);
         Controls.Add(_listHost);
         ApplyTheme();
+        // Auto-refresh the list every 10s while it is the visible view (online state + last-seen drift) — fast
+        // enough to watch a device drop and come back after a restart without hitting the manual refresh.
+        _autoRefresh.Tick += async (_, _) => { if (Visible && _listHost.Visible && !_refreshing) await RefreshAsync(quiet: true); };
+        VisibleChanged += (_, _) => { if (!Visible) _autoRefresh.Stop(); };
     }
 
-    private static MaterialButton TabBtn(string text) =>
-        new() { Text = text, AutoSize = true, Margin = new Padding(4, 0, 0, 0), Type = MaterialButton.MaterialButtonType.Text };
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _autoRefresh.Dispose();
+        base.Dispose(disposing);
+    }
 
     private void BuildList()
     {
         // Top bar: list-level actions (search + refresh).
         var tools = ViewUi.Toolbar();
-        _search.Margin = new Padding(4, 0, 16, 0);
+        _search.Margin = new Padding(4, 0, 12, 0);
         _search.TextChanged += (_, _) => RenderList();
         tools.Controls.Add(_search);
-        var refresh = ViewUi.ToolbarButton(L.AboutView_Refresh, primary: false);
+        // Group + status filters (group is populated on each refresh).
+        _statusFilter.Items.AddRange(new object[] { L.DevicesView_FilterAnyStatus, L.DevicesView_Online, L.DevicesView_LinkFlaky, L.DevicesView_Offline, L.DevicesView_StatusPending });
+        _statusFilter.SelectedIndex = 0;
+        _groupFilter.Margin = new Padding(0, 0, 6, 0);
+        _statusFilter.Margin = new Padding(0, 0, 16, 0);
+        _groupFilter.SelectedIndexChanged += (_, _) => { if (!_suppressFilter) RenderList(); };
+        _statusFilter.SelectedIndexChanged += (_, _) => { if (!_suppressFilter) RenderList(); };
+        tools.Controls.Add(_groupFilter);
+        tools.Controls.Add(_statusFilter);
+        // Refresh as a compact icon button (tooltip carries the label); device enrollment lives on Bootstrap.
+        var refresh = new IconButton("refresh") { Size = new Size(38, 38), Margin = new Padding(0, 0, 0, 0) };
+        _tip.SetToolTip(refresh, L.AboutView_Refresh);
         refresh.Click += async (_, _) => await RefreshAsync();
         tools.Controls.Add(refresh);
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
-        _list.Columns.Add(L.DevicesView_Device, 160);
-        _list.Columns.Add(L.BootstrapView_Group, 110);
-        _list.Columns.Add(L.DeviceGeneralPanel_Note, 160);
-        _list.Columns.Add("Online", 70);
-        _list.Columns.Add(L.CredentialDialog_User, 150);
-        _list.Columns.Add(L.DevicesView_LastOnline, 140);
-        _list.Columns.Add(L.DeviceTelemetryPanel_PublicIP, 120);
+        // Columns (redesign): Note is folded under the hostname as a subtitle, so it has no column.
+        _list.Columns.Add(L.DevicesView_Device, 300);
+        _list.Columns.Add(L.BootstrapView_Group, 130);
+        _list.Columns.Add(L.BootstrapView_Status, 120);
+        _list.Columns.Add(L.CredentialDialog_User, 160);
+        _list.Columns.Add(L.DevicesView_LastOnline, 150);
+        _list.Columns.Add(L.DeviceTelemetryPanel_PublicIP, 170);
+        // Owner-drawn rows: status pills, mono cells, hostname + note subtitle, hover. Taller rows via image-list.
+        _list.OwnerDraw = true;
+        _list.SmallImageList = new ImageList { ImageSize = new Size(1, 46) };
+        TryEnableDoubleBuffer(_list);
+        _list.DrawColumnHeader += DrawHeader;
+        _list.DrawItem += DrawRow;
+        _list.DrawSubItem += DrawCell;
+        _list.SizeChanged += (_, _) => LayoutColumns();   // re-fill the Public IP column on resize
+        _list.MouseMove += OnRowHover;
+        _list.MouseLeave += (_, _) => SetHoverRow(-1);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
         // Right-click selects the row under the cursor and opens a context menu of editor tabs.
         if (_isAdmin)
         {
-            var menu = new ContextMenuStrip();
+            var menu = UiMenu.Themed();
             void Item(string text, string tab) => menu.Items.Add(text, null, async (_, _) => await EditSelectedAsync(tab));
             Item(L.DevicesView_Properties, "general");
             Item(L.DevicesView_Messages, "messages");
@@ -135,47 +167,244 @@ public sealed class DevicesView : UserControl, IContentView
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
         actions.Controls.Add(_connectBtn); // added last -> leftmost (Connect)
 
-        _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, actions, ViewUi.StatusHost(_status)));
+        _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, actions, ViewUi.StatusHost(_status)));  // Fill
+
+        // Stat row (Total / Online / Offline / Pending), docked above the list.
+        _statOnline.ValueColor = ThemeManager.OkFg;
+        _statOffline.ValueColor = ThemeManager.Text2;
+        _statPending.ValueColor = ThemeManager.WarnFg;
+        var statGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = new Padding(0) };
+        for (int i = 0; i < 4; i++) statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        var cards = new[] { _statTotal, _statOnline, _statOffline, _statPending };
+        for (int i = 0; i < cards.Length; i++)
+        {
+            cards[i].Dock = DockStyle.Fill;
+            cards[i].Margin = new Padding(i == 0 ? 0 : 6, 0, 0, 0);
+            statGrid.Controls.Add(cards[i], i, 0);
+        }
+        var statRow = new Panel { Dock = DockStyle.Top, Height = 72, Padding = new Padding(10, 8, 10, 4) };
+        statRow.Controls.Add(statGrid);
+        _listHost.Controls.Add(statRow);  // Top
     }
 
     private void BuildEditor()
     {
-        var back = ViewUi.ToolbarButton(L.ChannelsView_Back, primary: false);
-        back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
-        _tabGeneral.Click += (_, _) => SelectTab("general");
-        _tabPermissions.Click += (_, _) => SelectTab("permissions");
-        _tabMessages.Click += (_, _) => SelectTab("messages");
-        _tabCommands.Click += (_, _) => SelectTab("commands");
-        _tabLog.Click += async (_, _) => await SelectTabAsync("log");
-        _tabTelemetry.Click += (_, _) => SelectTab("telemetry");
-        _tabBeta.Click += (_, _) => SelectTab("beta");
+        _header.Back.Click += async (_, _) => { ShowList(); await RefreshAsync(); };
+        _header.Connect.Click += async (_, _) => { if (_editing is { } d) await ConnectDeviceAsync(d); };
+        _header.Files.Click += async (_, _) => await OpenFilesSelectedAsync();
+        _header.More.Click += (_, _) => ShowMoreMenu();
+        _tabs.TabSelected += SelectTab;
 
-        var tabbar = ViewUi.Toolbar();
-        tabbar.Controls.AddRange([back, _tabGeneral, _tabPermissions, _tabMessages, _tabCommands, _tabLog, _tabTelemetry, _tabBeta]);
-
-        _editorHost.Controls.Add(ViewUi.Rows(2, tabbar, _editorTitle, _tabContent));
+        _tabContent.Dock = DockStyle.Fill;
+        _editorHost.Controls.Add(_tabContent);   // Fill
+        _editorHost.Controls.Add(_tabs);         // Top (tab strip)
+        _editorHost.Controls.Add(_header);       // Top (added last -> topmost)
     }
 
-    public void ApplyTheme() => ThemeManager.StyleView(this, _list);
+    private void ShowMoreMenu()
+    {
+        if (_editing is null) return;
+        var menu = UiMenu.Themed();
+        menu.Items.Add(L.FileManager_Files, null, async (_, _) => await OpenFilesSelectedAsync());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L.DeviceCommandsPanel_Restart, null, async (_, _) => await RunPowerAsync("restart", confirm: true));
+        menu.Items.Add(L.DeviceCommandsPanel_ForceRestart, null, async (_, _) => await RunPowerAsync("force-restart", confirm: true));
+        menu.Items.Add(L.DeviceCommandsPanel_CancelRestart, null, async (_, _) => await RunPowerAsync("cancel", confirm: false));
+        menu.Items.Add(L.DeviceCommandsPanel_Logout, null, async (_, _) => await RunPowerAsync("logout", confirm: true));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L.DevicesView_Delete, null, async (_, _) => await DeleteSelectedAsync());
+        menu.Show(_header.More, new Point(0, _header.More.Height));
+    }
 
-    public async Task OnShownAsync() { ShowList(); await RefreshAsync(); }
+    public void ApplyTheme()
+    {
+        ThemeManager.StyleView(this, _list);
+        _statTotal.ValueColor = ThemeManager.Text;
+        _statOffline.ValueColor = ThemeManager.Text2;
+        foreach (var c in new[] { _statTotal, _statOnline, _statOffline, _statPending }) c.Invalidate();
+    }
+
+    public async Task OnShownAsync() { ShowList(); _autoRefresh.Start(); await RefreshAsync(); }
+
+    /// <summary>Topbar subtitle: live enrolled / online counts.</summary>
+    public string? Subtitle => L.Format(L.DevicesView_TopbarSubtitle, _devices.Count, _devices.Count(d => d.Online));
 
     private void ShowList() { _editorHost.Visible = false; _listHost.Visible = true; _listHost.BringToFront(); }
     private void ShowEditor() { _listHost.Visible = false; _editorHost.Visible = true; _editorHost.BringToFront(); }
 
     private DeviceInfo? SelectedDevice() => _list.SelectedItems.Count == 0 ? null : (DeviceInfo)_list.SelectedItems[0].Tag!;
 
-    private async Task RefreshAsync()
+    private async Task RefreshAsync(bool quiet = false)
     {
+        if (_refreshing) return;
+        _refreshing = true;
         try
         {
-            SetStatus(L.DevicesView_FetchingDeviceList);
+            if (!quiet) SetStatus(L.DevicesView_FetchingDeviceList);   // quiet = the silent 10-second auto-refresh
             var devices = await RetryAsync(() => _api.GetDevicesAsync());
             _devices.Clear(); _devices.AddRange(devices);
+            PopulateGroupFilter();
             RenderList();
+            UpdateStats();
             SetStatus(L.Format(L.DevicesView_Device_2, devices.Count));
         }
         catch (Exception ex) { SetStatus(L.DevicesView_ListError + ex.Message); }
+        finally { _refreshing = false; }
+    }
+
+    // ---- Owner-drawn table (design_handoff_console_redesign) --------------------------------
+    private int _hoverRow = -1;
+
+    private static void TryEnableDoubleBuffer(ListView list)
+    {
+        try
+        {
+            typeof(ListView).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(list, true);
+        }
+        catch { /* purely cosmetic */ }
+    }
+
+    private void SetHoverRow(int idx)
+    {
+        if (_hoverRow == idx) return;
+        _hoverRow = idx;
+        _list.Invalidate();
+    }
+
+    private void OnRowHover(object? sender, MouseEventArgs e) => SetHoverRow(_list.GetItemAt(e.X, e.Y)?.Index ?? -1);
+
+    private void DrawHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
+    {
+        var g = e.Graphics;
+        using (var b = new SolidBrush(ThemeManager.Panel2)) g.FillRectangle(b, e.Bounds);
+        using (var pen = new Pen(ThemeManager.BorderSoft)) g.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+        TextRenderer.DrawText(g, (e.Header?.Text ?? "").ToUpperInvariant(), UiFont.Label,
+            new Rectangle(e.Bounds.Left + 10, e.Bounds.Top, e.Bounds.Width - 14, e.Bounds.Height), ThemeManager.Text3,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+    }
+
+    private void DrawRow(object? sender, DrawListViewItemEventArgs e)
+    {
+        var g = e.Graphics;
+        Color bg = e.Item.Selected ? ThemeManager.AccentSoft : e.ItemIndex == _hoverRow ? ThemeManager.Panel2 : ThemeManager.Panel;
+        using (var b = new SolidBrush(bg)) g.FillRectangle(b, e.Bounds);
+        // Paint every cell here: DrawItem fires reliably for Details, whereas DrawSubItem can silently
+        // not fire (which left the cells blank). Cell rects are derived from the column widths so this
+        // tracks horizontal scrolling via e.Bounds.Left.
+        if (e.Item.Tag is DeviceInfo d)
+        {
+            int x = e.Bounds.Left;
+            for (int i = 0; i < _list.Columns.Count; i++)
+            {
+                int w = _list.Columns[i].Width;
+                var cell = new Rectangle(x, e.Bounds.Top, w, e.Bounds.Height);
+                g.SetClip(cell);
+                PaintCell(g, i, d, cell);
+                g.ResetClip();
+                x += w;
+            }
+        }
+        using (var pen = new Pen(ThemeManager.BorderSoft)) g.DrawLine(pen, e.Bounds.Left + 8, e.Bounds.Bottom - 1, e.Bounds.Right - 8, e.Bounds.Bottom - 1);
+    }
+
+    // Subitems are painted by DrawRow; suppress the default text (kept on the item only for auto-size).
+    private void DrawCell(object? sender, DrawListViewSubItemEventArgs e) => e.DrawDefault = false;
+
+    private void PaintCell(Graphics g, int col, DeviceInfo d, Rectangle r)
+    {
+        int cy = r.Top + r.Height / 2;
+        switch (col)
+        {
+            case 0: // Device: icon tile + (amber lock) + hostname + note subtitle
+            {
+                var tile = new Rectangle(r.Left + 10, cy - 15, 30, 30);
+                UiPaint.FillRoundedRect(g, tile, 8, ThemeManager.Panel3);
+                UiIcons.Draw(g, "monitor", new RectangleF(tile.X + 6, tile.Y + 6, 18, 18), ThemeManager.Text2);
+                string name = string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname;
+                string? note = string.IsNullOrWhiteSpace(d.Note) ? null : d.Note;
+                int tx = tile.Right + 11;
+                int nameY = note is null ? r.Top : cy - 17;
+                int nameH = note is null ? r.Height : 17;
+                var nameFlags = TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis
+                                | (note is null ? TextFormatFlags.VerticalCenter : TextFormatFlags.Default);
+                if (d.LoginLocked)
+                {
+                    UiIcons.Draw(g, "lock", new RectangleF(tx, (note is null ? cy : cy - 9) - 7, 14, 14), ThemeManager.WarnFg, 1.5f);
+                    tx += 19;
+                }
+                TextRenderer.DrawText(g, name, UiFont.MonoSemi, new Rectangle(tx, nameY, r.Right - tx - 8, nameH), ThemeManager.Text, nameFlags);
+                if (note is not null)
+                    TextRenderer.DrawText(g, note, UiFont.Small, new Rectangle(tile.Right + 11, cy + 1, r.Right - tile.Right - 19, 15),
+                        ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+                break;
+            }
+            case 2: // Online status pill (online / flaky / offline / pending)
+            {
+                var (txt, fg, bgc) = StatusPill(d);
+                UiPaint.DrawPill(g, r.Left + 10, cy, txt, fg, bgc, UiFont.Small, dot: true);
+                break;
+            }
+            default:
+            {
+                (string text, Color color, Font font) = col switch
+                {
+                    1 => (d.GroupName ?? "—", ThemeManager.Text2, UiFont.Body),
+                    3 => (string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser!, ThemeManager.Text2, UiFont.Body),
+                    4 => (d.Online ? L.DevicesView_JustNow : RelativeTime(d.LastSeenAt), ThemeManager.Text2, UiFont.Body),
+                    5 => (DeviceTelemetryPanel.PublicIp(d),
+                          d.PublicIpReverse is { } rev && rev.Contains("nat.", StringComparison.OrdinalIgnoreCase) ? ThemeManager.DangerFg : ThemeManager.Text2,
+                          UiFont.Mono),
+                    _ => ("", ThemeManager.Text2, UiFont.Body),
+                };
+                TextRenderer.DrawText(g, text, font, new Rectangle(r.Left + 10, r.Top, r.Width - 14, r.Height), color,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+                break;
+            }
+        }
+    }
+
+    /// <summary>Status pill (text + fg/soft-bg) shared by the list cell and the detail header.</summary>
+    private static (string Text, Color Fg, Color Bg) StatusPill(DeviceInfo d)
+    {
+        if (string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return (L.DevicesView_StatusPending, ThemeManager.WarnFg, ThemeManager.WarnBg);
+        if (d.Online) return (L.DevicesView_Online, ThemeManager.OkFg, ThemeManager.OkBg);
+        if (d.LinkFlaky) return (L.DevicesView_LinkFlaky, ThemeManager.WarnFg, ThemeManager.WarnBg);
+        return (L.DevicesView_Offline, ThemeManager.OffFg, ThemeManager.OffBg);
+    }
+
+    /// <summary>Human "last online" like the design: just now / N min ago / Nh ago / Nd ago / date.</summary>
+    private static string RelativeTime(DateTimeOffset? when)
+    {
+        if (when is not { } t) return "—";
+        var ago = DateTimeOffset.UtcNow - t.ToUniversalTime();
+        if (ago < TimeSpan.Zero) ago = TimeSpan.Zero;
+        if (ago.TotalSeconds < 45) return L.DevicesView_JustNow;
+        if (ago.TotalMinutes < 60) return L.Format(L.DevicesView_MinutesAgo, (int)ago.TotalMinutes);
+        if (ago.TotalHours < 24) return L.Format(L.DevicesView_HoursAgo, (int)ago.TotalHours);
+        if (ago.TotalDays < 30) return L.Format(L.DevicesView_DaysAgo, (int)ago.TotalDays);
+        return t.LocalDateTime.ToString("yyyy-MM-dd");
+    }
+
+    private void PopulateGroupFilter()
+    {
+        var sel = _groupFilter.SelectedItem as string;
+        _suppressFilter = true;
+        _groupFilter.Items.Clear();
+        _groupFilter.Items.Add(L.DevicesView_FilterAllGroups);
+        foreach (var name in _devices.Select(d => d.GroupName).Where(g => !string.IsNullOrWhiteSpace(g)).Distinct().OrderBy(g => g))
+            _groupFilter.Items.Add(name!);
+        int idx = sel is null ? 0 : _groupFilter.Items.IndexOf(sel);
+        _groupFilter.SelectedIndex = idx < 0 ? 0 : idx;
+        _suppressFilter = false;
+    }
+
+    private void UpdateStats()
+    {
+        _statTotal.SetValue(_devices.Count);
+        _statOnline.SetValue(_devices.Count(d => d.Online));
+        _statOffline.SetValue(_devices.Count(d => !d.Online));
+        _statPending.SetValue(_devices.Count(d => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)));
     }
 
     private void RenderList()
@@ -183,50 +412,76 @@ public sealed class DevicesView : UserControl, IContentView
         var q = _search.Text.Trim();
         IEnumerable<DeviceInfo> items = _devices;
         if (q.Length > 0)
-            items = _devices.Where(d =>
+            items = items.Where(d =>
                 (d.Hostname?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (d.GroupName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (d.Note?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
 
+        if (_groupFilter.SelectedIndex > 0 && _groupFilter.SelectedItem is string gn)
+            items = items.Where(d => string.Equals(d.GroupName, gn, StringComparison.OrdinalIgnoreCase));
+
+        items = _statusFilter.SelectedIndex switch
+        {
+            1 => items.Where(d => d.Online),
+            2 => items.Where(d => d.LinkFlaky && !d.Online),
+            3 => items.Where(d => !d.Online && !d.LinkFlaky),
+            4 => items.Where(d => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+            _ => items,
+        };
+
         items = SortItems(items);
+
+        // Preserve the operator's selection + scroll across a rebuild (especially the 10-second auto-refresh).
+        var selId = SelectedDevice()?.DeviceId;
+        var topId = (_list.TopItem?.Tag as DeviceInfo)?.DeviceId;
 
         _list.BeginUpdate();
         _list.Items.Clear();
+        ListViewItem? toSelect = null, toTop = null;
         foreach (var d in items)
         {
-            // Column order: Device | Group | Note | Online | User | Last seen | Public IP.
-            var name = string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname;
-            if (d.LoginLocked) name = "🔒 " + name;
-            var item = new ListViewItem(name) { Tag = d, UseItemStyleForSubItems = false };
-            // Pending (not yet approved) must stand out: red device name.
-            if (string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase))
-                item.ForeColor = Color.Red;
-            if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
+            // Display is owner-drawn (DrawRow). The sub-item text is kept (not shown) only so the built-in
+            // column auto-size has real content to measure instead of collapsing to zero.
+            string status = string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase) ? "pending"
+                          : d.Online ? "online" : d.LinkFlaky ? "flaky" : "offline";
+            var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname) { Tag = d };
             item.SubItems.Add(d.GroupName ?? "—");
-            item.SubItems.Add(string.IsNullOrWhiteSpace(d.Note) ? "—" : d.Note);
-            // Offline + recent C2 churn = "flaky" (agent likely alive, just a poor network) rather than dead.
-            var online = item.SubItems.Add(d.Online ? "● online" : d.LinkFlaky ? "◐ " + L.DevicesView_LinkFlaky : "○ offline");
-            online.ForeColor = d.Online ? Color.MediumSeaGreen : d.LinkFlaky ? Color.DarkOrange : Color.Gray;
-            if (d.LinkFlaky && !d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
+            item.SubItems.Add(status);
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
-            item.SubItems.Add(d.LastSeenAt?.LocalDateTime.ToString("g") ?? "—");
-            var pip = item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));
-            // CGNAT (carrier NAT) reverse names contain "nat." — flag red: not a directly reachable public IP.
-            if (d.PublicIpReverse is { } rev && rev.Contains("nat.", StringComparison.OrdinalIgnoreCase))
-                pip.ForeColor = Color.IndianRed;
-            if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
+            item.SubItems.Add(RelativeTime(d.LastSeenAt));
+            item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));
+            if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
+            else if (d.LinkFlaky) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
+            else if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
+            if (d.DeviceId == selId) toSelect = item;
+            if (d.DeviceId == topId) toTop = item;
         }
+        if (toSelect is not null) { toSelect.Selected = true; toSelect.Focused = true; }
+        _list.EndUpdate();
+        try { if (toTop is not null) _list.TopItem = toTop; else toSelect?.EnsureVisible(); } catch { /* TopItem can throw mid-layout */ }
+        LayoutColumns();
+    }
 
-        // Auto-size every column to fit header + content, except Note (free-form, kept fixed).
-        for (int c = 0; c < _list.Columns.Count; c++)
+    // Gép stays a comfortable fixed width; Állapot + Utoljára online are compact; Csoport + Felhasználó size to
+    // their content; Publikus IP takes whatever width is left so the row fills without clipping the others.
+    private void LayoutColumns()
+    {
+        if (_list.Columns.Count < 6 || _list.ClientSize.Width <= 4) return;
+        int Fit(int col, Func<DeviceInfo, string?> sel, Font f, int min, int max)
         {
-            if (c == 2) continue; // Note column stays fixed
-            _list.AutoResizeColumn(c, ColumnHeaderAutoResizeStyle.HeaderSize);
-            int header = _list.Columns[c].Width;
-            _list.AutoResizeColumn(c, ColumnHeaderAutoResizeStyle.ColumnContent);
-            if (_list.Columns[c].Width < header) _list.Columns[c].Width = header;
+            int n = TextRenderer.MeasureText(_list.Columns[col].Text.ToUpperInvariant(), UiFont.Label).Width;
+            foreach (var d in _devices) n = Math.Max(n, TextRenderer.MeasureText(sel(d) ?? "—", f).Width);
+            return Math.Clamp(n + 24, min, max);
         }
+        _list.BeginUpdate();
+        _list.Columns[0].Width = 300;                                                   // Gép (fixed)
+        _list.Columns[2].Width = 96;                                                    // Állapot (status pill)
+        _list.Columns[4].Width = 96;                                                    // Utoljára online
+        _list.Columns[1].Width = Fit(1, d => d.GroupName, UiFont.Body, 92, 180);        // Csoport (content)
+        _list.Columns[3].Width = Fit(3, d => d.LoggedInUser, UiFont.Body, 120, 240);    // Felhasználó (content)
+        int used = 300 + 96 + 96 + _list.Columns[1].Width + _list.Columns[3].Width;
+        _list.Columns[5].Width = Math.Max(170, _list.ClientSize.Width - used - 2);       // Publikus IP fills the rest
         _list.EndUpdate();
     }
 
@@ -238,11 +493,10 @@ public sealed class DevicesView : UserControl, IContentView
         {
             0 => d => d.Hostname,
             1 => d => d.GroupName,
-            2 => d => d.Note,
-            3 => d => d.Online,
-            4 => d => d.LoggedInUser,
-            5 => d => d.LastSeenAt,
-            6 => d => d.PublicIpAddress,
+            2 => d => d.Online,
+            3 => d => d.LoggedInUser,
+            4 => d => d.LastSeenAt,
+            5 => d => d.PublicIpAddress,
             _ => d => d.Hostname,
         };
         return _sortAsc
@@ -266,7 +520,9 @@ public sealed class DevicesView : UserControl, IContentView
         {
             var groups = await _api.GetGroupsAsync();
             _editing = d;
-            _editorTitle.Text = string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname;
+            var (st, sf, sb) = StatusPill(d);
+            string sub = string.Join(" · ", new[] { d.Note, d.GroupName, d.OsVersion }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            _header.SetDevice(string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname, sub, st, sf, sb);
 
             _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _cmdPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose(); _betaPanel?.Dispose();
             _generalPanel = new DeviceGeneralPanel(_api, d, groups);
@@ -278,7 +534,14 @@ public sealed class DevicesView : UserControl, IContentView
             _betaPanel = new DeviceBetaPanel(_api, d);
 
             // BETA tab only for beta-channel devices: the agent that understands the transport ships there first.
-            _tabBeta.Visible = string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase);
+            var tabs = new List<(string, string)>
+            {
+                ("general", L.ChannelsView_General), ("permissions", L.UsersView_Permissions),
+                ("messages", L.DevicesView_Messages), ("commands", L.DevicesView_Commands),
+                ("log", L.MainForm_Log), ("telemetry", L.DevicesView_Telemetry),
+            };
+            if (string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase)) tabs.Add(("beta", "BETA"));
+            _tabs.SetTabs(tabs.ToArray(), initialTab);
 
             ShowEditor();
             SelectTab(initialTab);
@@ -290,9 +553,7 @@ public sealed class DevicesView : UserControl, IContentView
 
     private async Task SelectTabAsync(string tab)
     {
-        foreach (var (b, key) in new[] { (_tabGeneral, "general"), (_tabPermissions, "permissions"), (_tabMessages, "messages"), (_tabCommands, "commands"), (_tabLog, "log"), (_tabTelemetry, "telemetry"), (_tabBeta, "beta") })
-            b.Type = key == tab ? MaterialButton.MaterialButtonType.Contained : MaterialButton.MaterialButtonType.Text;
-
+        _tabs.SetActive(tab);
         _tabContent.Controls.Clear();
         switch (tab)
         {
