@@ -59,6 +59,22 @@ public sealed class TelemetryPayload
     [JsonPropertyName("loggedInUser")]
     public string? LoggedInUser { get; set; }
 
+    /// <summary>On AC power / charger.</summary>
+    [JsonPropertyName("acOnline")]
+    public bool AcOnline { get; set; }
+
+    /// <summary>Battery charge 0-100; null on desktops / no battery.</summary>
+    [JsonPropertyName("batteryPercent")]
+    public int? BatteryPercent { get; set; }
+
+    /// <summary>Sleep (standby) idle timeout in minutes on AC; 0 = never, null = unknown.</summary>
+    [JsonPropertyName("sleepAcMinutes")]
+    public int? SleepAcMinutes { get; set; }
+
+    /// <summary>Sleep (standby) idle timeout in minutes on battery; 0 = never, null = unknown.</summary>
+    [JsonPropertyName("sleepDcMinutes")]
+    public int? SleepDcMinutes { get; set; }
+
     [JsonPropertyName("collectedAtUtc")]
     public DateTimeOffset CollectedAtUtc { get; set; }
 

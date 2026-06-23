@@ -630,6 +630,7 @@ public sealed class DevicesView : UserControl, IContentView
             SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
             await Task.Delay(1500);
             var localPort = await _forward(result.RemotePort, CancellationToken.None);
+            ShowSleepWarning(d);
             LaunchViewer(localPort, d);
             SetStatus(L.Format(L.DevicesView_VNCStarted, d.Hostname));
         }
@@ -746,6 +747,19 @@ public sealed class DevicesView : UserControl, IContentView
 
     /// <summary>Updates the viewer color depth used for subsequent connections (from the operator's account preference).</summary>
     public void SetViewerColor(string color) => _viewerColor = string.IsNullOrWhiteSpace(color) ? "full" : color;
+
+    /// <summary>On connect, warns when the machine is likely to sleep mid-session (drops the VNC link): on
+    /// battery, or on AC with a non-"never" standby timeout. No-op until an updated agent reports power.</summary>
+    private void ShowSleepWarning(DeviceInfo d)
+    {
+        if (d.BatteryPercent is null && d.SleepAcMinutes is null && d.SleepDcMinutes is null) return; // no power telemetry yet
+        string Sleep(int? m) => m switch { null => "?", 0 => L.DeviceTelemetryPanel_Never, _ => L.Format(L.DeviceTelemetryPanel_Minutes, m.Value) };
+        string? msg = !d.AcOnline
+            ? L.Format(L.DevicesView_SleepWarnBattery, d.BatteryPercent?.ToString() ?? "?", Sleep(d.SleepDcMinutes))
+            : d.SleepAcMinutes is int ac && ac > 0 ? L.Format(L.DevicesView_SleepWarnCharger, ac) : null;
+        if (msg is not null)
+            MessageBox.Show(this, msg, L.DevicesView_SleepWarnTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
 
     private void LaunchViewer(int localPort, DeviceInfo d)
     {

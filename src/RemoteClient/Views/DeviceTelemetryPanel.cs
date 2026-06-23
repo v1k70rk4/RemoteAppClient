@@ -75,6 +75,20 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.DeviceTelemetryPanel_PublicIP, PublicIp(d));
         Row("Wi-Fi", string.IsNullOrWhiteSpace(d.WifiSsid) ? L.DeviceTelemetryPanel_WiredNoWiFi : d.WifiSsid);
         Row("VPN", d.VpnActive ? L.DeviceTelemetryPanel_Active : L.DeviceTelemetryPanel_No);
+
+        // Power: battery (laptops only) + sleep (standby) timeout per power source. A null battery is a desktop.
+        string Sleep(int? m) => m switch { null => "?", 0 => L.DeviceTelemetryPanel_Never, _ => L.Format(L.DeviceTelemetryPanel_Minutes, m.Value) };
+        if (d.BatteryPercent is int pct)
+        {
+            Row(L.DeviceTelemetryPanel_PowerBattery, $"{pct}% · {(d.AcOnline ? L.DeviceTelemetryPanel_OnCharger : L.DeviceTelemetryPanel_OnBattery)}",
+                !d.AcOnline && pct <= 15 ? ThemeManager.WarnFg : ThemeManager.Text, UiFont.Body);
+            Row(L.DeviceTelemetryPanel_Sleep, L.Format(L.DeviceTelemetryPanel_SleepAcDc, Sleep(d.SleepAcMinutes), Sleep(d.SleepDcMinutes)), ThemeManager.Text, UiFont.Body);
+        }
+        else
+        {
+            Row(L.DeviceTelemetryPanel_PowerBattery, L.DeviceTelemetryPanel_MainsOnly, ThemeManager.Text, UiFont.Body);
+            Row(L.DeviceTelemetryPanel_Sleep, L.Format(L.DeviceTelemetryPanel_SleepAc, Sleep(d.SleepAcMinutes)), ThemeManager.Text, UiFont.Body);
+        }
         Row(L.DeviceTelemetryPanel_BootTime, d.BootTimeUtc?.LocalDateTime.ToString("g"));
         Row(L.DeviceTelemetryPanel_Uptime, Uptime(d.BootTimeUtc));
         Row(L.DeviceTelemetryPanel_MakeModel, $"{(string.IsNullOrWhiteSpace(d.Manufacturer) ? "OEM" : d.Manufacturer)} / {S(d.Model)}");

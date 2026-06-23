@@ -49,6 +49,10 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
         device.WifiSsid = payload.WifiSsid;
         device.VpnActive = payload.VpnActive;
         device.LoggedInUser = payload.LoggedInUser;
+        device.AcOnline = payload.AcOnline;
+        device.BatteryPercent = payload.BatteryPercent;
+        device.SleepAcMinutes = payload.SleepAcMinutes;
+        device.SleepDcMinutes = payload.SleepDcMinutes;
         device.LastSeenAt = now;
 
         db.DeviceTelemetry.Add(new DeviceTelemetry

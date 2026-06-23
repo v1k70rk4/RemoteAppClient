@@ -20,6 +20,7 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
     public TelemetryPayload Collect()
     {
         var hw = HardwareInfo.System();
+        var pw = PowerInfo.Read();
         var p = new TelemetryPayload
         {
             AgentId = MachineIdentity.Resolve(_options.AgentId),
@@ -40,6 +41,10 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
             WifiSsid = NetInfo.WifiSsid(),
             VpnActive = NetInfo.IsVpnActive(),
             LoggedInUser = Consent.ConsentPrompt.ActiveUserName(),
+            AcOnline = PowerMonitor.Active ? PowerMonitor.AcOnline : pw.AcOnline,  // notification beats stale ACLineStatus
+            BatteryPercent = pw.BatteryPercent,
+            SleepAcMinutes = pw.SleepAcMinutes,
+            SleepDcMinutes = pw.SleepDcMinutes,
         };
         ReadSupervisorStatus(p);
         return p;

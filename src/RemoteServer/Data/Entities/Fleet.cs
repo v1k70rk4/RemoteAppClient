@@ -98,6 +98,13 @@ public sealed class Device
     public bool VpnActive { get; set; }
     public string? LoggedInUser { get; set; }
 
+    /// <summary>Power (denormalized from telemetry): on AC/charger, battery % (null = no battery / desktop),
+    /// and the sleep (standby) idle timeout in minutes on AC / on battery (0 = never, null = unknown).</summary>
+    public bool AcOnline { get; set; }
+    public int? BatteryPercent { get; set; }
+    public int? SleepAcMinutes { get; set; }
+    public int? SleepDcMinutes { get; set; }
+
     public DateTimeOffset EnrolledAt { get; set; } = DateTimeOffset.UtcNow;
 
     /// <summary>Admin note such as user name, stored encrypted because it may be sensitive.</summary>

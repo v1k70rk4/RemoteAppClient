@@ -113,6 +113,11 @@ public sealed class DeviceInfo
     [JsonPropertyName("wifiSsid")] public string? WifiSsid { get; set; }
     [JsonPropertyName("vpnActive")] public bool VpnActive { get; set; }
     [JsonPropertyName("loggedInUser")] public string? LoggedInUser { get; set; }
+    /// <summary>Power: on AC/charger, battery % (null = no battery), sleep idle timeout (min) on AC/battery (0 = never).</summary>
+    [JsonPropertyName("acOnline")] public bool AcOnline { get; set; }
+    [JsonPropertyName("batteryPercent")] public int? BatteryPercent { get; set; }
+    [JsonPropertyName("sleepAcMinutes")] public int? SleepAcMinutes { get; set; }
+    [JsonPropertyName("sleepDcMinutes")] public int? SleepDcMinutes { get; set; }
 
     /// <summary>Login lockout after 5 failed attempts from the device. Only an admin can unlock it.</summary>
     [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }

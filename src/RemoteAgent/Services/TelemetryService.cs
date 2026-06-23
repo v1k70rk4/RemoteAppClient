@@ -24,6 +24,9 @@ public sealed class TelemetryService(
 {
     private readonly TelemetryOptions _opt = options.Value.Telemetry;
     private readonly string _pfxPath = options.Value.ClientCertPfxPath;
+    private readonly SemaphoreSlim _wake = new(0, 1);   // pulsed by PowerMonitor to send immediately on plug/unplug
+
+    private void WakeNow() { try { if (_wake.CurrentCount == 0) _wake.Release(); } catch { /* a send is already pending */ } }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -35,6 +38,12 @@ public sealed class TelemetryService(
 
         var interval = TimeSpan.FromSeconds(_opt.IntervalSeconds);
         HttpClient? http = null; // built lazily; rebuilt after cert errors, for example after enrollment
+
+        // Event-driven power: send telemetry immediately when the charger is plugged/unplugged instead of
+        // waiting out the interval. PowerMonitor also provides a reliable AC state for this Session-0 service.
+        PowerMonitor.Changed += WakeNow;
+        PowerMonitor.Start();
+        try { await Task.Delay(500, stoppingToken); } catch (OperationCanceledException) { } // let the initial AC state arrive
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -73,10 +82,12 @@ public sealed class TelemetryService(
                 http = null; // rebuild on next cycle, for example if enrollment completed meanwhile
             }
 
-            try { await Task.Delay(interval, stoppingToken); }
+            try { await _wake.WaitAsync(interval, stoppingToken); }   // wakes early on a power-source change
             catch (OperationCanceledException) { break; }
         }
 
+        PowerMonitor.Changed -= WakeNow;
+        PowerMonitor.Stop();
         http?.Dispose();
     }
 
