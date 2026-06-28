@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-1.7.0-2ea44f" alt="version 1.7.0">
+  <img src="https://img.shields.io/badge/version-1.9.0-2ea44f" alt="version 1.9.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 1.9.0](#whats-new-in-190)
 - [What's New in 1.8.5](#whats-new-in-185)
 - [What's New in 1.8.0](#whats-new-in-180)
 - [What's New in 1.7.0](#whats-new-in-170)
@@ -55,6 +56,40 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 1.9.0
+
+A **client redesign and power-telemetry** release. This is the first release to **change the database schema
+since 1.8.0**: four nullable power columns are added to `Devices`. Prod applies the idempotent
+`upgrade-1.8.9-power.sql` (`ADD COLUMN IF NOT EXISTS`) through the in-app server update; a fresh install gets
+the columns from `schema.sql`.
+
+**Operator console redesign**
+- A token-based visual overhaul of the Windows client: a compact, Hungarian-localized sidebar, tighter device
+  stat cards, an icon-only refresh on the Devices page, and a polished deep-dark login screen.
+- Bundled **IBM Plex** UI fonts (OFL), embedded in the single-file exe so they load without a system install.
+- **Dark, click-to-sort list headers** throughout — the Devices list and the Channels/MSI device list sort on
+  any column (version-aware), and the old white native ListView header is gone in dark mode.
+- The Devices page **auto-refreshes** every 10 s, so "last seen" and online state stay live.
+
+**Power telemetry (battery & sleep)**
+- The agent reports **battery charge %**, **charger (AC) state**, and the configured **sleep timeout** on mains
+  and on battery. Charger state is **event-driven** (a `GUID_ACDC_POWER_SOURCE` notification), so plugging or
+  unplugging shows up on the next telemetry beat instead of waiting on a stale Session-0 poll.
+- Opening a VNC session to a machine that may drop off now raises a **sleep warning** — on battery, or on mains
+  with sleep still enabled — with the idle-to-sleep time. The telemetry panel gains **Akku/táp** and **Alvó mód**
+  rows.
+
+**Quality of life**
+- Device notes accept **multi-line input** (Enter inserts a newline); one-line list and header previews collapse
+  the newlines to spaces so wrapped notes no longer smear together.
+- Dependency bumps (NuGet + GitHub Actions) via Dependabot.
+
+**Compatibility** — the new power columns are nullable and the new telemetry fields are additive, so a 1.9.0
+server stays compatible with older agents (they simply report no power data) and the 1.9.0 client renders older
+devices with the power rows blank.
 
 ---
 

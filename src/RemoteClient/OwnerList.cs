@@ -18,10 +18,13 @@ public sealed class OwnerList : UserControl
     private readonly Panel _card;
     private Col[] _cols = Array.Empty<Col>();
     private int _hover = -1;
+    private int _sortCol = -1;
+    private bool _sortAsc = true;
 
     public event EventHandler<RowPaintEventArgs>? PaintRow;
     public event Action<object>? RowActivated;
     public event Action<object, Point>? RowRightClicked;   // (item, screen point)
+    public event Action<int>? HeaderClicked;               // (column index) — opt-in sorting; the caller re-orders rows + calls SetSort
 
     public OwnerList(int rowHeight = 46)
     {
@@ -55,11 +58,26 @@ public sealed class OwnerList : UserControl
 
         _card = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.Panel, Padding = new Padding(1, 36, 1, 6) };
         _card.Paint += PaintCardChrome;
+        _card.MouseClick += OnHeaderClick;
+        _card.MouseMove += (_, e) => _card.Cursor = HeaderClicked is not null && e.Y <= 34 ? Cursors.Hand : Cursors.Default;
         _card.Controls.Add(_lv);
         Controls.Add(_card);
     }
 
     public void SetColumns(params Col[] cols) { _cols = cols; _card.Invalidate(); }
+    /// <summary>Shows the sort arrow on a column (the caller owns the actual row ordering).</summary>
+    public void SetSort(int column, bool ascending) { _sortCol = column; _sortAsc = ascending; _card.Invalidate(); }
+
+    private void OnHeaderClick(object? sender, MouseEventArgs e)
+    {
+        if (e.Y > 34 || _cols.Length == 0 || HeaderClicked is null) return;   // header band only, and only when sorting is wired
+        var xs = ColumnX(_card.Width);
+        for (int i = 0; i < _cols.Length; i++)
+        {
+            int right = i + 1 < _cols.Length ? xs[i + 1] : xs[_cols.Length];
+            if (e.X >= xs[i] && e.X < right) { HeaderClicked.Invoke(i); return; }
+        }
+    }
     public object? Selected => _lv.SelectedItems.Count == 0 ? null : _lv.SelectedItems[0].Tag;
     public void BeginUpdate() => _lv.BeginUpdate();
     public void EndUpdate() => _lv.EndUpdate();
@@ -85,7 +103,9 @@ public sealed class OwnerList : UserControl
             int right = i + 1 < _cols.Length ? xs[i + 1] : xs[_cols.Length];
             var r = new Rectangle(xs[i], 0, right - xs[i] - 8, 32);
             var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | (_cols[i].Right ? TextFormatFlags.Right : TextFormatFlags.Left);
-            TextRenderer.DrawText(g, _cols[i].Title.ToUpperInvariant(), UiFont.Label, r, ThemeManager.Text3, flags);
+            string title = _cols[i].Title.ToUpperInvariant();
+            if (i == _sortCol) title += _sortAsc ? "  ▴" : "  ▾";
+            TextRenderer.DrawText(g, title, UiFont.Label, r, ThemeManager.Text3, flags);
         }
         using var pen = new Pen(ThemeManager.BorderSoft);
         g.DrawLine(pen, 12, 33, _card.Width - 12, 33);

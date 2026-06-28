@@ -24,6 +24,7 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly Panel _listHost = new() { Dock = DockStyle.Fill };
     private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly ListView _list = new();
+    private readonly Panel _listHeader = new() { Dock = DockStyle.Top, Height = 30 };  // dark, owner-drawn replacement for the native (white) column header
     private readonly MaterialLabel _status = new();
     private readonly TextField _search = new(L.DevicesView_SearchHostnameOrNote, 340, false, "search");
     private readonly MaterialButton _connectBtn = new() { Text = L.DevicesView_Connect, AutoSize = true };
@@ -109,12 +110,15 @@ public sealed class DevicesView : UserControl, IContentView
         _list.Columns.Add(L.DeviceTelemetryPanel_PublicIP, 170);
         // Owner-drawn rows: status pills, mono cells, hostname + note subtitle, hover. Taller rows via image-list.
         _list.OwnerDraw = true;
+        _list.HeaderStyle = ColumnHeaderStyle.None;        // hide the native (white, un-themeable) header — drawn by _listHeader instead
         _list.SmallImageList = new ImageList { ImageSize = new Size(1, 46) };
         TryEnableDoubleBuffer(_list);
-        _list.DrawColumnHeader += DrawHeader;
         _list.DrawItem += DrawRow;
         _list.DrawSubItem += DrawCell;
         _list.SizeChanged += (_, _) => LayoutColumns();   // re-fill the Public IP column on resize
+        _listHeader.Paint += DrawHeaderStrip;             // dark header strip, aligned to the column widths
+        _listHeader.MouseClick += HeaderClick;            // click a column to sort
+        _listHeader.Cursor = Cursors.Hand;
         _list.MouseMove += OnRowHover;
         _list.MouseLeave += (_, _) => SetHoverRow(-1);
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
@@ -153,7 +157,7 @@ public sealed class DevicesView : UserControl, IContentView
                 menu.Show(_list, e.Location);
             };
         }
-        _list.ColumnClick += (_, e) => { if (_sortColumn == e.Column) _sortAsc = !_sortAsc; else { _sortColumn = e.Column; _sortAsc = true; } RenderList(); };
+        // Sorting is handled by the custom _listHeader (HeaderClick) — the native header is hidden.
 
         // Bottom-right: actions for the selected device (Connect | Edit | Approve).
         // With RightToLeft, the first added control is rightmost, so add in reverse order.
@@ -167,7 +171,11 @@ public sealed class DevicesView : UserControl, IContentView
         _connectBtn.Click += async (_, _) => await ConnectSelectedAsync();
         actions.Controls.Add(_connectBtn); // added last -> leftmost (Connect)
 
-        _listHost.Controls.Add(ViewUi.Rows(1, tools, _list, actions, ViewUi.StatusHost(_status)));  // Fill
+        _list.Dock = DockStyle.Fill;
+        var listWrap = new Panel { Dock = DockStyle.Fill };
+        listWrap.Controls.Add(_list);         // Fill (below the header strip)
+        listWrap.Controls.Add(_listHeader);   // Top: dark column-header strip
+        _listHost.Controls.Add(ViewUi.Rows(1, tools, listWrap, actions, ViewUi.StatusHost(_status)));  // Fill
 
         // Stat row (Total / Online / Offline / Pending), docked above the list.
         _statOnline.ValueColor = ThemeManager.OkFg;
@@ -274,14 +282,43 @@ public sealed class DevicesView : UserControl, IContentView
 
     private void OnRowHover(object? sender, MouseEventArgs e) => SetHoverRow(_list.GetItemAt(e.X, e.Y)?.Index ?? -1);
 
-    private void DrawHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
+    // Dark column-header strip, drawn at the same x-offsets as the cells (column start + 10, matching PaintCell).
+    private void DrawHeaderStrip(object? sender, PaintEventArgs e)
     {
         var g = e.Graphics;
-        using (var b = new SolidBrush(ThemeManager.Panel2)) g.FillRectangle(b, e.Bounds);
-        using (var pen = new Pen(ThemeManager.BorderSoft)) g.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-        TextRenderer.DrawText(g, (e.Header?.Text ?? "").ToUpperInvariant(), UiFont.Label,
-            new Rectangle(e.Bounds.Left + 10, e.Bounds.Top, e.Bounds.Width - 14, e.Bounds.Height), ThemeManager.Text3,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+        g.Clear(ThemeManager.Panel2);
+        int x = 0;
+        for (int i = 0; i < _list.Columns.Count; i++)
+        {
+            int w = _list.Columns[i].Width;
+            TextRenderer.DrawText(g, _list.Columns[i].Text.ToUpperInvariant(), UiFont.Label,
+                new Rectangle(x + 10, 0, w - 14, _listHeader.Height), ThemeManager.Text3,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+            if (i == _sortColumn)
+                TextRenderer.DrawText(g, _sortAsc ? "▴" : "▾", UiFont.Body, new Rectangle(x, 0, w - 5, _listHeader.Height),
+                    ThemeManager.Text2, TextFormatFlags.VerticalCenter | TextFormatFlags.Right | TextFormatFlags.NoPadding);
+            x += w;
+        }
+        using var pen = new Pen(ThemeManager.BorderSoft);
+        g.DrawLine(pen, 0, _listHeader.Height - 1, _listHeader.Width, _listHeader.Height - 1);
+    }
+
+    // Map the click x to a column and toggle/flip the sort (replaces the native ColumnClick).
+    private void HeaderClick(object? sender, MouseEventArgs e)
+    {
+        int x = 0;
+        for (int i = 0; i < _list.Columns.Count; i++)
+        {
+            int w = _list.Columns[i].Width;
+            if (e.X >= x && e.X < x + w)
+            {
+                if (_sortColumn == i) _sortAsc = !_sortAsc; else { _sortColumn = i; _sortAsc = true; }
+                RenderList();
+                _listHeader.Invalidate();
+                return;
+            }
+            x += w;
+        }
     }
 
     private void DrawRow(object? sender, DrawListViewItemEventArgs e)
@@ -483,6 +520,7 @@ public sealed class DevicesView : UserControl, IContentView
         int used = 300 + 96 + 96 + _list.Columns[1].Width + _list.Columns[3].Width;
         _list.Columns[5].Width = Math.Max(170, _list.ClientSize.Width - used - 2);       // Publikus IP fills the rest
         _list.EndUpdate();
+        _listHeader.Invalidate();   // keep the header labels aligned to the new column widths
     }
 
     // Sort by clicked column with type-aware handling for date/online.

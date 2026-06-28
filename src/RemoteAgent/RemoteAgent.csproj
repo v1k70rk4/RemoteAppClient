@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>RemoteAgent</RootNamespace>
     <AssemblyName>RemoteAgent</AssemblyName>
-    <Version>1.8.9.1</Version>
+    <Version>1.9.0.0</Version>
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
 
     <!-- The service runs under SYSTEM with no user interaction. -->

@@ -18,6 +18,8 @@ public sealed class ChannelsView : UserControl, IContentView
     private readonly OwnerList _betaList = new(40);
     private readonly OwnerList _deviceVerList = new(44);
     private readonly List<DeviceInfo> _devices = new();
+    private int _devSortCol;
+    private bool _devSortAsc = true;
     private readonly List<ChannelPackageInfo> _rtmPkgs = new();
     private readonly List<ChannelPackageInfo> _betaPkgs = new();
     private readonly System.Windows.Forms.Timer _devTimer = new() { Interval = 30000 };
@@ -61,6 +63,8 @@ public sealed class ChannelsView : UserControl, IContentView
             new OwnerList.Col(L.DevicesView_Update, 150), new OwnerList.Col("Agent", 110),
             new OwnerList.Col("Client", 110), new OwnerList.Col("Updater", 110), new OwnerList.Col("VNC", 92));
         _deviceVerList.PaintRow += PaintDevRow;
+        _deviceVerList.HeaderClicked += SortDevices;
+        _deviceVerList.SetSort(0, true);   // default: device name ascending
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Top, Height = 252, ColumnCount = 2, RowCount = 1, BackColor = ThemeManager.Bg };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -154,6 +158,44 @@ public sealed class ChannelsView : UserControl, IContentView
         e.Text(6, S(d.VncVersion), UiFont.Mono, ThemeManager.Text2);
     }
 
+    private void SortDevices(int col)
+    {
+        if (_devSortCol == col) _devSortAsc = !_devSortAsc; else { _devSortCol = col; _devSortAsc = true; }
+        FillDeviceList();
+    }
+
+    private void FillDeviceList()
+    {
+        Func<DeviceInfo, object?> key = _devSortCol switch
+        {
+            1 => d => d.Channel,
+            2 => d => d.UpdatePending,
+            3 => d => d.AgentVersion,
+            4 => d => d.ClientVersion,
+            5 => d => d.HelperVersion,
+            6 => d => d.VncVersion,
+            _ => d => string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname,
+        };
+        var sorted = _devSortAsc ? _devices.OrderBy(key, DevCompare) : _devices.OrderByDescending(key, DevCompare);
+        _deviceVerList.BeginUpdate();
+        _deviceVerList.Clear();
+        foreach (var d in sorted) _deviceVerList.Add(d);
+        _deviceVerList.EndUpdate();
+        _deviceVerList.SetSort(_devSortCol, _devSortAsc);
+    }
+
+    // Version-aware where both values parse as versions (Agent/Client/…); otherwise case-insensitive / natural.
+    private static readonly IComparer<object?> DevCompare = Comparer<object?>.Create((a, b) =>
+    {
+        if (a is null && b is null) return 0;
+        if (a is null) return -1;
+        if (b is null) return 1;
+        if (a is string sa && b is string sb)
+            return Version.TryParse(sa, out var va) && Version.TryParse(sb, out var vb) ? va.CompareTo(vb) : string.Compare(sa, sb, StringComparison.OrdinalIgnoreCase);
+        if (a is IComparable c && a.GetType() == b.GetType()) return c.CompareTo(b);
+        return string.Compare(a.ToString(), b.ToString(), StringComparison.OrdinalIgnoreCase);
+    });
+
     private void BuildEditor()
     {
         _back.SetBounds(0, 8, 36, 36);
@@ -214,10 +256,7 @@ public sealed class ChannelsView : UserControl, IContentView
 
     private void FillDevices()
     {
-        _deviceVerList.BeginUpdate();
-        _deviceVerList.Clear();
-        foreach (var d in _devices.OrderBy(d => d.Hostname, StringComparer.OrdinalIgnoreCase)) _deviceVerList.Add(d);
-        _deviceVerList.EndUpdate();
+        FillDeviceList();
     }
 
     private static string S(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;

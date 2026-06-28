@@ -12,7 +12,7 @@
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>RemoteClient.Linux</RootNamespace>
     <AssemblyName>RemoteClient.Linux</AssemblyName>
-    <Version>1.8.5.0</Version>
+    <Version>1.9.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
