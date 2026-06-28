@@ -31,7 +31,7 @@ public sealed class TextField : Control
         _box.ForeColor = ThemeManager.Text;
         _box.Font = mono ? UiFont.Mono : UiFont.Body;
         _box.UseSystemPasswordChar = password;
-        if (multiline) { _box.Multiline = true; _box.ScrollBars = ScrollBars.Vertical; }
+        if (multiline) { _box.Multiline = true; _box.ScrollBars = ScrollBars.Vertical; _box.AcceptsReturn = true; } // Enter = newline, not the form's default button
         _box.TextChanged += (_, e) => { Changed?.Invoke(this, EventArgs.Empty); OnTextChanged(e); };
         _box.GotFocus += (_, _) => { _focus = true; Invalidate(); };
         _box.LostFocus += (_, _) => { _focus = false; Invalidate(); };

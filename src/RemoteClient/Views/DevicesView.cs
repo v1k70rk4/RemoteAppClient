@@ -322,7 +322,7 @@ public sealed class DevicesView : UserControl, IContentView
                 UiPaint.FillRoundedRect(g, tile, 8, ThemeManager.Panel3);
                 UiIcons.Draw(g, "monitor", new RectangleF(tile.X + 6, tile.Y + 6, 18, 18), ThemeManager.Text2);
                 string name = string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname;
-                string? note = string.IsNullOrWhiteSpace(d.Note) ? null : d.Note;
+                string? note = string.IsNullOrWhiteSpace(d.Note) ? null : d.Note.ReplaceLineEndings(" ");  // one-line preview: newlines -> spaces
                 int tx = tile.Right + 11;
                 int nameY = note is null ? r.Top : cy - 17;
                 int nameH = note is null ? r.Height : 17;
@@ -521,7 +521,7 @@ public sealed class DevicesView : UserControl, IContentView
             var groups = await _api.GetGroupsAsync();
             _editing = d;
             var (st, sf, sb) = StatusPill(d);
-            string sub = string.Join(" · ", new[] { d.Note, d.GroupName, d.OsVersion }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            string sub = string.Join(" · ", new[] { d.Note?.ReplaceLineEndings(" "), d.GroupName, d.OsVersion }.Where(s => !string.IsNullOrWhiteSpace(s)));
             _header.SetDevice(string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname, sub, st, sf, sb);
 
             _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _cmdPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose(); _betaPanel?.Dispose();
