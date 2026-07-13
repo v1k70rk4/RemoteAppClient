@@ -484,6 +484,7 @@ public static partial class Strings
     public static string MainForm_Password => Get(nameof(MainForm_Password));
     public static string MainForm_SignIn => Get(nameof(MainForm_SignIn));
     public static string MainForm_SignOutConfirm => Get(nameof(MainForm_SignOutConfirm));
+    public static string MainForm_SessionExpired => Get(nameof(MainForm_SessionExpired));
     public static string MainForm_C2Status => Get(nameof(MainForm_C2Status));
     public static string MainForm_SignInWithWindowsHello => Get(nameof(MainForm_SignInWithWindowsHello));
     public static string MainForm_ForgotPassword => Get(nameof(MainForm_ForgotPassword));

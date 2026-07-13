@@ -29,6 +29,15 @@ public sealed class AdminApi : IDisposable
     /// <summary>Local agent device ID from the status pipe, sent with login/reset for the device-level fail counter.</summary>
     public string? DeviceId { get; set; }
 
+    /// <summary>Whether a session bearer token is currently set. Gates <see cref="Unauthorized"/> so that
+    /// pre-login 401s (wrong password, expired Hello challenge, password recovery) are not mistaken for an
+    /// expired session.</summary>
+    private volatile bool _hasToken;
+
+    /// <summary>Raised when a request made with a session token comes back 401 — the operator session expired
+    /// or was revoked server-side. Fired from a background thread; the UI marshals and returns to sign-in.</summary>
+    public event Action? Unauthorized;
+
     public AdminApi(Func<CancellationToken, Task<int>> openForward)
     {
         _openForward = openForward;
@@ -41,7 +50,8 @@ public sealed class AdminApi : IDisposable
         };
         // 10 minutes: large exe upload / MSI generation fits, while normal queries remain quick.
         // BaseAddress host is irrelevant; ConnectCallback decides the actual fresh port target.
-        _http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1"), Timeout = TimeSpan.FromMinutes(10) };
+        _http = new HttpClient(new UnauthorizedHandler(handler, () => { if (_hasToken) Unauthorized?.Invoke(); }))
+            { BaseAddress = new Uri("http://127.0.0.1"), Timeout = TimeSpan.FromMinutes(10) };
     }
 
     /// <summary>Connects to the current tunnel port; dead tunnels trigger fresh forward plus retry.</summary>
@@ -95,9 +105,12 @@ public sealed class AdminApi : IDisposable
     }
 
     /// <summary>Sets the bearer session token for subsequent calls.</summary>
-    public void SetToken(string? token) =>
+    public void SetToken(string? token)
+    {
+        _hasToken = !string.IsNullOrWhiteSpace(token);
         _http.DefaultRequestHeaders.Authorization =
-            string.IsNullOrWhiteSpace(token) ? null : new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _hasToken ? new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token) : null;
+    }
 
     /// <summary>Signs in. On failure, throws AuthException with the server error code.</summary>
     public async Task<LoginResponse> LoginAsync(string username, string password, string? totp,
@@ -567,5 +580,20 @@ public sealed class AdminApi : IDisposable
     {
         try { _http.Dispose(); } catch { /* best effort */ }
         try { _forwardGate.Dispose(); } catch { /* best effort */ }
+    }
+
+    /// <summary>
+    /// Wraps the transport handler and reports every 401 to the supplied callback (which gates on whether a
+    /// session token is set). Lets the client send the operator back to sign-in when the session expires,
+    /// instead of surfacing a raw "401 (Unauthorized)" from EnsureSuccessStatusCode.
+    /// </summary>
+    private sealed class UnauthorizedHandler(HttpMessageHandler inner, Action onUnauthorized) : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var resp = await base.SendAsync(request, ct);
+            if (resp.StatusCode == HttpStatusCode.Unauthorized) onUnauthorized();
+            return resp;
+        }
     }
 }

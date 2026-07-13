@@ -430,6 +430,7 @@ public static partial class Strings
         [nameof(MainForm_Password)] = "Password",
         [nameof(MainForm_SignIn)] = "Sign in",
         [nameof(MainForm_SignOutConfirm)] = "Sign out and return to the sign-in screen?",
+        [nameof(MainForm_SessionExpired)] = "Your session has expired. Please sign in again.",
         [nameof(MainForm_C2Status)] = "C2 secure · SSH tunnel",
         [nameof(MainForm_SignInWithWindowsHello)] = "Sign in with Windows Hello",
         [nameof(MainForm_ForgotPassword)] = "Password recovery",

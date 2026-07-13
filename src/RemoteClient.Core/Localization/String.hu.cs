@@ -430,6 +430,7 @@ public static partial class Strings
         [nameof(MainForm_Password)] = "Jelszó",
         [nameof(MainForm_SignIn)] = "Belépés",
         [nameof(MainForm_SignOutConfirm)] = "Kijelentkezel és visszatérsz a bejelentkező képernyőre?",
+        [nameof(MainForm_SessionExpired)] = "Lejárt a munkamenet. Jelentkezz be újra.",
         [nameof(MainForm_C2Status)] = "C2 biztonságos · SSH alagút",
         [nameof(MainForm_SignInWithWindowsHello)] = "Belépés Windows Hello-val",
         [nameof(MainForm_ForgotPassword)] = "Jelszó helyreállítás",

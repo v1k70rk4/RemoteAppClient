@@ -25,6 +25,7 @@ public sealed class MainForm : MaterialForm
     private string _username = "";
     private bool _started;
     private LoginResponse? _login;
+    private bool _reauthPrompting;   // show the "session expired, sign in again" prompt (and restart) only once
 
     // Views
     private readonly Panel _noAgentView = new() { Dock = DockStyle.Fill, Visible = false };
@@ -278,6 +279,7 @@ public sealed class MainForm : MaterialForm
         try
         {
             _api = new AdminApi(RefreshAdminForwardAsync);
+            _api.Unauthorized += OnSessionExpired;   // a 401 on a signed-in call means the session expired -> re-auth
 
             // Broker ssh -L may become usable a few seconds after reserving the port due to
             // cold SSH handshake. Avoid false "not responding" warnings by pinging for about 15s.
@@ -567,8 +569,32 @@ public sealed class MainForm : MaterialForm
     {
         if (MessageBox.Show(this, L.MainForm_SignOutConfirm, "RemoteAppClient",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        _reauthPrompting = true;   // an explicit sign-out shouldn't also fire the session-expired prompt
         try { if (_api is not null) await _api.LogoutAsync(); } catch { /* best effort */ }
         Application.Restart();
+    }
+
+    /// <summary>
+    /// A signed-in API call returned 401: the operator session expired or was revoked server-side
+    /// (AuthService.SessionTtl, 8 hours). Raised on a background thread by <see cref="AdminApi"/>, so marshal
+    /// to the UI, tell the operator once, and restart to the sign-in screen (the same path as sign-out). A
+    /// fresh sign-in mints a new session; the dead token is dropped on restart.
+    /// </summary>
+    private void OnSessionExpired()
+    {
+        if (IsDisposed) return;
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                if (_reauthPrompting || _devicesView is null) return;   // only after sign-in, and only once
+                _reauthPrompting = true;
+                MessageBox.Show(this, L.MainForm_SessionExpired, "RemoteAppClient",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Application.Restart();
+            }));
+        }
+        catch { /* form already gone */ }
     }
 
     private async Task SwitchToAsync(IContentView view)
