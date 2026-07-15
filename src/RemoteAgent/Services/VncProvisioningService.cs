@@ -73,7 +73,7 @@ public sealed class VncProvisioningService(
             catch (OperationCanceledException) { /* shutdown */ }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.VncProvisioningService_VNCPasswordReportFailed);
+                logger.LogWarning(ex, L.VncProvisioningService_VncReportFailed);
             }
         }
 
@@ -101,7 +101,7 @@ public sealed class VncProvisioningService(
                         _reported = await ReportSecretAsync(pw, stoppingToken);
                 }
             }
-            catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VNCPasswordReportFailed); }
+            catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VncReportFailed); }
         }
     }
 
@@ -146,17 +146,17 @@ public sealed class VncProvisioningService(
 
             if (resp.IsSuccessStatusCode)
             {
-                logger.LogInformation(L.VncProvisioningService_VNCPasswordReportedToThe);
+                logger.LogInformation(L.VncProvisioningService_VncReportSucceeded);
                 return true;
             }
 
-            logger.LogWarning(L.VncProvisioningService_VNCPasswordReportRejectedHTTP, (int)resp.StatusCode);
+            logger.LogWarning(L.VncProvisioningService_VncReportRejectedHTTP, (int)resp.StatusCode);
             return false;
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, L.VncProvisioningService_VNCPasswordReportFailed);
+            logger.LogDebug(ex, L.VncProvisioningService_VncReportFailed);
             return false;
         }
     }

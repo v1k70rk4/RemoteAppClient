@@ -125,9 +125,9 @@ internal static partial class Strings
         [nameof(VncProvisioner_MsiexecExitCode)] = "msiexec exit code: {0}",
         [nameof(VncProvisioner_VNCProvisioningError)] = "VNC provisioning error: ",
         [nameof(VncProvisioningService_VNCProvisionedPerDevicePassword)] = "VNC provisioned, per-device password set.",
-        [nameof(VncProvisioningService_VNCPasswordReportFailed)] = "VNC password report failed.",
-        [nameof(VncProvisioningService_VNCPasswordReportedToThe)] = "VNC password reported to the server.",
-        [nameof(VncProvisioningService_VNCPasswordReportRejectedHTTP)] = "VNC password report rejected: HTTP {Code}",
+        [nameof(VncProvisioningService_VncReportFailed)] = "VNC password report failed.",
+        [nameof(VncProvisioningService_VncReportSucceeded)] = "VNC password reported to the server.",
+        [nameof(VncProvisioningService_VncReportRejectedHTTP)] = "VNC password report rejected: HTTP {Code}",
         [nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning)] = "VNC is locally disabled; provisioning skipped.",
         [nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM)] = "VNC provisioning skipped (admin/SYSTEM rights required).",
     };
