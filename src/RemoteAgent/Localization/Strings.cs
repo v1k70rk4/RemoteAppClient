@@ -179,9 +179,9 @@ internal static partial class Strings
     public static string VncProvisioner_MsiexecExitCode => Get(nameof(VncProvisioner_MsiexecExitCode));
     public static string VncProvisioner_VNCProvisioningError => Get(nameof(VncProvisioner_VNCProvisioningError));
     public static string VncProvisioningService_VNCProvisionedPerDevicePassword => Get(nameof(VncProvisioningService_VNCProvisionedPerDevicePassword));
-    public static string VncProvisioningService_VNCPasswordReportFailed => Get(nameof(VncProvisioningService_VNCPasswordReportFailed));
-    public static string VncProvisioningService_VNCPasswordReportedToThe => Get(nameof(VncProvisioningService_VNCPasswordReportedToThe));
-    public static string VncProvisioningService_VNCPasswordReportRejectedHTTP => Get(nameof(VncProvisioningService_VNCPasswordReportRejectedHTTP));
+    public static string VncProvisioningService_VncReportFailed => Get(nameof(VncProvisioningService_VncReportFailed));
+    public static string VncProvisioningService_VncReportSucceeded => Get(nameof(VncProvisioningService_VncReportSucceeded));
+    public static string VncProvisioningService_VncReportRejectedHTTP => Get(nameof(VncProvisioningService_VncReportRejectedHTTP));
     public static string VncProvisioningService_VNCIsLocallyDisabledProvisioning => Get(nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning));
     public static string VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM => Get(nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM));
 }

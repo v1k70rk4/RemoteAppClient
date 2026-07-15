@@ -125,9 +125,9 @@ internal static partial class Strings
         [nameof(VncProvisioner_MsiexecExitCode)] = "msiexec hibakód: {0}",
         [nameof(VncProvisioner_VNCProvisioningError)] = "VNC provisioning hiba: ",
         [nameof(VncProvisioningService_VNCProvisionedPerDevicePassword)] = "VNC provisionálva, gépenkénti jelszó beállítva.",
-        [nameof(VncProvisioningService_VNCPasswordReportFailed)] = "VNC-jelszó jelentése sikertelen.",
-        [nameof(VncProvisioningService_VNCPasswordReportedToThe)] = "VNC-jelszó jelentve a szervernek.",
-        [nameof(VncProvisioningService_VNCPasswordReportRejectedHTTP)] = "VNC-jelszó jelentése elutasítva: HTTP {Code}",
+        [nameof(VncProvisioningService_VncReportFailed)] = "VNC-jelszó jelentése sikertelen.",
+        [nameof(VncProvisioningService_VncReportSucceeded)] = "VNC-jelszó jelentve a szervernek.",
+        [nameof(VncProvisioningService_VncReportRejectedHTTP)] = "VNC-jelszó jelentése elutasítva: HTTP {Code}",
         [nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning)] = "A VNC helyileg le van tiltva — a provisioning kihagyva.",
         [nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM)] = "VNC provisioning kihagyva (admin/SYSTEM jog kell).",
     };
