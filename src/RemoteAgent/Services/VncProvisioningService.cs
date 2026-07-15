@@ -24,6 +24,7 @@ public sealed class VncProvisioningService(
     ILogger<VncProvisioningService> logger) : BackgroundService
 {
     private readonly AgentOptions _opt = options.Value;
+    private bool _reported;   // set once the server confirms (2xx) receipt of this device's VNC secret
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -67,7 +68,7 @@ public sealed class VncProvisioningService(
                 }
 
                 if (!string.IsNullOrEmpty(password))
-                    await ReportSecretAsync(password, stoppingToken);
+                    _reported = await ReportSecretAsync(password, stoppingToken);
             }
             catch (OperationCanceledException) { /* shutdown */ }
             catch (Exception ex)
@@ -91,7 +92,14 @@ public sealed class VncProvisioningService(
                 var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
                 var pw = ReadSecret(secretFile);
                 if (!string.IsNullOrEmpty(pw))
+                {
                     await VncProvisioner.EnsureHealthyAsync(pw, msiPath);
+                    // The one-shot startup report can be lost on a flaky/slow link (fresh installs on mobile /
+                    // CG-NAT). Keep retrying until the server confirms receipt (2xx), so a dropped first report
+                    // self-heals within ~30s of the link recovering instead of waiting for the next restart.
+                    if (!_reported)
+                        _reported = await ReportSecretAsync(pw, stoppingToken);
+                }
             }
             catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VNCPasswordReportFailed); }
         }
@@ -116,22 +124,41 @@ public sealed class VncProvisioningService(
     private static void WriteSecret(string file, string password) =>
         File.WriteAllBytes(file, ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.LocalMachine));
 
-    private async Task ReportSecretAsync(string password, CancellationToken ct)
+    /// <summary>
+    /// Reports the VNC secret over mTLS. Returns true only when the server confirms receipt (2xx), so the
+    /// caller can keep retrying on a flaky link until it lands. Transient network errors are swallowed at
+    /// Debug: on the machines this matters for (mobile/CG-NAT), a failed attempt is expected and the watchdog
+    /// retries; a non-2xx from the server is still surfaced as a warning.
+    /// </summary>
+    private async Task<bool> ReportSecretAsync(string password, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opt.Telemetry.IngestUrl))
-            return;
+            return false;
 
-        var baseUri = new Uri(_opt.Telemetry.IngestUrl);
-        var url = $"{baseUri.Scheme}://{baseUri.Authority}/api/vnc-secret";
+        try
+        {
+            var baseUri = new Uri(_opt.Telemetry.IngestUrl);
+            var url = $"{baseUri.Scheme}://{baseUri.Authority}/api/vnc-secret";
 
-        using var http = BuildClient();
-        using var resp = await http.PostAsJsonAsync(
-            url, new VncSecretReport { Secret = password }, AgentJsonContext.Default.VncSecretReport, ct);
+            using var http = BuildClient();
+            using var resp = await http.PostAsJsonAsync(
+                url, new VncSecretReport { Secret = password }, AgentJsonContext.Default.VncSecretReport, ct);
 
-        if (resp.IsSuccessStatusCode)
-            logger.LogInformation(L.VncProvisioningService_VNCPasswordReportedToThe);
-        else
+            if (resp.IsSuccessStatusCode)
+            {
+                logger.LogInformation(L.VncProvisioningService_VNCPasswordReportedToThe);
+                return true;
+            }
+
             logger.LogWarning(L.VncProvisioningService_VNCPasswordReportRejectedHTTP, (int)resp.StatusCode);
+            return false;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, L.VncProvisioningService_VNCPasswordReportFailed);
+            return false;
+        }
     }
 
     private HttpClient BuildClient()
