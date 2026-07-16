@@ -28,7 +28,7 @@ RAC_ACME_EMAIL="${RAC_ACME_EMAIL:-$(ask 'ACME email (Lets Encrypt)' "admin@${RAC
 export RAC_DOMAIN RAC_BASTION_HOST RAC_ACME_EMAIL
 info "domain=$RAC_DOMAIN | bastion=$RAC_BASTION_HOST | acme=$RAC_ACME_EMAIL"
 
-ALL_STEPS=(01-prereqs 02-mariadb 03-schema 04-server 05-bastion 06-tls 07-nginx 08-harden 09-blob 10-selfupdate 11-verify)
+ALL_STEPS=(01-prereqs 02-mariadb 03-schema 04-server 05-bastion 06-tls 07-nginx 08-harden 09-blob 10-selfupdate 12-backup 11-verify)
 if [ "$#" -gt 0 ]; then RUN=("$@"); else RUN=("${ALL_STEPS[@]}"); fi
 
 for step in "${RUN[@]}"; do

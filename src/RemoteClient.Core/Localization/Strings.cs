@@ -580,6 +580,17 @@ public static partial class Strings
     public static string NewUserForm_Role => Get(nameof(NewUserForm_Role));
     public static string ServerSettingsView_EmailDelivery => Get(nameof(ServerSettingsView_EmailDelivery));
     public static string ServerSettingsView_ServerUpdate => Get(nameof(ServerSettingsView_ServerUpdate));
+    public static string ServerSettingsView_Backup => Get(nameof(ServerSettingsView_Backup));
+    public static string ServerSettingsView_BackupIntro => Get(nameof(ServerSettingsView_BackupIntro));
+    public static string ServerSettingsView_BackupPassphrase => Get(nameof(ServerSettingsView_BackupPassphrase));
+    public static string ServerSettingsView_BackupCreate => Get(nameof(ServerSettingsView_BackupCreate));
+    public static string ServerSettingsView_BackupDownload => Get(nameof(ServerSettingsView_BackupDownload));
+    public static string ServerSettingsView_BackupWorking => Get(nameof(ServerSettingsView_BackupWorking));
+    public static string ServerSettingsView_BackupReady => Get(nameof(ServerSettingsView_BackupReady));
+    public static string ServerSettingsView_BackupFailed => Get(nameof(ServerSettingsView_BackupFailed));
+    public static string ServerSettingsView_BackupWeakPass => Get(nameof(ServerSettingsView_BackupWeakPass));
+    public static string ServerSettingsView_BackupSaved => Get(nameof(ServerSettingsView_BackupSaved));
+    public static string ServerSettingsView_BackupHelperMissing => Get(nameof(ServerSettingsView_BackupHelperMissing));
     public static string ServerSettingsView_ServerUpdateHelp => Get(nameof(ServerSettingsView_ServerUpdateHelp));
     public static string ServerSettingsView_SelectTar => Get(nameof(ServerSettingsView_SelectTar));
     public static string ServerSettingsView_SelectSql => Get(nameof(ServerSettingsView_SelectSql));

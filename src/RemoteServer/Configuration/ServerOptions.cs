@@ -30,6 +30,12 @@ public sealed class ServerOptions
     /// privileged systemd helper (deploy.sh) reads the staged tar.gz/upgrade.sql and writes result.*.</summary>
     public string UpdatesDir { get; set; } = "/var/lib/remoteserver/updates";
 
+    /// <summary>Trigger/result directory for the console-driven fleet-identity backup. remotesrv-writable;
+    /// the privileged helper (console-backup.sh) reads the passphrase trigger and writes backup.enc plus
+    /// backup.status/at/log/name. The server never reads the fleet's keys itself - it cannot: the bastion
+    /// SSH host key that agents pin is root-owned.</summary>
+    public string ConsoleBackupDir { get; set; } = "/var/lib/remoteserver/console-backup";
+
     /// <summary>Public server base URL, for example https://c2.example.com, embedded in bootstrap blobs.</summary>
     public string PublicUrl { get; set; } = string.Empty;
 

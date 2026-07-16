@@ -576,6 +576,34 @@ public sealed class AdminApi : IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// Asks the server to build a fleet-identity backup, encrypted with this passphrase. A root helper on
+    /// the box does the work (the server cannot read the bastion host key agents pin); poll
+    /// <see cref="GetBackupStatusAsync"/> for the result. The passphrase is the only way to open the
+    /// archive afterwards - the server keeps no copy of it.
+    /// </summary>
+    public async Task StartBackupAsync(string passphrase, CancellationToken ct = default)
+    {
+        using var content = new StringContent(passphrase);
+        using var resp = await _http.PostAsync("/admin/server/backup", content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<ServerBackupStatus?> GetBackupStatusAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync("/admin/server/backup/status", AgentJsonContext.Default.ServerBackupStatus, ct);
+
+    /// <summary>Downloads the encrypted archive. The server deletes its copy while handing it over, so this
+    /// succeeds exactly once per backup.</summary>
+    public async Task<(string FileName, byte[] Data)> DownloadBackupAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync("/admin/server/backup/download", ct);
+        resp.EnsureSuccessStatusCode();
+        var name = resp.Content.Headers.ContentDisposition?.FileNameStar
+                ?? resp.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                ?? "racd-identity.tar.gz.enc";
+        return (name, await resp.Content.ReadAsByteArrayAsync(ct));
+    }
+
     public void Dispose()
     {
         try { _http.Dispose(); } catch { /* best effort */ }

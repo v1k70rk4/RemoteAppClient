@@ -214,6 +214,24 @@ public sealed class ServerUpdateStatus
     [JsonPropertyName("helperReady")] public bool HelperReady { get; set; }
 }
 
+/// <summary>
+/// State of the console-driven fleet-identity backup ("Server settings -> Backup"). The archive is always
+/// passphrase-encrypted, so the server only ever hands out an opaque blob.
+/// </summary>
+public sealed class ServerBackupStatus
+{
+    /// <summary>"ok" | "failed" | null when it has never run.</summary>
+    [JsonPropertyName("status")] public string? Status { get; set; }
+    [JsonPropertyName("at")] public string? At { get; set; }
+    [JsonPropertyName("log")] public string? Log { get; set; }
+    [JsonPropertyName("fileName")] public string? FileName { get; set; }
+    [JsonPropertyName("sizeBytes")] public long SizeBytes { get; set; }
+    /// <summary>An encrypted archive is waiting to be downloaded (download removes it).</summary>
+    [JsonPropertyName("ready")] public bool Ready { get; set; }
+    /// <summary>Whether the privileged backup helper (console-backup.sh + path unit) is installed.</summary>
+    [JsonPropertyName("helperReady")] public bool HelperReady { get; set; }
+}
+
 /// <summary>Device group for the admin list.</summary>
 public sealed class GroupInfo
 {

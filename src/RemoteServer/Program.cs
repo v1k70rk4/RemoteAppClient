@@ -882,6 +882,67 @@ app.MapPost("/admin/server/rollback", async (HttpContext ctx, AppDbContext db, I
     return Results.StatusCode(202);
 });
 
+// === Console-driven fleet-identity backup (admin) ===
+// The server runs as the service user and cannot read /etc/ssh/ssh_host_ed25519_key (root-owned) — which
+// is exactly the key every agent pins — so, like the self-update, a root helper does the privileged part
+// and the server only drops a trigger. The trigger's content is the operator's passphrase, and the archive
+// is ALWAYS encrypted before it exists on disk: this leaves the box through an 8-hour admin session, and
+// the CA + command-signing keys inside cannot be revoked — rotating them means re-enrolling every device.
+// So a stolen session must yield an opaque blob, never readable key material.
+
+app.MapPost("/admin/server/backup", async (HttpContext ctx, AppDbContext db, IOptions<ServerOptions> opt) =>
+{
+    var pass = (await new StreamReader(ctx.Request.Body).ReadToEndAsync(ctx.RequestAborted)).Trim();
+    // The helper refuses to write a plaintext archive; reject here too rather than fire a doomed run.
+    if (pass.Length < 10) return Results.BadRequest(new { error = "weak_passphrase" });
+
+    var dir = opt.Value.ConsoleBackupDir;
+    if (!Directory.Exists(dir)) return Results.BadRequest(new { error = "helper_missing" });
+    foreach (var f in new[] { "backup.status", "backup.at", "backup.log", "backup.name", "backup.enc" })
+    { var p = Path.Combine(dir, f); if (File.Exists(p)) File.Delete(p); }
+
+    // The trigger's content IS the passphrase; the helper shreds it the moment it has read it, and the
+    // passphrase is never written anywhere else (not logged, not stored).
+    await File.WriteAllTextAsync(Path.Combine(dir, "backup.trigger"), pass, ctx.RequestAborted);
+    await AuditAsync(db, ctx, "server-backup", null, "requested");
+    return Results.StatusCode(202);
+});
+
+app.MapGet("/admin/server/backup/status", (IOptions<ServerOptions> opt) =>
+{
+    var dir = opt.Value.ConsoleBackupDir;
+    string? Read(string n) { var p = Path.Combine(dir, n); try { return File.Exists(p) ? File.ReadAllText(p).Trim() : null; } catch { return null; } }
+    var enc = Path.Combine(dir, "backup.enc");
+    var ready = File.Exists(enc);
+    return Results.Json(new ServerBackupStatus
+    {
+        Status = Read("backup.status"),
+        At = Read("backup.at"),
+        Log = Read("backup.log"),
+        FileName = Read("backup.name"),
+        SizeBytes = ready ? new FileInfo(enc).Length : 0,
+        Ready = ready,
+        // /opt/remoteserver-backup is root-only, so probe the world-readable path unit instead.
+        HelperReady = File.Exists("/etc/systemd/system/remoteserver-backup.path"),
+    }, AgentJsonContext.Default.ServerBackupStatus);
+});
+
+app.MapGet("/admin/server/backup/download", async (HttpContext ctx, AppDbContext db, IOptions<ServerOptions> opt) =>
+{
+    var dir = opt.Value.ConsoleBackupDir;
+    var enc = Path.Combine(dir, "backup.enc");
+    if (!File.Exists(enc)) return Results.NotFound(new { error = "no_backup" });
+
+    var nameFile = Path.Combine(dir, "backup.name");
+    var name = File.Exists(nameFile) ? File.ReadAllText(nameFile).Trim() : "racd-identity.tar.gz.enc";
+    var bytes = await File.ReadAllBytesAsync(enc, ctx.RequestAborted);
+
+    // Hand it over once, then drop it: the fleet's identity should not sit on the box waiting to be found.
+    try { File.Delete(enc); if (File.Exists(nameFile)) File.Delete(nameFile); } catch { /* best effort */ }
+    await AuditAsync(db, ctx, "server-backup-download", null, $"{name} · {bytes.Length} bytes");
+    return Results.File(bytes, "application/octet-stream", name);
+});
+
 app.MapGet("/admin/server/status", (IOptions<ServerOptions> opt) =>
 {
     var dir = opt.Value.UpdatesDir;

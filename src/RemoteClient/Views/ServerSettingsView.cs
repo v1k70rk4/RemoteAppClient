@@ -15,6 +15,13 @@ public sealed class ServerSettingsView : UserControl, IContentView
 {
     private readonly AdminApi _api;
 
+    // Backup tab. The passphrase never leaves this box in readable form and the server keeps no copy of
+    // it: it is the only way to open the archive later.
+    private readonly TextField _backupPass = new(L.ServerSettingsView_BackupPassphrase, 380, password: true);
+    private readonly UiButton _backupCreate = new(L.ServerSettingsView_BackupCreate);
+    private readonly UiButton _backupDownload = new(L.ServerSettingsView_BackupDownload, UiButton.Style.Outline) { Enabled = false };
+    private readonly MaterialLabel _backupStatus = new() { AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(0, 12, 0, 0) };
+
     private readonly TabStrip _tabs = new();
     private readonly Panel _tabContent = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 8, 22, 8) };
     private Panel _saveRow = null!;
@@ -67,6 +74,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
         _tabs.SetTabs(new[]
         {
             ("general", L.ChannelsView_General), ("email", L.ServerSettingsView_EmailDelivery), ("update", L.ServerSettingsView_ServerUpdate),
+            ("backup", L.ServerSettingsView_Backup),
         }, "general");
         _tabs.TabSelected += SelectTab;
 
@@ -81,6 +89,9 @@ public sealed class ServerSettingsView : UserControl, IContentView
 
         _provider.Items.AddRange([L.DeviceTelemetryPanel_No, "SMTP", "MS Graph (O365)"]);
         _provider.SelectedIndexChanged += (_, _) => ApplyProviderVisibility();
+        // Wired once here, not in BuildBackupTab: that runs on every tab switch and would stack handlers.
+        _backupCreate.Click += async (_, _) => await StartBackupAsync();
+        _backupDownload.Click += async (_, _) => await DownloadBackupAsync();
         _language.Items.AddRange(new object[] { new LangItem("auto", L.ServerSettingsView_LanguageAuto), new LangItem("en", "English"), new LangItem("hu", "Magyar") });
         _language.SelectedIndex = 0;
 
@@ -172,14 +183,123 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private void SelectTab(string tab)
     {
         _tabs.SetActive(tab);
-        _saveRow.Visible = tab != "update";
+        _saveRow.Visible = tab is not ("update" or "backup");   // neither tab has anything to Save
         _tabContent.Controls.Clear();
         _tabContent.Controls.Add(tab switch
         {
             "email" => BuildEmailTab(),
             "update" => BuildServerUpdateTab(),
+            "backup" => BuildBackupTab(),
             _ => BuildGeneralTab(),
         });
+        if (tab == "backup") _ = RefreshBackupAsync();
+    }
+
+    /// <summary>
+    /// Backup tab: have the box build a passphrase-encrypted fleet-identity archive, then take it away.
+    /// Everything the fleet's trust rests on is in there (CA key, command-signing key, the bastion host key
+    /// every agent pins) and none of it can be revoked - rotating it means re-enrolling every device - so
+    /// the box encrypts it before it ever touches disk and drops its copy as it hands it over.
+    /// </summary>
+    private Control BuildBackupTab()
+    {
+        var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(18, 14, 18, 12) };
+        // Plain Label, not MaterialLabel: MaterialLabel does not honour MaximumSize, so long text is drawn
+        // on one line and simply runs off the card instead of wrapping.
+        body.Controls.Add(new Label
+        {
+            Text = L.ServerSettingsView_BackupIntro,
+            AutoSize = true,
+            MaximumSize = new Size(560, 0),
+            Font = UiFont.Body,
+            ForeColor = ThemeManager.Text2,
+            BackColor = ThemeManager.Panel,
+            Margin = new Padding(0, 0, 0, 14),
+        });
+        AddField(body, L.ServerSettingsView_BackupPassphrase, _backupPass);
+        var row = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, Margin = new Padding(0, 10, 0, 0) };
+        row.Controls.Add(_backupCreate);
+        row.Controls.Add(_backupDownload);
+        body.Controls.Add(row);
+        body.Controls.Add(_backupStatus);
+        return new CardPanel("", body);
+    }
+
+    private async Task StartBackupAsync()
+    {
+        var pass = (_backupPass.Value ?? "").Trim();
+        if (pass.Length < 10) { _backupStatus.Text = L.ServerSettingsView_BackupWeakPass; return; }
+
+        _backupCreate.Enabled = false; _backupDownload.Enabled = false;
+        _backupStatus.Text = L.ServerSettingsView_BackupWorking;
+        try
+        {
+            await _api.StartBackupAsync(pass);
+            _backupPass.Value = "";   // it is on its way to the helper; keep no second copy lying around
+            await PollBackupAsync();
+        }
+        catch (Exception ex) { _backupStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+        finally { _backupCreate.Enabled = true; }
+    }
+
+    /// <summary>Polls until the helper reports; it dumps the whole database, so allow a couple of minutes.</summary>
+    private async Task PollBackupAsync()
+    {
+        for (int i = 0; i < 90; i++)
+        {
+            await Task.Delay(2000);
+            ServerBackupStatus? s = null;
+            try { s = await _api.GetBackupStatusAsync(); } catch { /* transient */ }
+            if (s?.Status is null) continue;
+            ShowBackup(s);
+            return;
+        }
+        _backupStatus.Text = L.DeviceCommandsPanel_NoAnswer;
+    }
+
+    private async Task RefreshBackupAsync()
+    {
+        try { if (await _api.GetBackupStatusAsync() is { } s) ShowBackup(s); }
+        catch { /* tab just opened, nothing to report yet */ }
+    }
+
+    private void ShowBackup(ServerBackupStatus s)
+    {
+        if (!s.HelperReady)
+        {
+            _backupCreate.Enabled = false;
+            _backupStatus.Text = L.ServerSettingsView_BackupHelperMissing;
+            return;
+        }
+        _backupDownload.Enabled = s.Ready;
+        _backupStatus.Text = s.Status switch
+        {
+            "ok" when s.Ready => L.Format(L.ServerSettingsView_BackupReady, Math.Max(1, s.SizeBytes / 1024 / 1024)),
+            "failed"          => L.ServerSettingsView_BackupFailed + (string.IsNullOrWhiteSpace(s.Log) ? "" : "\r\n" + s.Log),
+            _                 => "",
+        };
+    }
+
+    private async Task DownloadBackupAsync()
+    {
+        try
+        {
+            var s = await _api.GetBackupStatusAsync();
+            using var dlg = new SaveFileDialog
+            {
+                FileName = s?.FileName ?? "racd-identity.tar.gz.enc",
+                Filter = "Encrypted backup (*.enc)|*.enc|All files (*.*)|*.*",
+            };
+            // Ask where first, download second: the server deletes its copy while handing the bytes over,
+            // so downloading before a cancelled dialog would throw the only copy away.
+            if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
+
+            var (_, data) = await _api.DownloadBackupAsync();
+            await File.WriteAllBytesAsync(dlg.FileName, data);
+            _backupDownload.Enabled = false;
+            _backupStatus.Text = L.Format(L.ServerSettingsView_BackupSaved, dlg.FileName);
+        }
+        catch (Exception ex) { _backupStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     private Control BuildGeneralTab()

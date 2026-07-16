@@ -16,6 +16,10 @@
 # The database is loaded last because 02-mariadb must install MariaDB and mint a fresh db.env first. The
 # old db.env is deliberately NOT restored: it is a local password, not fleet identity, and its presence
 # would make 02-mariadb return early and never install the database at all.
+#
+# Takes either archive: the plain one from deploy/backup.sh, or the passphrase-encrypted one downloaded
+# from the console (it asks for the passphrase). Both phases read the archive, so an encrypted one is
+# asked for twice.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,7 +36,21 @@ MODE="${2:-secrets}"
 
 STAGE="$(mktemp -d)"; chmod 700 "$STAGE"
 trap 'rm -rf "$STAGE"' EXIT
-tar -xzf "$ARCHIVE" -C "$STAGE"
+
+# Archives downloaded from the console are passphrase-encrypted: there they leave the box through an
+# admin session, so the server must never hand out readable key material. Archives written by
+# deploy/backup.sh are not - running that already requires root on the box, so encrypting them would add
+# no protection, only a way to lock yourself out of your own disaster recovery.
+# Detect openssl's "Salted__" magic rather than trusting the file name.
+if [ "$(head -c 8 "$ARCHIVE" 2>/dev/null)" = "Salted__" ]; then
+  info "encrypted archive - passphrase required"
+  PASS="$(ask_secret 'Backup passphrase')"
+  openssl enc -d -aes-256-cbc -pbkdf2 -in "$ARCHIVE" -pass "pass:$PASS" 2>/dev/null | tar -xz -C "$STAGE" \
+    || die "could not decrypt the archive - wrong passphrase?"
+  unset PASS
+else
+  tar -xzf "$ARCHIVE" -C "$STAGE"
+fi
 [ -f "$STAGE/MANIFEST" ] || die "not a fleet-identity archive (no MANIFEST)"
 
 log "Fleet identity archive"
