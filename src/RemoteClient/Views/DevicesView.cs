@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using MaterialSkin.Controls;
 using RemoteAgent.Admin;
@@ -666,8 +667,21 @@ public sealed class DevicesView : UserControl, IContentView
             }
 
             SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
-            await Task.Delay(1500);
             var localPort = await _forward(result.RemotePort, CancellationToken.None);
+
+            // ssh -L binds the local port whether or not anything serves the far end, so connecting to it
+            // proves nothing. Wait for the VNC server's RFB greeting instead - it only arrives once the
+            // device's reverse tunnel is really up. This also rides out the window right after a network
+            // blip, where the bastion still holds the device's previous forward port and the agent is
+            // retrying its -R bind.
+            if (!await WaitForVncAsync(localPort, TimeSpan.FromSeconds(75), CancellationToken.None))
+            {
+                SetStatus(L.DevicesView_TunnelNotReady);
+                MessageBox.Show(L.DevicesView_TunnelNotReadyText, L.DevicesView_TunnelNotReady,
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             ShowSleepWarning(d);
             LaunchViewer(localPort, d);
             SetStatus(L.Format(L.DevicesView_VNCStarted, d.Hostname));
@@ -799,6 +813,38 @@ public sealed class DevicesView : UserControl, IContentView
             MessageBox.Show(this, msg, L.DevicesView_SleepWarnTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
+    /// <summary>
+    /// True once the device's VNC actually answers through the tunnel. The local ssh -L forward accepts
+    /// connections even when the far end is dead, so the RFB greeting is the only real proof. Polls until
+    /// the deadline: right after a network blip the agent may still be waiting for the bastion to release
+    /// its previous reverse-forward port before its own tunnel can bind.
+    /// </summary>
+    private async Task<bool> WaitForVncAsync(int localPort, TimeSpan timeout, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var probe = new TcpClient();
+                await probe.ConnectAsync("127.0.0.1", localPort, ct);
+                using var stream = probe.GetStream();
+                using var read = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                read.CancelAfter(TimeSpan.FromSeconds(5));
+                var buf = new byte[12];
+                int n = await stream.ReadAsync(buf, read.Token);
+                if (n >= 3 && buf[0] == (byte)'R' && buf[1] == (byte)'F' && buf[2] == (byte)'B') return true;
+            }
+            catch { /* tunnel not up yet */ }
+
+            int left = (int)(deadline - DateTime.UtcNow).TotalSeconds;
+            if (left <= 0) break;
+            SetStatus(L.Format(L.DevicesView_WaitingForTunnel, left));
+            try { await Task.Delay(2000, ct); } catch { return false; }
+        }
+        return false;
+    }
+
     private void LaunchViewer(int localPort, DeviceInfo d)
     {
         var viewer = ResolveViewer();
@@ -858,7 +904,12 @@ public sealed class DevicesView : UserControl, IContentView
         try { p = Process.Start(psi); }
         catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
 
-        if (p is not null)
+        if (p is null)
+        {
+            // The viewer never started: don't leave the session panel orphaned on screen.
+            if (info is not null) { try { info.Close(); } catch { /* ignore */ } }
+        }
+        else
         {
             // Best effort: size the viewer to its area; scale=auto refits the remote view.
             PositionViewer(p, viewerArea);
