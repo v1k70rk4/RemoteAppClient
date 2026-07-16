@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-1.9.0-2ea44f" alt="version 1.9.0">
+  <img src="https://img.shields.io/badge/version-2.0.0-2ea44f" alt="version 2.0.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 2.0.0](#whats-new-in-200)
 - [What's New in 1.9.0](#whats-new-in-190)
 - [What's New in 1.8.5](#whats-new-in-185)
 - [What's New in 1.8.0](#whats-new-in-180)
@@ -56,6 +57,42 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 2.0.0
+
+A **survivability** release: the fleet now rides out the things that used to need a human — a network
+blip, a lost report, an expired session — and, for the first time, an **OS swap under the server**.
+**No database schema change since 1.9.0.**
+
+**Surviving the server's own OS**
+- `deploy/backup.sh` + `deploy/restore.sh` capture and re-adopt the **fleet's identity**: the CA that
+  issued every client certificate, the command-signing key, the bastion SSH host key each agent pins, and
+  the database. Devices are never "imported" — their identity lives on the device; restore these and an OS
+  swap is invisible to all of them. Miss the SSH host key and every tunnel breaks: `04-server` rebuilds
+  `bastion.env` from whatever key is present, so the restore goes **first**, and the installer (which only
+  generates secrets that are *missing*) then adopts the fleet instead of locking it out.
+- The same backup from the console: **Server settings → Backup**. A root helper does the privileged part
+  (the server cannot read the host key), and the archive is **always passphrase-encrypted** — it leaves
+  the box through an 8-hour admin session, and the keys inside cannot be revoked. The server keeps no copy
+  of the passphrase and drops the archive as it hands it over.
+
+**VNC that comes back on its own**
+- **A network blip no longer kills VNC for ~6 minutes.** The bastion released a dropped session's reverse
+  port only after a 120s×3 keepalive, while the agent gave up in 45s — so a returning agent could not
+  rebind its own (deterministic) port and `ExitOnForwardFailure` killed the tunnel. The bastion now
+  mirrors the agent (15×3), the agent **retries** across the window, and the console **waits for the RFB
+  greeting** instead of launching a viewer at a tunnel that isn't there.
+- The **VNC-secret report retries until the server confirms it**. A lost one-shot report used to leave a
+  device with no server-side password until someone restarted the agent — the failure mode of fresh
+  installs on mobile / CG-NAT links.
+
+**Fewer dead ends**
+- **Restart RACD** (Devices → Commands): restarts VNC → Helper → agent, in that order, and **verifies the
+  Helper is alive before the agent goes down** — it is the only thing that can revive a stopped agent.
+- An **expired session** now says so and returns to sign-in, instead of surfacing a raw `401`.
+- Dependency bumps (NuGet + Actions, Avalonia 12.1) and a warning-free Linux console build.
 
 ---
 
