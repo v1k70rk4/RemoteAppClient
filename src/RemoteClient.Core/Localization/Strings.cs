@@ -158,6 +158,10 @@ public static partial class Strings
     public static string DeviceCommandsPanel_NoUser => Get(nameof(DeviceCommandsPanel_NoUser));
     public static string DeviceCommandsPanel_Failed => Get(nameof(DeviceCommandsPanel_Failed));
     public static string DeviceCommandsPanel_NoAnswer => Get(nameof(DeviceCommandsPanel_NoAnswer));
+    public static string DeviceCommandsPanel_RestartStack => Get(nameof(DeviceCommandsPanel_RestartStack));
+    public static string DeviceCommandsPanel_RestartStackDesc => Get(nameof(DeviceCommandsPanel_RestartStackDesc));
+    public static string DeviceCommandsPanel_ConfirmRestartStack => Get(nameof(DeviceCommandsPanel_ConfirmRestartStack));
+    public static string DeviceCommandsPanel_StackRestarting => Get(nameof(DeviceCommandsPanel_StackRestarting));
     public static string DeviceMessagesPanel_AvailabilityHelp => Get(nameof(DeviceMessagesPanel_AvailabilityHelp));
     public static string DeviceMessagesPanel_AskAvailability => Get(nameof(DeviceMessagesPanel_AskAvailability));
     public static string DeviceMessagesPanel_Waiting => Get(nameof(DeviceMessagesPanel_Waiting));

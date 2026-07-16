@@ -31,13 +31,13 @@ public partial class MainWindow : Window
 
         // Localize the chrome from the shared Core Strings (the same keys the Windows client uses). The UI
         // language is bound once at startup (App); Settings offers a switch that takes effect on restart.
-        UserBox.Watermark = L.ForgotPasswordForm_Username;
-        PassBox.Watermark = L.MainForm_Password;
-        TotpBox.Watermark = L.MainForm_TOTPIfAny;
+        UserBox.PlaceholderText = L.ForgotPasswordForm_Username;
+        PassBox.PlaceholderText = L.MainForm_Password;
+        TotpBox.PlaceholderText = L.MainForm_TOTPIfAny;
         RememberCheck.Content = L.MainForm_RememberDevice;
         LoginBtn.Content = L.MainForm_SignIn;
         ForgotBtn.Content = L.ForgotPasswordForm_PasswordRecovery;
-        SearchBox.Watermark = L.DevicesView_SearchHostnameOrNote;
+        SearchBox.PlaceholderText = L.DevicesView_SearchHostnameOrNote;
         ConnectBtn.Content = L.DevicesView_Connect;
         RefreshBtn.Content = L.AboutView_Refresh;
         SettingsBtn.Content = L.MainForm_Settings;
@@ -54,11 +54,11 @@ public partial class MainWindow : Window
         // Password-recovery panel reuses the Windows ForgotPasswordForm labels (shared in Core).
         RecTitle.Text = L.ForgotPasswordForm_PasswordRecovery;
         RecStep1.Text = L.ForgotPasswordForm_X1EnterYourUsernameAnd;
-        RecUserBox.Watermark = L.ForgotPasswordForm_Username;
-        RecEmailBox.Watermark = L.ForgotPasswordForm_EmailAddress;
+        RecUserBox.PlaceholderText = L.ForgotPasswordForm_Username;
+        RecEmailBox.PlaceholderText = L.ForgotPasswordForm_EmailAddress;
         RecRequestBtn.Content = L.ForgotPasswordForm_RequestToken;
         RecStep2.Text = L.ForgotPasswordForm_X2EnterTheTokenYou;
-        RecPassBox.Watermark = L.ForgotPasswordForm_NewPasswordMin10;
+        RecPassBox.PlaceholderText = L.ForgotPasswordForm_NewPasswordMin10;
         RecSetBtn.Content = L.ForgotPasswordForm_SetNewPassword;
 
         UpdateTotpVisibility();

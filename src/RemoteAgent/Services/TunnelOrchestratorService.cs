@@ -243,6 +243,20 @@ public sealed class TunnelOrchestratorService(
     /// </summary>
     private async Task PowerCommandAsync(AgentCommand cmd, CancellationToken ct)
     {
+        // "restart-services" is special: the agent is itself one of the services being restarted, so the
+        // outcome must reach the console BEFORE it stops. StackRestart does VNC and the Helper (and only
+        // reports success once the Helper is verified running, since it is the one thing that can revive a
+        // stopped agent); we report; and only then does the agent hand its own restart to a detached
+        // restarter and die. On abort nothing has been touched but VNC, and the agent stays up.
+        if (string.Equals(cmd.Data?.PowerAction, "restart-services", StringComparison.OrdinalIgnoreCase))
+        {
+            var safe = await RemoteAgent.Power.StackRestart.PrepareAsync(logger, ct);
+            // Distinct from "scheduled": that one means a 60s Windows reboot, this is a services-only bounce.
+            await uplink.ReportAccessResultAsync(cmd.Nonce, safe ? "services-restarting" : "failed", ct);
+            if (safe) RemoteAgent.Power.StackRestart.ScheduleAgentRestart(logger);
+            return;
+        }
+
         var outcome = cmd.Data?.PowerAction switch
         {
             "restart"       => RemoteAgent.Power.PowerControl.Restart(force: false) ? "scheduled" : "failed",

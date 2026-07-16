@@ -19,8 +19,21 @@ Match User ${RAC_AGENT_USER}
     PermitOpen 127.0.0.1:*
     ForceCommand /usr/sbin/nologin
 CONF
+
+# Release a dropped agent's reverse-forward (-R) port quickly. A device's -R port is deterministic,
+# so while the bastion still holds it from a session that has not timed out, the reconnecting agent's
+# bind is refused (its ssh runs ExitOnForwardFailure) and VNC stays dead until the port frees. 15x3
+# mirrors the agent's own ssh keepalive (ServerAliveInterval=15/CountMax=3), so both ends give the
+# link up at the same moment (~45s) instead of the bastion lagging minutes behind.
+# The 10- prefix is load-bearing: Include sits near the top of sshd_config and the FIRST obtained
+# value wins, so this must sort before the cloud image's 50-cloudimg-settings.conf (ClientAliveInterval 120).
+sudo tee /etc/ssh/sshd_config.d/10-keepalive.conf >/dev/null <<'CONF'
+ClientAliveInterval 15
+ClientAliveCountMax 3
+CONF
+
 sudo sshd -t
 sudo systemctl reload ssh
-ok "bastion ready (agent user + SSH CA + sshd Match block)"
+ok "bastion ready (agent user + SSH CA + sshd Match block + reverse-tunnel keepalive)"
 info ">>> bastion host key (already in bastion.env; shown for reference):"
 sudo awk '{print $1, $2}' /etc/ssh/ssh_host_ed25519_key.pub

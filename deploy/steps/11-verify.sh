@@ -13,6 +13,9 @@ chk "PublicUrl configured"         'sudo grep -q "Server__PublicUrl=" "$RAC_ENV_
 chk "bastion host key in env"      'sudo grep -q "Server__Bastion__HostKey=" "$RAC_ENV_DIR/bastion.env"'
 chk "agent user exists"            'id "$RAC_AGENT_USER"'
 chk "sshd agent Match block"       'sudo test -f /etc/ssh/sshd_config.d/agent-bastion.conf'
+# Checks the EFFECTIVE value, not just the file: if a cloud-image drop-in were to sort first and win,
+# dead sessions would hold their reverse-forward port for ~6 min and VNC would break after a blip.
+chk "sshd keepalive 15s (effective)" 'sudo sshd -T | grep -q "^clientaliveinterval 15"'
 chk "TLS certificate present"      'sudo test -f "/etc/letsencrypt/live/${RAC_DOMAIN}/fullchain.pem"'
 chk "nginx config valid"          'sudo nginx -t'
 chk "stream mux included"          'sudo grep -q "stream-rac.conf" /etc/nginx/nginx.conf'

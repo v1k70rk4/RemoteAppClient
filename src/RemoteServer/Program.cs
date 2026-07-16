@@ -1100,14 +1100,16 @@ app.MapPost("/admin/devices/{deviceId}/send-message", async (
     return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
 });
 
-// Commands tab: a fixed power action on the device (restart / force-restart / cancel / logout). The agent
-// maps the keyword to a vetted action — no shell string crosses the wire. The outcome
-// (scheduled / cancelled / logged-out / no-user / failed) comes back via access-result; the console polls.
+// Commands tab: a fixed power action on the device (restart / force-restart / cancel / logout /
+// restart-services). The agent maps the keyword to a vetted action — no shell string crosses the wire. The
+// outcome (scheduled / cancelled / logged-out / no-user / failed) comes back via access-result; the console
+// polls. "restart-services" restarts the RemoteAppClient stack itself (VNC -> Helper -> agent, in that
+// order); it reports "scheduled" before the agent stops, or "failed" if the Helper could not be verified.
 app.MapPost("/admin/devices/{deviceId}/power", async (
     string deviceId, string? action, HttpContext ctx, AppDbContext db, CommandService commands, AccessResultStore accessResults, CancellationToken ct) =>
 {
     var act = (action ?? "").Trim().ToLowerInvariant();
-    if (act is not ("restart" or "force-restart" or "cancel" or "logout"))
+    if (act is not ("restart" or "force-restart" or "cancel" or "logout" or "restart-services"))
         return Results.BadRequest(new { error = "bad_action" });
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();

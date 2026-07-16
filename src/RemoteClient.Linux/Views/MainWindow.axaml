@@ -13,10 +13,10 @@
         <Button x:Name="UpdateLink" IsVisible="False" Click="OnOpenReleases"
                 Background="Transparent" BorderThickness="0" Padding="2" Cursor="Hand"
                 Foreground="#2E86DE" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-        <TextBox x:Name="ServerBox" Watermark="https://server"/>
-        <TextBox x:Name="UserBox" Watermark="username" TextChanged="OnUserChanged"/>
-        <TextBox x:Name="PassBox" Watermark="password" PasswordChar="•"/>
-        <TextBox x:Name="TotpBox" Watermark="TOTP (if configured)"/>
+        <TextBox x:Name="ServerBox" PlaceholderText="https://server"/>
+        <TextBox x:Name="UserBox" PlaceholderText="username" TextChanged="OnUserChanged"/>
+        <TextBox x:Name="PassBox" PlaceholderText="password" PasswordChar="•"/>
+        <TextBox x:Name="TotpBox" PlaceholderText="TOTP (if configured)"/>
         <CheckBox x:Name="RememberCheck" Content="Remember this device (skip TOTP for 90 days)" IsChecked="True"/>
         <Button x:Name="LoginBtn" Content="Sign in" HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Center" Click="OnLogin"/>
@@ -29,7 +29,7 @@
     <!-- Devices -->
     <DockPanel x:Name="DevicesPanel" IsVisible="False" Margin="12">
       <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
-        <TextBox x:Name="SearchBox" Width="260" Watermark="search hostname…" TextChanged="OnSearch"/>
+        <TextBox x:Name="SearchBox" Width="260" PlaceholderText="search hostname…" TextChanged="OnSearch"/>
         <Button x:Name="ConnectBtn" Content="Connect (VNC)" Click="OnConnect"/>
         <Button x:Name="RefreshBtn" Content="Refresh" Click="OnRefresh"/>
         <Button x:Name="SettingsBtn" Content="Settings" Click="OnSettings"/>
@@ -89,12 +89,12 @@
         <StackPanel Spacing="8">
           <TextBlock x:Name="RecTitle" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
           <TextBlock x:Name="RecStep1" TextWrapping="Wrap" Opacity="0.8"/>
-          <TextBox x:Name="RecServerBox" Watermark="https://server"/>
+          <TextBox x:Name="RecServerBox" PlaceholderText="https://server"/>
           <TextBox x:Name="RecUserBox"/>
           <TextBox x:Name="RecEmailBox"/>
           <Button x:Name="RecRequestBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnRecoveryRequest"/>
           <TextBlock x:Name="RecStep2" TextWrapping="Wrap" Opacity="0.8" Margin="0,8,0,0"/>
-          <TextBox x:Name="RecTokenBox" Watermark="Kapott token"/>
+          <TextBox x:Name="RecTokenBox" PlaceholderText="Kapott token"/>
           <TextBox x:Name="RecPassBox" PasswordChar="•"/>
           <Button x:Name="RecSetBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnRecoverySet"/>
           <TextBlock x:Name="RecStatus" Foreground="#C0392B" TextWrapping="Wrap"/>

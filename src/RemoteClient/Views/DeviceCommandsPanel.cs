@@ -15,6 +15,7 @@ public sealed class DeviceCommandsPanel : UserControl
     private readonly UiButton _forceRestart = new(L.DeviceCommandsPanel_ForceRestart, UiButton.Style.Danger);
     private readonly UiButton _cancel = new(L.DeviceCommandsPanel_CancelRestart, UiButton.Style.Outline);
     private readonly UiButton _logout = new(L.DeviceCommandsPanel_Logout, UiButton.Style.Outline);
+    private readonly UiButton _restartStack = new(L.DeviceCommandsPanel_RestartStack, UiButton.Style.Warn);
     private readonly MaterialLabel _status = new() { AutoSize = true, MaximumSize = new Size(460, 0), Margin = new Padding(4, 12, 0, 0) };
 
     public DeviceCommandsPanel(AdminApi api, DeviceInfo d)
@@ -29,10 +30,12 @@ public sealed class DeviceCommandsPanel : UserControl
         _forceRestart.Click += async (_, _) => await RunAsync("force-restart", L.Format(L.DeviceCommandsPanel_ConfirmForceRestart, _host));
         _cancel.Click += async (_, _) => await RunAsync("cancel", null); // a safe undo, no confirmation
         _logout.Click += async (_, _) => await RunAsync("logout", L.Format(L.DeviceCommandsPanel_ConfirmLogout, _host));
+        _restartStack.Click += async (_, _) => await RunAsync("restart-services", L.Format(L.DeviceCommandsPanel_ConfirmRestartStack, _host));
 
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4 };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
         grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -40,8 +43,9 @@ public sealed class DeviceCommandsPanel : UserControl
         grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_ForceRestart, L.DeviceCommandsPanel_ForceRestartDesc, _forceRestart) { Dock = DockStyle.Fill }, 1, 0);
         grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_CancelRestart, L.DeviceCommandsPanel_CancelDesc, _cancel) { Dock = DockStyle.Fill }, 0, 1);
         grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_Logout, L.DeviceCommandsPanel_LogoutDesc, _logout) { Dock = DockStyle.Fill }, 1, 1);
+        grid.Controls.Add(new ActionCard(L.DeviceCommandsPanel_RestartStack, L.DeviceCommandsPanel_RestartStackDesc, _restartStack) { Dock = DockStyle.Fill }, 0, 2);
         _status.Margin = new Padding(6, 12, 0, 0);
-        grid.Controls.Add(_status, 0, 2);
+        grid.Controls.Add(_status, 0, 3);
         grid.SetColumnSpan(_status, 2);
         Controls.Add(grid);
     }
@@ -59,6 +63,7 @@ public sealed class DeviceCommandsPanel : UserControl
             _status.Text = outcome switch
             {
                 "scheduled" => L.DeviceCommandsPanel_Scheduled,
+                "services-restarting" => L.DeviceCommandsPanel_StackRestarting,
                 "cancelled" => L.DeviceCommandsPanel_Cancelled,
                 "logged-out" => L.DeviceCommandsPanel_LoggedOut,
                 "no-user" => L.DeviceCommandsPanel_NoUser,
