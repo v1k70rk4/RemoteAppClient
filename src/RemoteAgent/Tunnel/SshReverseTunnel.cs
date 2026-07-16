@@ -18,8 +18,16 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
     private string? _knownHostsPath;
     private WsBridgeListener? _bridge;
     private int _fileRemotePort; // >0 = also reverse-forward the file service (additive to the VNC forward)
+    private volatile bool _forwardConflict; // last attempt was refused because the bastion still holds the port
 
     public bool IsRunning => _process is { HasExited: false };
+
+    // A device that loses the network and comes straight back finds its own (deterministic) reverse port
+    // still held by the bastion: sshd releases a dropped session's -R port only once its keepalive expires
+    // (~45s). ExitOnForwardFailure then kills the fresh tunnel immediately, so VNC stays dead even though
+    // the agent is already back online. Wait that window out instead of giving up on the first refusal.
+    private const int ForwardRetryRounds = 5;
+    private static readonly TimeSpan ForwardRetryDelay = TimeSpan.FromSeconds(15);
 
     public async Task StartAsync(int remotePort, int fileRemotePort, CancellationToken ct)
     {
@@ -30,12 +38,25 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         }
         _fileRemotePort = fileRemotePort;
 
-        foreach (var a in transport.Attempts(options.BastionPort))
+        for (int round = 0; round < ForwardRetryRounds; round++)
         {
-            var ok = a.Wss ? await TryStartWssAsync(remotePort, ct)
-                           : await TryStartRawAsync(remotePort, a.Port, ct);
-            if (ok) { transport.RecordWorking(a); return; }
-            logger.LogWarning("Reverse tunnel attempt failed: {Attempt}.", a.Wss ? "WSS" : $"port {a.Port}");
+            _forwardConflict = false;
+
+            foreach (var a in transport.Attempts(options.BastionPort))
+            {
+                var ok = a.Wss ? await TryStartWssAsync(remotePort, ct)
+                               : await TryStartRawAsync(remotePort, a.Port, ct);
+                if (ok) { transport.RecordWorking(a); return; }
+                logger.LogWarning("Reverse tunnel attempt failed: {Attempt}.", a.Wss ? "WSS" : $"port {a.Port}");
+            }
+
+            // Only a refused forward is worth waiting out; an auth failure or an unreachable bastion will
+            // not fix itself in seconds.
+            if (!_forwardConflict) break;
+            logger.LogInformation(
+                "Reverse port {Port} is still held by a dropped session; retrying in {Delay}s.",
+                remotePort, (int)ForwardRetryDelay.TotalSeconds);
+            try { await Task.Delay(ForwardRetryDelay, ct); } catch (OperationCanceledException) { break; }
         }
 
         CleanupKnownHosts();
@@ -120,6 +141,10 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         {
             if (string.IsNullOrWhiteSpace(e.Data)) return;
             if (e.Data.Contains("Authenticat", StringComparison.OrdinalIgnoreCase)) authed = true;
+            // "Warning: remote port forwarding failed for listen port N" -> the bastion still holds this
+            // device's port from a session that has not timed out yet; StartAsync waits that out.
+            if (e.Data.Contains("remote port forwarding failed", StringComparison.OrdinalIgnoreCase))
+                _forwardConflict = true;
             // ssh -v debug lines start with "debug"; log only real warnings/errors to keep the EventLog clean.
             if (!e.Data.StartsWith("debug", StringComparison.OrdinalIgnoreCase))
                 logger.LogWarning("ssh: {Line}", e.Data);

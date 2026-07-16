@@ -380,6 +380,9 @@ public static partial class Strings
     public static string DevicesView_ReachingBastionPortThroughThe => Get(nameof(DevicesView_ReachingBastionPortThroughThe));
     public static string DevicesView_VNCStarted => Get(nameof(DevicesView_VNCStarted));
     public static string DevicesView_ConnectionError => Get(nameof(DevicesView_ConnectionError));
+    public static string DevicesView_WaitingForTunnel => Get(nameof(DevicesView_WaitingForTunnel));
+    public static string DevicesView_TunnelNotReady => Get(nameof(DevicesView_TunnelNotReady));
+    public static string DevicesView_TunnelNotReadyText => Get(nameof(DevicesView_TunnelNotReadyText));
     public static string DevicesView_IsNotSignInLocked => Get(nameof(DevicesView_IsNotSignInLocked));
     public static string DevicesView_UnlockSignInOnThis => Get(nameof(DevicesView_UnlockSignInOnThis));
     public static string DevicesView_SignInLockCleared => Get(nameof(DevicesView_SignInLockCleared));
