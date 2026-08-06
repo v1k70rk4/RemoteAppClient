@@ -18,6 +18,7 @@ public sealed class MainForm : MaterialForm
 {
     private readonly ClientConfig _cfg;
     private BrokerClient? _broker;
+    private readonly SemaphoreSlim _brokerGate = new(1, 1);   // serializes (re)connecting/replacing _broker
     private AdminApi? _api;
     private string _role = "operator";
     private string _viewerScale = "auto";   // operator's TightVNC viewer scale; loaded at sign-in, roams with the account
@@ -157,29 +158,49 @@ public sealed class MainForm : MaterialForm
     }
 
     /// <summary>
-    /// Opens a fresh admin API forward through the local broker. If the named pipe died,
-    /// for example after sleep, it is discarded, reconnected, and retried. AdminApi calls
-    /// this from ConnectCallback, so dead tunnels rebuild themselves instead of surfacing errors.
+    /// Opens a forward through the local broker, rebuilding a pipe that died (sleep, or the local agent
+    /// restarting). Every consumer goes through this - the admin API via <see cref="RefreshAdminForwardAsync"/>
+    /// and the device views (VNC + file transfer) directly - so a broker replaced on one path is never left
+    /// behind as a stale, disposed delegate on the other. That staleness was the cause of "Cannot access a
+    /// disposed object" on the first connect after the local agent bounced: the views had captured the old
+    /// broker instance's method while the admin path had already disposed and replaced it. Broker-field
+    /// access is serialized; the forward itself runs outside the gate (BrokerClient serializes internally).
     /// </summary>
-    private async Task<int> RefreshAdminForwardAsync(CancellationToken ct)
+    private async Task<int> ForwardThroughBrokerAsync(int remotePort, CancellationToken ct)
     {
         for (int attempt = 0; attempt < 2; attempt++)
         {
+            BrokerClient broker;
+            await _brokerGate.WaitAsync(ct);
             try
             {
-                _broker ??= await BrokerClient.TryConnectAsync()
+                broker = _broker ??= await BrokerClient.TryConnectAsync()
                     ?? throw new InvalidOperationException(L.MainForm_NoLocalAgentBrokerUnavailable);
-                return await _broker.ForwardAsync(_cfg.AdminApiPort, ct);
+            }
+            finally { _brokerGate.Release(); }
+
+            try
+            {
+                return await broker.ForwardAsync(remotePort, ct);
             }
             catch when (attempt == 0)
             {
-                // Named pipe may have died during sleep; discard and reconnect.
-                try { _broker?.Dispose(); } catch { /* best effort */ }
-                _broker = null;
+                // The pipe likely died (sleep / agent restart). Discard THIS broker - but only if it is
+                // still the current one, so we neither double-dispose nor throw away a fresh broker another
+                // caller just connected - then retry with a clean reconnect.
+                await _brokerGate.WaitAsync(ct);
+                try
+                {
+                    if (ReferenceEquals(_broker, broker)) { try { broker.Dispose(); } catch { /* best effort */ } _broker = null; }
+                }
+                finally { _brokerGate.Release(); }
             }
         }
         throw new InvalidOperationException(L.MainForm_CouldNotOpenTheAdmin);
     }
+
+    /// <summary>Admin API forward (AdminApi ConnectCallback); goes through the shared broker path above.</summary>
+    private Task<int> RefreshAdminForwardAsync(CancellationToken ct) => ForwardThroughBrokerAsync(_cfg.AdminApiPort, ct);
 
     private bool _envBusy;
 
@@ -906,7 +927,9 @@ public sealed class MainForm : MaterialForm
         _viewerColor = string.IsNullOrWhiteSpace(_login?.ViewerColor) ? "full" : _login!.ViewerColor!;
 
         // Create views according to role; operators only see Devices / Settings / About.
-        _devicesView = new DevicesView(_api!, _broker!.ForwardAsync, _cfg, _role == "admin", _viewerScale, _viewerColor);
+        // Pass the reconnect-aware forward METHOD, not _broker.ForwardAsync: the latter binds to today's
+        // broker instance, which RefreshAdminForwardAsync may dispose and replace, leaving a stale delegate.
+        _devicesView = new DevicesView(_api!, ForwardThroughBrokerAsync, _cfg, _role == "admin", _viewerScale, _viewerColor);
         _settingsView = new SettingsView(_cfg.ThemeMode, ApplyThemeMode, _role == "admin", _api!, _viewerScale, _viewerColor, ApplyViewerPrefs,
             _cfg.VncPanelMode, mode => { _cfg.VncPanelMode = mode; try { _cfg.Save(); } catch { /* best effort */ } });
         _aboutView = new AboutView(_cfg);
