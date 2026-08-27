@@ -23,7 +23,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
     <!-- Pin Avalonia's transitive Tmds.DBus.Protocol to the 0.21-line security patch to clear NU1903
          (GHSA-xrw6-gwf8-vvr9; patched in 0.21.3). Staying on 0.21.x keeps Avalonia 11.2 compatibility. -->
-    <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.95.0" />
   </ItemGroup>
 
   <ItemGroup>
