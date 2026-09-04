@@ -49,9 +49,20 @@ builder.Services.AddSingleton<AccessResultStore>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddHostedService<SecretExpiryWatcher>();
 builder.Services.AddHostedService<CommandExpiryWatcher>();
+builder.Services.AddHostedService<DeviceHistoryWatcher>();
 
 var app = builder.Build();
-app.UseWebSockets();
+
+// Ping agents and drop the socket once they stop answering. Without a timeout a link that dies silently -
+// a laptop losing wi-fi sends no FIN/RST - leaves the socket Open indefinitely: the connection registry
+// keeps reporting the device Online and TrySendAsync happily writes commands into the void, so the console
+// shows a live device while open-tunnel simply never gets an answer. 15s pings with a 20s grace make a
+// dead peer fall out in well under a minute instead of hanging around until the OS TCP timeout.
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(15),
+    KeepAliveTimeout = TimeSpan.FromSeconds(20),
+});
 
 // Liveness probe used by the self-update helper (deploy.sh curls this on localhost). No secrets.
 app.MapGet("/health", () => Results.Text("ok"));
@@ -612,6 +623,9 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
             pendingInfo[grp.Key] = $"{target} {ver} · {cmd.Status}";
     }
 
+    // Telemetry lands every 60s, so three intervals of tolerance separates "alive" from "gone quiet".
+    var liveCutoff = DateTimeOffset.UtcNow.AddMinutes(-3);
+
     var list = devices
         .Where(d => !d.DeviceId.StartsWith("opsrc:", StringComparison.Ordinal))   // hide synthetic source-IP lock records
         .Select(d => new DeviceInfo
@@ -619,7 +633,12 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         DeviceId = d.DeviceId,
         Hostname = d.Hostname,
         Status = d.Status.ToString(),
-        Online = registry.IsConnected(d.DeviceId),
+        // Belt and braces on top of the socket keepalive: a device counts as online only when its socket is
+        // registered AND it has actually reported recently. Telemetry lands every 60s, so three minutes
+        // absorbs a missed beat while stopping a zombie connection from claiming the device is reachable.
+        // LastSeenAt is null until the first telemetry arrives, which correctly reads as offline.
+        Online = registry.IsConnected(d.DeviceId) && d.LastSeenAt > liveCutoff,
+        Reporting = d.LastSeenAt > liveCutoff,
         RecentReconnects = registry.RecentReconnects(d.DeviceId),
         LastSeenAt = d.LastSeenAt,
         VncSecret = protector.TryUnprotect(d.VncSecret),
@@ -695,14 +714,34 @@ app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext c
     var gid = device.Id;
     var host = device.Hostname;
 
-    // No FK cascade: these store DeviceId as a plain Guid, so remove them explicitly.
-    await db.DeviceTelemetry.Where(t => t.DeviceId == gid).ExecuteDeleteAsync(ct);
+    // No FK cascade: these store DeviceId as a plain Guid, so remove them explicitly. History holds only
+    // transitions (and is pruned at 90 days), so it stays small enough to clear in one statement - unlike
+    // the per-minute snapshot table it replaced, where 63k rows for one device blew past the command
+    // timeout and made deleting a long-lived device fail outright.
+    await db.DeviceEvents.Where(e => e.DeviceId == gid).ExecuteDeleteAsync(ct);
     await db.Set<RemoteServer.Data.Entities.Command>().Where(c => c.DeviceId == gid).ExecuteDeleteAsync(ct);
     await db.Set<RemoteServer.Data.Entities.RemoteSession>().Where(s => s.DeviceId == gid).ExecuteDeleteAsync(ct);
     db.Devices.Remove(device);
     await db.SaveChangesAsync(ct);
     await AuditAsync(db, ctx, "device-delete", null, host);
     return Results.NoContent();
+});
+
+// Device history: liveness transitions and IP changes, newest first. Written only on change and pruned at
+// 90 days by DeviceHistoryWatcher, so this is short enough to be worth actually reading.
+app.MapGet("/admin/devices/{deviceId}/events", async (string deviceId, int? limit, AppDbContext db, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+
+    var take = Math.Clamp(limit ?? 200, 1, 1000);
+    var rows = await db.DeviceEvents
+        .Where(e => e.DeviceId == device.Id)
+        .OrderByDescending(e => e.At)
+        .Take(take)
+        .Select(e => new DeviceEventInfo { At = e.At, Kind = e.Kind, OldValue = e.OldValue, NewValue = e.NewValue })
+        .ToListAsync(ct);
+    return Results.Json(rows, AgentJsonContext.Default.ListDeviceEventInfo);
 });
 
 // List and create groups.

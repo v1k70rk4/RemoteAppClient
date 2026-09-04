@@ -53,6 +53,7 @@ public sealed class DevicesView : UserControl, IContentView
     private DeviceCommandsPanel? _cmdPanel;
     private LogPanel? _logPanel;
     private DeviceTelemetryPanel? _telemetryPanel;
+    private DeviceHistoryPanel? _historyPanel;
     private DeviceBetaPanel? _betaPanel;
 
     public DevicesView(AdminApi api, Func<int, CancellationToken, Task<int>> forward, ClientConfig cfg, bool isAdmin, string viewerScale = "auto", string viewerColor = "full")
@@ -86,7 +87,7 @@ public sealed class DevicesView : UserControl, IContentView
         _search.TextChanged += (_, _) => RenderList();
         tools.Controls.Add(_search);
         // Group + status filters (group is populated on each refresh).
-        _statusFilter.Items.AddRange(new object[] { L.DevicesView_FilterAnyStatus, L.DevicesView_Online, L.DevicesView_LinkFlaky, L.DevicesView_Offline, L.DevicesView_StatusPending });
+        _statusFilter.Items.AddRange(new object[] { L.DevicesView_FilterAnyStatus, L.DevicesView_Online, L.DevicesView_LinkFlaky, L.DevicesView_ReportingOnly, L.DevicesView_Offline, L.DevicesView_StatusPending });
         _statusFilter.SelectedIndex = 0;
         _groupFilter.Margin = new Padding(0, 0, 6, 0);
         _statusFilter.Margin = new Padding(0, 0, 16, 0);
@@ -130,8 +131,9 @@ public sealed class DevicesView : UserControl, IContentView
             void Item(string text, string tab) => menu.Items.Add(text, null, async (_, _) => await EditSelectedAsync(tab));
             Item(L.DevicesView_Properties, "general");
             Item(L.DevicesView_Messages, "messages");
-            Item("Log", "log");
+            Item(L.DevicesView_AccessLog, "log");
             Item(L.DevicesView_Telemetry, "telemetry");
+            Item(L.DevicesView_History, "history");
             Item(L.UsersView_Permissions, "permissions");
 
             // File manager (two-pane), separated like the power commands below.
@@ -408,6 +410,10 @@ public sealed class DevicesView : UserControl, IContentView
         if (string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return (L.DevicesView_StatusPending, ThemeManager.WarnFg, ThemeManager.WarnBg);
         if (d.Online) return (L.DevicesView_Online, ThemeManager.OkFg, ThemeManager.OkBg);
         if (d.LinkFlaky) return (L.DevicesView_LinkFlaky, ThemeManager.WarnFg, ThemeManager.WarnBg);
+        // Alive and sending telemetry, but its control channel is down: it cannot be connected to, yet it is
+        // not switched off either. Its own colour keeps that apart from a genuinely dark machine - otherwise
+        // the row reads "offline" while the last-seen column says "just now", which is what confused us.
+        if (d.Reporting) return (L.DevicesView_ReportingOnly, ThemeManager.BetaFg, ThemeManager.BetaBg);
         return (L.DevicesView_Offline, ThemeManager.OffFg, ThemeManager.OffBg);
     }
 
@@ -462,8 +468,9 @@ public sealed class DevicesView : UserControl, IContentView
         {
             1 => items.Where(d => d.Online),
             2 => items.Where(d => d.LinkFlaky && !d.Online),
-            3 => items.Where(d => !d.Online && !d.LinkFlaky),
-            4 => items.Where(d => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+            3 => items.Where(d => d.Reporting && !d.Online && !d.LinkFlaky),
+            4 => items.Where(d => !d.Online && !d.LinkFlaky && !d.Reporting),
+            5 => items.Where(d => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
             _ => items,
         };
 
@@ -481,7 +488,7 @@ public sealed class DevicesView : UserControl, IContentView
             // Display is owner-drawn (DrawRow). The sub-item text is kept (not shown) only so the built-in
             // column auto-size has real content to measure instead of collapsing to zero.
             string status = string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase) ? "pending"
-                          : d.Online ? "online" : d.LinkFlaky ? "flaky" : "offline";
+                          : d.Online ? "online" : d.LinkFlaky ? "flaky" : d.Reporting ? "reporting" : "offline";
             var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname) { Tag = d };
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(status);
@@ -490,6 +497,7 @@ public sealed class DevicesView : UserControl, IContentView
             item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));
             if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
             else if (d.LinkFlaky) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
+            else if (d.Reporting && !d.Online) item.ToolTipText = L.DevicesView_ReportingOnlyTip;
             else if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
             if (d.DeviceId == selId) toSelect = item;
@@ -563,13 +571,14 @@ public sealed class DevicesView : UserControl, IContentView
             string sub = string.Join(" · ", new[] { d.Note?.ReplaceLineEndings(" "), d.GroupName, d.OsVersion }.Where(s => !string.IsNullOrWhiteSpace(s)));
             _header.SetDevice(string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname, sub, st, sf, sb);
 
-            _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _cmdPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose(); _betaPanel?.Dispose();
+            _generalPanel?.Dispose(); _permPanel?.Dispose(); _msgPanel?.Dispose(); _cmdPanel?.Dispose(); _logPanel?.Dispose(); _telemetryPanel?.Dispose(); _historyPanel?.Dispose(); _betaPanel?.Dispose();
             _generalPanel = new DeviceGeneralPanel(_api, d, groups);
             _permPanel = new DevicePermissionsPanel(_api, d);
             _msgPanel = new DeviceMessagesPanel(_api, d, () => ConnectDeviceAsync(d));
             _cmdPanel = new DeviceCommandsPanel(_api, d);
             _logPanel = new LogPanel(_api, deviceId: d.DeviceId);
             _telemetryPanel = new DeviceTelemetryPanel(d);
+            _historyPanel = _isAdmin ? new DeviceHistoryPanel(_api, d.DeviceId) : null;
             _betaPanel = new DeviceBetaPanel(_api, d);
 
             // BETA tab only for beta-channel devices: the agent that understands the transport ships there first.
@@ -577,8 +586,9 @@ public sealed class DevicesView : UserControl, IContentView
             {
                 ("general", L.ChannelsView_General), ("permissions", L.UsersView_Permissions),
                 ("messages", L.DevicesView_Messages), ("commands", L.DevicesView_Commands),
-                ("log", L.MainForm_Log), ("telemetry", L.DevicesView_Telemetry),
+                ("log", L.DevicesView_AccessLog), ("telemetry", L.DevicesView_Telemetry),
             };
+            if (_isAdmin) tabs.Add(("history", L.DevicesView_History));
             if (string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase)) tabs.Add(("beta", "BETA"));
             _tabs.SetTabs(tabs.ToArray(), initialTab);
 
@@ -602,6 +612,7 @@ public sealed class DevicesView : UserControl, IContentView
             case "commands" when _cmdPanel is not null: _tabContent.Controls.Add(_cmdPanel); break;
             case "telemetry" when _telemetryPanel is not null: _tabContent.Controls.Add(_telemetryPanel); break;
             case "log" when _logPanel is not null: _tabContent.Controls.Add(_logPanel); await _logPanel.ShownAsync(); break;
+            case "history" when _historyPanel is not null: _tabContent.Controls.Add(_historyPanel); await _historyPanel.ShownAsync(); break;
             case "beta" when _betaPanel is not null: _tabContent.Controls.Add(_betaPanel); break;
         }
     }
@@ -610,6 +621,22 @@ public sealed class DevicesView : UserControl, IContentView
     /// Waits for access outcome. First waits quietly for about 2.5s so auto/unattended access
     /// does not flash a dialog; if still pending, shows a wait dialog for the remaining time.
     /// </summary>
+    /// <summary>
+    /// True when the server actually handed the command to the agent. "Queued" means it could not: the
+    /// device is not reachable right now, whatever the list said a moment ago - a dropped link can leave a
+    /// socket looking alive for a while. Saying so beats falling through to the consent wait, which claims
+    /// we are waiting for the user to allow access when in truth nothing ever reached the machine.
+    /// </summary>
+    private bool CommandReachedDevice(OpenTunnelResult result)
+    {
+        if (string.Equals(result.Status, "Sent", StringComparison.OrdinalIgnoreCase)) return true;
+
+        SetStatus(L.DevicesView_DeviceNotReachable);
+        MessageBox.Show(L.DevicesView_DeviceNotReachableText, L.DevicesView_DeviceNotReachable,
+            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return false;
+    }
+
     private async Task<string> WaitAccessAsync(string? nonce)
     {
         if (string.IsNullOrEmpty(nonce)) return "auto";
@@ -646,6 +673,7 @@ public sealed class DevicesView : UserControl, IContentView
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
+            if (!CommandReachedDevice(result)) return;
 
             SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
             var outcome = await WaitAccessAsync(result.Nonce);
@@ -709,6 +737,7 @@ public sealed class DevicesView : UserControl, IContentView
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
             var result = await _api.OpenTunnelAsync(d.DeviceId, "file");
             if (result is null || result.FileRemotePort <= 0 || string.IsNullOrEmpty(result.FileToken)) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
+            if (!CommandReachedDevice(result)) return;
 
             SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
             var outcome = await WaitAccessAsync(result.Nonce);

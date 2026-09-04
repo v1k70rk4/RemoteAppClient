@@ -17,6 +17,13 @@ public sealed class DeviceInfo
     [JsonPropertyName("online")]
     public bool Online { get; set; }
 
+    /// <summary>Telemetry arrived recently, regardless of the control channel. Reporting without
+    /// <see cref="Online"/> is the "alive but unreachable" case: the agent is running and sending data, yet
+    /// its C2 socket is down, so nothing can be commanded and no tunnel can be opened. Worth showing apart
+    /// from plain offline, which would suggest the machine is simply switched off.</summary>
+    [JsonPropertyName("reporting")]
+    public bool Reporting { get; set; }
+
     /// <summary>C2 (re)connections observed for this device in the last hour (server connection registry).
     /// 0–1 = stable; higher = flaky link (agent likely alive, poor network), not a dead device.</summary>
     [JsonPropertyName("recentReconnects")]
@@ -230,6 +237,27 @@ public sealed class ServerBackupStatus
     [JsonPropertyName("ready")] public bool Ready { get; set; }
     /// <summary>Whether the privileged backup helper (console-backup.sh + path unit) is installed.</summary>
     [JsonPropertyName("helperReady")] public bool HelperReady { get; set; }
+}
+
+/// <summary>
+/// One entry of a device's history: a liveness transition (online / flaky / not-controllable / offline) or
+/// an IP change. Only changes are recorded, so a device that stays put and stays online produces nothing.
+/// </summary>
+public sealed class DeviceEventInfo
+{
+    [JsonPropertyName("at")]
+    public DateTimeOffset At { get; set; }
+
+    /// <summary>What changed: "state", "ip" (local) or "public-ip".</summary>
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>Previous value; null when this is the first observation of it.</summary>
+    [JsonPropertyName("oldValue")]
+    public string? OldValue { get; set; }
+
+    [JsonPropertyName("newValue")]
+    public string? NewValue { get; set; }
 }
 
 /// <summary>Device group for the admin list.</summary>

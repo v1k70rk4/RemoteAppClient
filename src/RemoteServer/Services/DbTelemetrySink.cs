@@ -9,8 +9,8 @@ using RemoteServer.Telemetry;
 namespace RemoteServer.Services;
 
 /// <summary>
-/// Writes telemetry to MariaDB: updates denormalized <see cref="Device"/> fields for
-/// fast listing and inserts an append-only <see cref="DeviceTelemetry"/> row.
+/// Writes telemetry to MariaDB: updates the denormalized <see cref="Device"/> fields that the console
+/// lists, and appends a <see cref="DeviceEvent"/> only when an IP actually changed.
 /// </summary>
 public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : ITelemetrySink
 {
@@ -40,10 +40,33 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
         device.LastIncident = payload.LastIncident;
         device.VncLocked = payload.VncLocked;
         device.BootTimeUtc = payload.BootTimeUtc == default ? null : payload.BootTimeUtc;
+        // History: note IP moves BEFORE overwriting, so the console can answer "when did it change?".
+        // Only changes are recorded, so a device that stays put never writes a row.
+        var events = new List<DeviceEvent>();
+        if (!string.IsNullOrWhiteSpace(payload.IpAddress) && device.IpAddress != payload.IpAddress)
+            events.Add(new DeviceEvent
+            {
+                DeviceId = device.Id, At = now, Kind = DeviceEventKinds.Ip,
+                OldValue = device.IpAddress, NewValue = payload.IpAddress,
+            });
         device.IpAddress = payload.IpAddress;
+
         if (!string.IsNullOrWhiteSpace(publicIp))
         {
-            if (device.PublicIpAddress != publicIp) { device.PublicIpAddress = publicIp; device.PublicIpReverse = null; }
+            if (device.PublicIpAddress != publicIp)
+            {
+                // Resolve the new PTR before recording, so the history entry carries the same "host (ip)"
+                // form the console shows. It has to be baked in: once the device has moved on, nothing can
+                // look up the name that a past address used to have.
+                var before = IpLabel(device.PublicIpAddress, device.PublicIpReverse);
+                device.PublicIpAddress = publicIp;
+                device.PublicIpReverse = await ReverseDnsAsync(publicIp);
+                events.Add(new DeviceEvent
+                {
+                    DeviceId = device.Id, At = now, Kind = DeviceEventKinds.PublicIp,
+                    OldValue = before, NewValue = IpLabel(publicIp, device.PublicIpReverse),
+                });
+            }
             device.PublicIpReverse ??= await ReverseDnsAsync(publicIp); // resolve once per IP, then cache
         }
         device.WifiSsid = payload.WifiSsid;
@@ -55,18 +78,21 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
         device.SleepDcMinutes = payload.SleepDcMinutes;
         device.LastSeenAt = now;
 
-        db.DeviceTelemetry.Add(new DeviceTelemetry
-        {
-            DeviceId = device.Id,
-            CollectedAt = now,
-            PayloadJson = JsonSerializer.Serialize(payload, AgentJsonContext.Default.TelemetryPayload),
-        });
+        // No per-minute snapshot any more: everything current is denormalised onto the device row above, and
+        // the snapshot table it replaced reached 755 MB across fifteen devices without a single reader.
+        if (events.Count > 0) db.DeviceEvents.AddRange(events);
 
         await db.SaveChangesAsync(ct);
 
         // Best-effort: keep the device converging to its channel's target package (never fail telemetry).
         try { await AutoConvergeAsync(device, ct); } catch { /* convergence is best-effort */ }
     }
+
+    /// <summary>"host (1.2.3.4)" when a PTR is known, otherwise the bare address - the shape the console shows.</summary>
+    private static string? IpLabel(string? ip, string? reverse) =>
+        string.IsNullOrWhiteSpace(ip) ? null
+        : string.IsNullOrWhiteSpace(reverse) ? ip
+        : $"{reverse} ({ip})";
 
     /// <summary>
     /// Reverse DNS (PTR) for a public IP, bounded so a slow/missing PTR never stalls telemetry.

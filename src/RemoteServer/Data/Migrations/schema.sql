@@ -43,12 +43,14 @@ CREATE TABLE `DeviceGroups` (
     CONSTRAINT `PK_DeviceGroups` PRIMARY KEY (`Id`)
 ) CHARACTER SET=utf8mb4;
 
-CREATE TABLE `DeviceTelemetry` (
+CREATE TABLE `DeviceEvents` (
     `Id` char(36) COLLATE ascii_general_ci NOT NULL,
     `DeviceId` char(36) COLLATE ascii_general_ci NOT NULL,
-    `CollectedAt` datetime(6) NOT NULL,
-    `PayloadJson` json NOT NULL,
-    CONSTRAINT `PK_DeviceTelemetry` PRIMARY KEY (`Id`)
+    `At` datetime(6) NOT NULL,
+    `Kind` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `OldValue` longtext CHARACTER SET utf8mb4 NULL,
+    `NewValue` longtext CHARACTER SET utf8mb4 NULL,
+    CONSTRAINT `PK_DeviceEvents` PRIMARY KEY (`Id`)
 ) CHARACTER SET=utf8mb4;
 
 CREATE TABLE `EnrollmentTokens` (
@@ -253,7 +255,8 @@ CREATE INDEX `IX_Devices_Status` ON `Devices` (`Status`);
 
 CREATE UNIQUE INDEX `IX_Devices_TunnelPort` ON `Devices` (`TunnelPort`);
 
-CREATE INDEX `IX_DeviceTelemetry_DeviceId_CollectedAt` ON `DeviceTelemetry` (`DeviceId`, `CollectedAt`);
+CREATE INDEX `IX_DeviceEvents_At` ON `DeviceEvents` (`At`);
+CREATE INDEX `IX_DeviceEvents_DeviceId_At` ON `DeviceEvents` (`DeviceId`, `At`);
 
 CREATE UNIQUE INDEX `IX_DeviceTrusts_TokenHash` ON `DeviceTrusts` (`TokenHash`);
 

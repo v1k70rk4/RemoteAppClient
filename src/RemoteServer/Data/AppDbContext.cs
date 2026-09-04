@@ -14,7 +14,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<HelloCredential> HelloCredentials => Set<HelloCredential>();
     public DbSet<DeviceGroup> DeviceGroups => Set<DeviceGroup>();
     public DbSet<Device> Devices => Set<Device>();
-    public DbSet<DeviceTelemetry> DeviceTelemetry => Set<DeviceTelemetry>();
+    public DbSet<DeviceEvent> DeviceEvents => Set<DeviceEvent>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<Command> Commands => Set<Command>();
     public DbSet<ReleasePackage> ReleasePackages => Set<ReleasePackage>();
@@ -74,10 +74,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
-        b.Entity<DeviceTelemetry>(e =>
+        b.Entity<DeviceEvent>(e =>
         {
-            e.HasIndex(x => new { x.DeviceId, x.CollectedAt });
-            e.Property(x => x.PayloadJson).HasColumnType("json");
+            // One index per read pattern: the device history view walks a device newest-first, and the
+            // 90-day retention sweep walks everything by age.
+            e.HasIndex(x => new { x.DeviceId, x.At });
+            e.HasIndex(x => x.At);
         });
 
         b.Entity<EnrollmentToken>(e =>

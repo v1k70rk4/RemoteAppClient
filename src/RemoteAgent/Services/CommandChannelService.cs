@@ -27,11 +27,54 @@ public sealed class CommandChannelService(
     private readonly CommandChannelOptions _opt = options.Value.CommandChannel;
     private readonly string _pfxPath = options.Value.ClientCertPfxPath;
 
+    private bool _noUrlLogged;
+
+    /// <summary>
+    /// Outer guard around the reconnect loop. The host ignores background-service failures so one faulty
+    /// service cannot take the whole agent down; the flip side is that if this method ever returns, the
+    /// agent keeps running - telemetry included - with no control channel at all. That device looks alive
+    /// in the console yet can never be commanded, and nothing short of a service restart brings it back.
+    /// Even the logging can cause it: an EventLog write throwing inside the catch below (its message limit
+    /// is ~32 KB, and stack traces get long) would escape the reconnect loop entirely. So nothing here may
+    /// fall through silently - anything unexpected is logged and the loop is restarted.
+    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await RunChannelLoopAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                SafeLog(ex);
+            }
+
+            if (stoppingToken.IsCancellationRequested) return;
+
+            try { await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken); }
+            catch (OperationCanceledException) { return; }
+        }
+    }
+
+    /// <summary>Logging must never be the thing that kills the channel, so failures to log are swallowed.</summary>
+    private void SafeLog(Exception ex)
+    {
+        try { logger.LogError(ex, "Command channel loop exited unexpectedly; restarting it in 60s."); }
+        catch { /* the channel matters more than the log entry */ }
+    }
+
+    private async Task RunChannelLoopAsync(CancellationToken stoppingToken)
     {
         if (string.IsNullOrWhiteSpace(_opt.Url))
         {
-            logger.LogWarning(L.CommandChannelService_NoCommandChannelURLConfigured);
+            // Logged once: the outer guard retries, and a warning a minute would bury everything else.
+            if (!_noUrlLogged) { _noUrlLogged = true; logger.LogWarning(L.CommandChannelService_NoCommandChannelURLConfigured); }
             return;
         }
 
@@ -51,7 +94,9 @@ public sealed class CommandChannelService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.CommandChannelService_CommandChannelErrorReconnectingIn, delay.TotalSeconds);
+                // Guarded: a throwing log write here used to escape the loop and leave the agent deaf.
+                try { logger.LogWarning(ex, L.CommandChannelService_CommandChannelErrorReconnectingIn, delay.TotalSeconds); }
+                catch { /* keep reconnecting regardless */ }
             }
             finally { status.SetC2Connected(false); } // disconnected; status pipe reflects this
 

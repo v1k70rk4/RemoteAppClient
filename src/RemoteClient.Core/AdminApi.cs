@@ -248,6 +248,14 @@ public sealed class AdminApi : IDisposable
     }
 
     /// <summary>Fetches audit log with filters. Empty filter = all. action/actor/deviceId are optional.</summary>
+    /// <summary>
+    /// A device's history: liveness transitions (online / flaky / not-controllable / offline) and IP changes,
+    /// newest first. Only changes are stored and it is pruned at 90 days, so this stays short. Admin only.
+    /// </summary>
+    public async Task<List<DeviceEventInfo>> GetDeviceEventsAsync(string deviceId, int limit = 200, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync($"/admin/devices/{Uri.EscapeDataString(deviceId)}/events?limit={limit}",
+            AgentJsonContext.Default.ListDeviceEventInfo, ct) ?? [];
+
     public async Task<List<AuditEntryInfo>> GetAuditAsync(string? action = null, string? actor = null, string? deviceId = null, int limit = 200, CancellationToken ct = default)
     {
         var q = new List<string> { $"limit={limit}" };

@@ -111,13 +111,34 @@ public sealed class Device
     public string? Note { get; set; }
 }
 
-/// <summary>Append-only telemetry history. Raw payload stored as JSON and cleared by retention.</summary>
-public sealed class DeviceTelemetry
+/// <summary>
+/// A change worth remembering about a device: when it moved between online / flaky / not-controllable /
+/// offline, and when its IP changed. Written only when a value actually changes.
+///
+/// This replaced a per-minute telemetry snapshot table that grew to 755 MB across fifteen devices in three
+/// months - and which no endpoint or client ever read. Everything current lives denormalised on
+/// <see cref="Device"/>; only the transitions are worth keeping, and a stable device now writes none.
+/// </summary>
+public sealed class DeviceEvent
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid DeviceId { get; set; }
-    public DateTimeOffset CollectedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset At { get; set; } = DateTimeOffset.UtcNow;
 
-    /// <summary>Full TelemetryPayload JSON.</summary>
-    public string PayloadJson { get; set; } = "{}";
+    /// <summary>What changed: <c>state</c>, <c>ip</c> (local) or <c>public-ip</c>.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>Previous value; null when this is the first observation.</summary>
+    public string? OldValue { get; set; }
+
+    public string? NewValue { get; set; }
+}
+
+/// <summary>Event kinds stored in <see cref="DeviceEvent.Kind"/>. Kept as constants so the writer, the
+/// history endpoint and the console agree on the vocabulary.</summary>
+public static class DeviceEventKinds
+{
+    public const string State = "state";
+    public const string Ip = "ip";
+    public const string PublicIp = "public-ip";
 }

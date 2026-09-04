@@ -167,6 +167,8 @@ public static class CommandTypes
 [JsonSerializable(typeof(AgentUplinkMessage))]
 [JsonSerializable(typeof(Admin.AccessResultInfo))]
 [JsonSerializable(typeof(Admin.AuditEntryInfo))]
+[JsonSerializable(typeof(Admin.DeviceEventInfo))]
+[JsonSerializable(typeof(System.Collections.Generic.List<Admin.DeviceEventInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.AuditEntryInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.HelloCredentialInfo>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<Admin.TrustedDeviceInfo>))]

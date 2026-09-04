@@ -347,6 +347,8 @@ public static partial class Strings
     public static string DevicesView_DaysAgo => Get(nameof(DevicesView_DaysAgo));
     public static string DevicesView_TopbarSubtitle => Get(nameof(DevicesView_TopbarSubtitle));
     public static string DevicesView_LinkFlakyTip => Get(nameof(DevicesView_LinkFlakyTip));
+    public static string DevicesView_ReportingOnly => Get(nameof(DevicesView_ReportingOnly));
+    public static string DevicesView_ReportingOnlyTip => Get(nameof(DevicesView_ReportingOnlyTip));
     public static string DeviceTelemetryPanel_LinkQuality => Get(nameof(DeviceTelemetryPanel_LinkQuality));
     public static string DeviceTelemetryPanel_LinkStable => Get(nameof(DeviceTelemetryPanel_LinkStable));
     public static string DeviceTelemetryPanel_LinkFlakyDetail => Get(nameof(DeviceTelemetryPanel_LinkFlakyDetail));
@@ -384,6 +386,8 @@ public static partial class Strings
     public static string DevicesView_ReachingBastionPortThroughThe => Get(nameof(DevicesView_ReachingBastionPortThroughThe));
     public static string DevicesView_VNCStarted => Get(nameof(DevicesView_VNCStarted));
     public static string DevicesView_ConnectionError => Get(nameof(DevicesView_ConnectionError));
+    public static string DevicesView_DeviceNotReachable => Get(nameof(DevicesView_DeviceNotReachable));
+    public static string DevicesView_DeviceNotReachableText => Get(nameof(DevicesView_DeviceNotReachableText));
     public static string DevicesView_WaitingForTunnel => Get(nameof(DevicesView_WaitingForTunnel));
     public static string DevicesView_TunnelNotReady => Get(nameof(DevicesView_TunnelNotReady));
     public static string DevicesView_TunnelNotReadyText => Get(nameof(DevicesView_TunnelNotReadyText));
@@ -399,6 +403,9 @@ public static partial class Strings
     public static string DevicesView_Disabled => Get(nameof(DevicesView_Disabled));
     public static string DevicesView_Failed => Get(nameof(DevicesView_Failed));
     public static string DevicesView_Telemetry => Get(nameof(DevicesView_Telemetry));
+    public static string DevicesView_History => Get(nameof(DevicesView_History));
+    public static string DevicesView_AccessLog => Get(nameof(DevicesView_AccessLog));
+    public static string DevicesView_HistoryEmpty => Get(nameof(DevicesView_HistoryEmpty));
     public static string EditTokenForm_Expiry => Get(nameof(EditTokenForm_Expiry));
     public static string EditTokenForm_MaxInstalls => Get(nameof(EditTokenForm_MaxInstalls));
     public static string EditTokenForm_EditBlob => Get(nameof(EditTokenForm_EditBlob));

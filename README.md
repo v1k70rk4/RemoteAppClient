@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.0.0-2ea44f" alt="version 2.0.0">
+  <img src="https://img.shields.io/badge/version-2.1.0-2ea44f" alt="version 2.1.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 2.1.0](#whats-new-in-210)
 - [What's New in 2.0.0](#whats-new-in-200)
 - [What's New in 1.9.0](#whats-new-in-190)
 - [What's New in 1.8.5](#whats-new-in-185)
@@ -57,6 +58,53 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 2.1.0
+
+An **honesty** release: the console stops asserting things it cannot know. `Online` now means a device is
+genuinely reachable, a machine that only *looks* dead gets labelled instead of buried, and — for the first
+time — you can ask a device where it has been. This release **changes the database schema**: the per-minute
+telemetry snapshot is replaced by an event log. Prod applies the idempotent
+`upgrade-2.1.0-device-events.sql` through the in-app server update; a fresh install gets the table from
+`schema.sql`.
+
+**Online that means online**
+- The badge could stay lit for hours after a machine fell off the network. The server's WebSocket had a
+  keepalive *interval* but no *timeout*, so a socket whose peer had vanished was never torn down — the
+  connection registry kept a dead handle and reported it as connected. One device sat "Online" with a
+  four-hour-old last report while six commands were "delivered" into that dead socket. Sockets now time out
+  (`KeepAliveTimeout`), and the badge additionally cross-checks the last report, so a lingering handle
+  cannot outlive the truth.
+- Because of that, starting a session against an unreachable device raised a **consent prompt nobody could
+  answer**. Commands now report whether they actually reached the device, and say so plainly when they did not.
+- New state **"nem vezérelhető"** — telemetry is arriving but the command channel is not up. This used to
+  render as plain *offline*, which is why a demonstrably alive machine could show up as dead. Liveness is
+  now defined in exactly one place, so the badge, the filters and the history cannot drift apart.
+- **The agent's command loop can no longer die quietly.** An unhandled exception ended the background
+  service for good: the device kept sending telemetry — so it looked perfectly healthy — but never accepted
+  another command until someone restarted the service by hand. The loop now catches itself and retries
+  every 60 s.
+
+**A fleet with a past**
+- A new **Előzmények** tab (also on the right-click menu): when a device changed state (online / ingadozó /
+  nem vezérelhető / offline), and when its IP moved. The reverse DNS is resolved and stored **at write
+  time** — once a device has moved on, nothing can recover the name a past address used to have.
+- The old `DeviceTelemetry` table wrote every device's full payload once a minute. It reached **755 MB
+  across fifteen devices** in three months, and no endpoint and no client had ever read a single row of it —
+  every current value already lives denormalised on the device row. It is replaced by `DeviceEvents`, which
+  records only transitions and is pruned at **90 days**; a device that stays put and stays online now writes
+  nothing at all. The database went from **811 MB to 4 MB**.
+- **Deleting a device no longer times out.** One machine had accumulated 63,574 snapshot rows — enough to
+  push the cascade past the request limit. The event log removes the cause, and the delete clears it too.
+
+**Smaller things**
+- **Hozzáférési napló**: the log tab and its context-menu entry now say what they actually show.
+- The public IP is shown with its reverse DNS beside it, in the list and in the history.
+- Console broker reconnects are serialized, and a port forward always resolves the *current* broker rather
+  than one disposed mid-reconnect.
+- Dependency bumps (NuGet + Actions); the **Avalonia family is aligned at 12.1.2** across the Linux console.
 
 ---
 
