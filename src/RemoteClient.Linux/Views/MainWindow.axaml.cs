@@ -44,11 +44,28 @@ public partial class MainWindow : Window
         LangLabel.Text = L.SettingsView_Language;
         ((ComboBoxItem)LangBox.Items[0]!).Content = L.SettingsView_AutoSystemLanguage;
 
+        // Settings panel: the same viewer wording the Windows client uses. The axaml carries English
+        // design-time text only - everything a user reads is assigned here.
+        SetTitle.Text = L.MainForm_Settings;
+        ScaleLabel.Text = L.SettingsView_ViewerScale;
+        // Match the scale options by Tag rather than index: their order is a design detail of the axaml,
+        // and an out-of-range here would take the window down before it ever opened.
+        void ScaleOption(string tag, string text)
+        {
+            foreach (var it in ScaleBox.Items.OfType<ComboBoxItem>())
+                if (it.Tag as string == tag) { it.Content = text; return; }
+        }
+        ScaleOption("auto", L.SettingsView_ViewerScaleAuto);
+        ScaleOption("none", L.LinuxConsole_ScaleOff);
+        ColorCheck.Content = L.SettingsView_ViewerColor256;
+        SetSaveBtn.Content = L.EditTokenForm_Save;
+        SetBackBtn.Content = L.ChannelsView_Back;
+
         // Device-table column headers (localized; shared Core Strings - same labels as the detail panel).
         DeviceList.Columns[0].Header = L.DevicesView_Device;
         DeviceList.Columns[1].Header = L.BootstrapView_Group;
         DeviceList.Columns[2].Header = L.DeviceGeneralPanel_Note;
-        DeviceList.Columns[3].Header = "Online";
+        DeviceList.Columns[3].Header = L.BootstrapView_Status;
         DeviceList.Columns[4].Header = L.DevicesView_LastOnline;
 
         // Password-recovery panel reuses the Windows ForgotPasswordForm labels (shared in Core).
@@ -83,7 +100,7 @@ public partial class MainWindow : Window
             if (login.MustChangePassword || login.TotpEnrollRequired)
             {
                 transport.Dispose();
-                LoginStatus.Text = "Finish first-time setup (password + TOTP) on the Windows console first.";
+                LoginStatus.Text = L.LinuxConsole_FinishSetupOnWindows;
                 return;
             }
 
@@ -117,27 +134,27 @@ public partial class MainWindow : Window
         }
         catch (InvalidOperationException ie) when (ie.Message == "client_outdated")
         {
-            LoginStatus.Text = "This console is outdated — the server requires a newer version.";
+            LoginStatus.Text = L.LinuxConsole_Outdated;
         }
         catch (InvalidOperationException ie) when (ie.Message == "no_operator_cert")
         {
-            LoginStatus.Text = "This account is not enabled for the Linux console (keyless-operator flag is off).";
+            LoginStatus.Text = L.LinuxConsole_KeylessOff;
         }
         catch (Exception ex)
         {
-            LoginStatus.Text = "Error: " + ex.Message;
+            LoginStatus.Text = L.ForgotPasswordForm_Error + ex.Message;
         }
         finally { LoginBtn.IsEnabled = true; }
     }
 
     private async Task LoadDevicesAsync()
     {
-        DevStatus.Text = "Loading…";
+        DevStatus.Text = L.LinuxConsole_Loading;
         _devices = await _api!.GetDevicesAsync();
         // A sortable/filterable view backs the device table; the grid drives sorting, MatchesSearch filters.
         _view = new DataGridCollectionView(_devices.Select(d => new DeviceRow(d)).ToList()) { Filter = MatchesSearch };
         DeviceList.ItemsSource = _view;
-        DevStatus.Text = $"{_devices.Count} device(s)";
+        DevStatus.Text = L.Format(L.LinuxConsole_DeviceCount, _devices.Count);
     }
 
     /// <summary>Live search predicate: matches hostname OR group (both columns), case-insensitive.</summary>
@@ -161,43 +178,45 @@ public partial class MainWindow : Window
 
     private async void OnConnect(object? sender, RoutedEventArgs e)
     {
-        if (DeviceList.SelectedItem is not DeviceRow sel) { DevStatus.Text = "Select a device first."; return; }
+        if (DeviceList.SelectedItem is not DeviceRow sel) { DevStatus.Text = L.DevicesView_SelectADevice; return; }
         ConnectBtn.IsEnabled = false;
         try
         {
             // Refresh for the freshest online state + VNC password.
             _devices = await _api!.GetDevicesAsync();
             var d = _devices.FirstOrDefault(x => x.DeviceId == sel.Device.DeviceId) ?? sel.Device;
-            if (!d.Online) { DevStatus.Text = "Device is offline."; return; }
-            if (string.IsNullOrEmpty(d.VncSecret)) { DevStatus.Text = "No VNC password for this device."; return; }
+            // Only a live command channel can carry an access request. "Reporting" and "flaky" are not the
+            // same as dark, so name the state instead of calling all three of them offline.
+            if (!d.Online) { DevStatus.Text = L.Format(L.DevicesView_CannotConnectState, DeviceLiveness.Label(d)); return; }
+            if (string.IsNullOrEmpty(d.VncSecret)) { DevStatus.Text = L.DevicesView_NoVNCPasswordForThis; return; }
 
-            DevStatus.Text = $"Opening tunnel to {d.Hostname}…";
+            DevStatus.Text = L.Format(L.DevicesView_OpeningTunnel, d.Hostname);
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
-            if (result is null) { DevStatus.Text = "Tunnel request failed."; return; }
+            if (result is null) { DevStatus.Text = L.DevicesView_TunnelRequestFailed; return; }
 
-            DevStatus.Text = "Waiting for the remote device…";
+            DevStatus.Text = L.DevicesView_WaitingForTheRemoteDevice;
             var outcome = await WaitAccessAsync(result.Nonce);
             if (outcome is not ("auto" or "granted"))
             {
                 DevStatus.Text = outcome switch
                 {
-                    "denied" => "The user at the device denied access.",
-                    "timeout" => "No response from the device user.",
-                    "no-user" => "No one is signed in at the device.",
-                    "locked" => "Remote access is locally disabled on the device.",
-                    "cancelled" => "Cancelled.",
-                    _ => "The connection was not established.",
+                    "denied" => L.DevicesView_TheUserAtTheDevice,
+                    "timeout" => L.DevicesView_TheUserDidNotRespond,
+                    "no-user" => L.DevicesView_NoOneIsSignedIn,
+                    "locked" => L.DevicesView_RemoteAccessIsLocallyDisabled,
+                    "cancelled" => L.DevicesView_Cancelled,
+                    _ => L.DevicesView_TheConnectionWasNotEstablished,
                 };
                 return;
             }
 
-            DevStatus.Text = "Reaching the device through the bastion…";
+            DevStatus.Text = L.DevicesView_ReachingBastionPortThroughThe;
             await Task.Delay(1500); // give the agent a moment to bring up its reverse tunnel
             var localPort = await _transport!.ForwardAsync(result.RemotePort);
             VncLauncher.Launch(localPort, d.VncSecret!, _cfg.VncScale, _cfg.VncColor256);
-            DevStatus.Text = $"VNC started for {d.Hostname}.";
+            DevStatus.Text = L.Format(L.DevicesView_VNCStarted, d.Hostname);
         }
-        catch (Exception ex) { DevStatus.Text = "Connection error: " + ex.Message; }
+        catch (Exception ex) { DevStatus.Text = L.DevicesView_ConnectionError + ex.Message; }
         finally { ConnectBtn.IsEnabled = true; }
     }
 
@@ -329,7 +348,7 @@ public partial class MainWindow : Window
         var server = RecServerBox.Text?.Trim() ?? "";
         var user = RecUserBox.Text?.Trim() ?? "";
         var email = RecEmailBox.Text?.Trim() ?? "";
-        if (server.Length == 0) { RecStatus.Foreground = Brushes.IndianRed; RecStatus.Text = "Enter the server URL."; return; }
+        if (server.Length == 0) { RecStatus.Foreground = Brushes.IndianRed; RecStatus.Text = L.LinuxConsole_EnterServerUrl; return; }
         if (user.Length == 0 || email.Length == 0) { RecStatus.Foreground = Brushes.IndianRed; RecStatus.Text = L.ForgotPasswordForm_EnterTheUsernameAndEmail; return; }
 
         try { await LinuxOperatorTransport.RequestPasswordCodeAsync(server, user, email); }
@@ -392,9 +411,10 @@ public partial class MainWindow : Window
         }
 
         Row(L.DevicesView_Device, d.Hostname);
-        Row("Online", d.Online ? "online" : "offline");
+        Row(L.BootstrapView_Status, DeviceLiveness.Label(d));
+        Row(L.DeviceTelemetryPanel_LinkQuality, d.LinkFlaky ? L.Format(L.DeviceTelemetryPanel_LinkFlakyDetail, d.RecentReconnects) : L.DeviceTelemetryPanel_LinkStable);
         Row(L.DevicesView_LastOnline, d.LastSeenAt?.LocalDateTime.ToString("g"));
-        Row(L.BootstrapView_Status, d.Status);
+        Row(L.DeviceTelemetryPanel_Approval, d.Status);
         Row(L.BootstrapView_Group, string.IsNullOrWhiteSpace(d.GroupName) ? L.BootstrapView_NoGroup : d.GroupName);
         Row(L.DeviceTelemetryPanel_Channel, string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
         Row(L.DeviceTelemetryPanel_SignedInUser, d.LoggedInUser ?? L.DeviceTelemetryPanel_No);
@@ -433,7 +453,7 @@ public partial class MainWindow : Window
         if (t < TimeSpan.Zero) return null;
         if (t.TotalDays >= 1) return L.Format(L.DeviceTelemetryPanel_DayHour, (int)t.TotalDays, t.Hours);
         if (t.TotalHours >= 1) return L.Format(L.DeviceTelemetryPanel_HourMinute, (int)t.TotalHours, t.Minutes);
-        return $"{t.Minutes} perc";
+        return L.Format(L.DeviceTelemetryPanel_Minutes, t.Minutes);
     }
 
     /// <summary>List row: a friendly hostname line plus an online/last-seen subline. Holds the device for connect.</summary>
@@ -443,7 +463,7 @@ public partial class MainWindow : Window
         public string Hostname => string.IsNullOrEmpty(Device.Hostname) ? Device.DeviceId : Device.Hostname;
         public string Group => Device.GroupName ?? "";
         public string NoteText => Device.Note ?? "";
-        public string OnlineText => Device.Online ? "online" : "offline";
+        public string StateText => DeviceLiveness.Label(Device);
         public DateTimeOffset? LastSeen => Device.LastSeenAt;
     }
 }

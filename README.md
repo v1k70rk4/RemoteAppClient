@@ -82,6 +82,11 @@ telemetry snapshot is replaced by an event log. Prod applies the idempotent
 - New state **"nem vezérelhető"** — telemetry is arriving but the command channel is not up. This used to
   render as plain *offline*, which is why a demonstrably alive machine could show up as dead. Liveness is
   now defined in exactly one place, so the badge, the filters and the history cannot drift apart.
+- **Both consoles now answer the same question the same way.** The state decision moved into shared code, so
+  the Windows list badge, the Windows detail panel and the Linux console can no longer disagree about one
+  device — they used to: the detail panel still said *offline* while the badge next to it said *nem
+  vezérelhető*, and the Linux console, which knew only online/offline, said *offline* for both. Failing to
+  connect now names the actual state instead of claiming the machine is offline.
 - **The agent's command loop can no longer die quietly.** An unhandled exception ended the background
   service for good: the device kept sending telemetry — so it looked perfectly healthy — but never accepted
   another command until someone restarted the service by hand. The loop now catches itself and retries
@@ -104,6 +109,10 @@ telemetry snapshot is replaced by an event log. Prod applies the idempotent
 - The public IP is shown with its reverse DNS beside it, in the list and in the history.
 - Console broker reconnects are serialized, and a port forward always resolves the *current* broker rather
   than one disposed mid-reconnect.
+- The **Linux operator console is fully localized** — its device list, status messages and settings panel used
+  to stay English while the rest of the UI switched language. Two long-standing slips went with it: an uptime
+  under an hour printed a hardcoded Hungarian word on the English UI, and the console was missing the link-
+  quality row the Windows panel has.
 - Dependency bumps (NuGet + Actions); the **Avalonia family is aligned at 12.1.2** across the Linux console.
 
 ---

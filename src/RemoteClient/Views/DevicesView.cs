@@ -404,17 +404,22 @@ public sealed class DevicesView : UserControl, IContentView
         }
     }
 
-    /// <summary>Status pill (text + fg/soft-bg) shared by the list cell and the detail header.</summary>
-    private static (string Text, Color Fg, Color Bg) StatusPill(DeviceInfo d)
+    /// <summary>Status pill (text + fg/soft-bg) shared by the list cell and the detail header.
+    /// The state itself comes from Core so the Linux console reads the same device the same way;
+    /// only the palette is ours. "Reporting" gets its own colour because it is neither reachable
+    /// nor dark, and a shared colour would collapse it back into one of those.</summary>
+    internal static (string Text, Color Fg, Color Bg) StatusPill(DeviceInfo d)
     {
-        if (string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return (L.DevicesView_StatusPending, ThemeManager.WarnFg, ThemeManager.WarnBg);
-        if (d.Online) return (L.DevicesView_Online, ThemeManager.OkFg, ThemeManager.OkBg);
-        if (d.LinkFlaky) return (L.DevicesView_LinkFlaky, ThemeManager.WarnFg, ThemeManager.WarnBg);
-        // Alive and sending telemetry, but its control channel is down: it cannot be connected to, yet it is
-        // not switched off either. Its own colour keeps that apart from a genuinely dark machine - otherwise
-        // the row reads "offline" while the last-seen column says "just now", which is what confused us.
-        if (d.Reporting) return (L.DevicesView_ReportingOnly, ThemeManager.BetaFg, ThemeManager.BetaBg);
-        return (L.DevicesView_Offline, ThemeManager.OffFg, ThemeManager.OffBg);
+        var state = DeviceLiveness.Of(d);
+        var (fg, bg) = state switch
+        {
+            DeviceState.Pending => (ThemeManager.WarnFg, ThemeManager.WarnBg),
+            DeviceState.Online => (ThemeManager.OkFg, ThemeManager.OkBg),
+            DeviceState.Flaky => (ThemeManager.WarnFg, ThemeManager.WarnBg),
+            DeviceState.Reporting => (ThemeManager.BetaFg, ThemeManager.BetaBg),
+            _ => (ThemeManager.OffFg, ThemeManager.OffBg),
+        };
+        return (DeviceLiveness.Label(state), fg, bg);
     }
 
     /// <summary>Human "last online" like the design: just now / N min ago / Nh ago / Nd ago / date.</summary>
@@ -667,7 +672,7 @@ public sealed class DevicesView : UserControl, IContentView
             var devices = await _api.GetDevicesAsync();
             var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
 
-            if (!d.Online) { MessageBox.Show(L.DevicesView_TheDeviceIsOffline, "Offline", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (!d.Online) { var st = DeviceLiveness.Label(d); MessageBox.Show(L.Format(L.DevicesView_CannotConnectState, st), st, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
 
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
@@ -732,7 +737,7 @@ public sealed class DevicesView : UserControl, IContentView
             SetStatus(L.DevicesView_FetchingLatestData);
             var devices = await _api.GetDevicesAsync();
             var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
-            if (!d.Online) { MessageBox.Show(L.DevicesView_TheDeviceIsOffline, "Offline", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (!d.Online) { var st = DeviceLiveness.Label(d); MessageBox.Show(L.Format(L.DevicesView_CannotConnectState, st), st, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
 
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
             var result = await _api.OpenTunnelAsync(d.DeviceId, "file");

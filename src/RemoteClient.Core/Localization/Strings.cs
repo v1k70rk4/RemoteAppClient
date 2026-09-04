@@ -350,6 +350,7 @@ public static partial class Strings
     public static string DevicesView_ReportingOnly => Get(nameof(DevicesView_ReportingOnly));
     public static string DevicesView_ReportingOnlyTip => Get(nameof(DevicesView_ReportingOnlyTip));
     public static string DeviceTelemetryPanel_LinkQuality => Get(nameof(DeviceTelemetryPanel_LinkQuality));
+    public static string DeviceTelemetryPanel_Approval => Get(nameof(DeviceTelemetryPanel_Approval));
     public static string DeviceTelemetryPanel_LinkStable => Get(nameof(DeviceTelemetryPanel_LinkStable));
     public static string DeviceTelemetryPanel_LinkFlakyDetail => Get(nameof(DeviceTelemetryPanel_LinkFlakyDetail));
     public static string DevicesView_Update => Get(nameof(DevicesView_Update));
@@ -368,6 +369,7 @@ public static partial class Strings
     public static string DevicesView_PropertiesError => Get(nameof(DevicesView_PropertiesError));
     public static string DevicesView_FetchingLatestData => Get(nameof(DevicesView_FetchingLatestData));
     public static string DevicesView_TheDeviceIsOffline => Get(nameof(DevicesView_TheDeviceIsOffline));
+    public static string DevicesView_CannotConnectState => Get(nameof(DevicesView_CannotConnectState));
     public static string DevicesView_NoVNCPasswordForThis => Get(nameof(DevicesView_NoVNCPasswordForThis));
     public static string DevicesView_ViewerNotFound => Get(nameof(DevicesView_ViewerNotFound));
     public static string DevicesView_NoPassword => Get(nameof(DevicesView_NoPassword));
@@ -691,6 +693,13 @@ public static partial class Strings
     public static string UsersView_ForceSignOut => Get(nameof(UsersView_ForceSignOut));
     public static string UsersView_KeylessOperator => Get(nameof(UsersView_KeylessOperator));
     public static string LinuxConsole_UpdateAvailable => Get(nameof(LinuxConsole_UpdateAvailable));
+    public static string LinuxConsole_Loading => Get(nameof(LinuxConsole_Loading));
+    public static string LinuxConsole_DeviceCount => Get(nameof(LinuxConsole_DeviceCount));
+    public static string LinuxConsole_FinishSetupOnWindows => Get(nameof(LinuxConsole_FinishSetupOnWindows));
+    public static string LinuxConsole_Outdated => Get(nameof(LinuxConsole_Outdated));
+    public static string LinuxConsole_KeylessOff => Get(nameof(LinuxConsole_KeylessOff));
+    public static string LinuxConsole_ScaleOff => Get(nameof(LinuxConsole_ScaleOff));
+    public static string LinuxConsole_EnterServerUrl => Get(nameof(LinuxConsole_EnterServerUrl));
     public static string UsersView_AlsoClearTOTPAuthenticatorUser => Get(nameof(UsersView_AlsoClearTOTPAuthenticatorUser));
     public static string UsersView_PasswordReset => Get(nameof(UsersView_PasswordReset));
     public static string UsersView_GeneratesAndDisplaysATemporary => Get(nameof(UsersView_GeneratesAndDisplaysATemporary));

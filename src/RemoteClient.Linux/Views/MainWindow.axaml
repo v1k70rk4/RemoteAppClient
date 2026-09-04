@@ -44,7 +44,7 @@
             <DataGridTextColumn Binding="{Binding Hostname}" Width="*" MinWidth="120"/>
             <DataGridTextColumn Binding="{Binding Group}" Width="Auto" MinWidth="100"/>
             <DataGridTextColumn Binding="{Binding NoteText}" Width="2*" MinWidth="100"/>
-            <DataGridTextColumn Binding="{Binding OnlineText}" Width="Auto" MinWidth="64"/>
+            <DataGridTextColumn Binding="{Binding StateText}" Width="Auto" MinWidth="64"/>
             <DataGridTextColumn Binding="{Binding LastSeen, StringFormat='{}{0:g}'}" Width="Auto" MinWidth="120"/>
           </DataGrid.Columns>
         </DataGrid>
@@ -59,8 +59,8 @@
     <!-- VNC settings (color + scaling) -->
     <Border x:Name="SettingsPanel" IsVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Width="380">
       <StackPanel Spacing="10">
-        <TextBlock Text="VNC settings" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
-        <TextBlock Text="Scaling" Opacity="0.7"/>
+        <TextBlock x:Name="SetTitle" Text="VNC settings" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
+        <TextBlock x:Name="ScaleLabel" Text="Scaling" Opacity="0.7"/>
         <ComboBox x:Name="ScaleBox" HorizontalAlignment="Stretch">
           <ComboBoxItem Tag="auto" Content="Auto — fit to window (recommended)"/>
           <ComboBoxItem Tag="1.0" Content="100% (1:1)"/>
