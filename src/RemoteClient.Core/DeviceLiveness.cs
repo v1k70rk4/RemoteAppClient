@@ -6,6 +6,8 @@ namespace RemoteClient;
 /// <summary>What a device row says about itself, in the order the consoles test for it.</summary>
 public enum DeviceState
 {
+    /// <summary>Something is known to be wrong with it — see <see cref="DeviceInfo.Problem"/>.</summary>
+    Error,
     /// <summary>Enrolled but not yet approved — liveness does not apply.</summary>
     Pending,
     /// <summary>Connected and reporting: it can be commanded.</summary>
@@ -34,6 +36,9 @@ public static class DeviceLiveness
     /// connected outranks a flaky history.</summary>
     public static DeviceState Of(DeviceInfo device)
     {
+        // A known fault outranks every liveness word. A device can be connected, fresh and green while
+        // discarding everything we send it; "online" would then be the least useful thing we could say.
+        if (!string.IsNullOrWhiteSpace(device.Problem)) return DeviceState.Error;
         if (string.Equals(device.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return DeviceState.Pending;
         if (device.Online) return DeviceState.Online;
         if (device.LinkFlaky) return DeviceState.Flaky;
@@ -47,6 +52,7 @@ public static class DeviceLiveness
     /// <summary>The localized label for a state.</summary>
     public static string Label(DeviceState state) => state switch
     {
+        DeviceState.Error => L.DevicesView_StateError,
         DeviceState.Pending => L.DevicesView_StatusPending,
         DeviceState.Online => L.DevicesView_Online,
         DeviceState.Flaky => L.DevicesView_LinkFlaky,
@@ -56,4 +62,20 @@ public static class DeviceLiveness
 
     /// <summary>The localized label for a device.</summary>
     public static string Label(DeviceInfo device) => Label(Of(device));
+
+    /// <summary>
+    /// The problem spelled out for a human, or "" when the device is healthy. The database keeps a
+    /// language-neutral code so one stored value can be read in either language; this is where it becomes
+    /// a sentence. An unrecognised code is shown raw rather than swallowed - a console that is older than
+    /// the server must not hide a fault just because it has not learnt its name yet.
+    /// </summary>
+    public static string ProblemText(DeviceInfo device)
+    {
+        var (code, value) = DeviceProblems.Parse(device.Problem);
+        if (code.Length == 0) return "";
+        if (code == DeviceProblems.ClockSkew && int.TryParse(value, out var seconds))
+            return L.Format(seconds > 0 ? L.DevicesView_ProblemClockAhead : L.DevicesView_ProblemClockBehind,
+                            Math.Abs(seconds));
+        return L.Format(L.DevicesView_ProblemUnknown, device.Problem);
+    }
 }

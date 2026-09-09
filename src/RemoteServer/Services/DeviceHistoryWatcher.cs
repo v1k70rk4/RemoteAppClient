@@ -50,7 +50,7 @@ public sealed class DeviceHistoryWatcher(
 
         var devices = await db.Devices
             .Where(d => !d.DeviceId.StartsWith("opsrc:"))   // synthetic source-IP lock records, not real devices
-            .Select(d => new { d.Id, d.DeviceId, d.LastSeenAt })
+            .Select(d => new { d.Id, d.DeviceId, d.LastSeenAt, d.Problem })
             .ToListAsync(ct);
 
         var events = new List<DeviceEvent>();
@@ -59,7 +59,8 @@ public sealed class DeviceHistoryWatcher(
             var state = DeviceLiveness.State(
                 registry.IsConnected(d.DeviceId),
                 d.LastSeenAt > now - DeviceLiveness.FreshWindow,
-                registry.RecentReconnects(d.DeviceId));
+                registry.RecentReconnects(d.DeviceId),
+                d.Problem);
 
             if (_lastState.TryGetValue(d.Id, out var previous))
             {

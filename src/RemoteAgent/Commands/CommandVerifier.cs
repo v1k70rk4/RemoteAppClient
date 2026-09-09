@@ -23,9 +23,12 @@ public sealed class CommandVerifier : IDisposable
     // Nonces seen within the replay window: nonce -> expiry.
     private readonly ConcurrentDictionary<string, long> _seenNonces = new();
 
-    public CommandVerifier(IOptions<AgentOptions> options, ILogger<CommandVerifier> logger)
+    private readonly RemoteAgent.Time.TimeSyncTrigger _timeSync;
+
+    public CommandVerifier(IOptions<AgentOptions> options, ILogger<CommandVerifier> logger, RemoteAgent.Time.TimeSyncTrigger timeSync)
     {
         _logger = logger;
+        _timeSync = timeSync;
         var cc = options.Value.CommandChannel;
         _maxAgeSeconds = cc.MaxCommandAgeSeconds;
 
@@ -53,18 +56,24 @@ public sealed class CommandVerifier : IDisposable
             return false;
         }
 
+        // Signature FIRST: only a valid server signature makes the timestamp below worth reasoning about.
+        // Signature verification uses shared Contracts logic so it cannot drift from the server.
+        if (!CommandSignature.Verify(cmd, _publicKey))
+        {
+            _logger.LogWarning(L.CommandVerifier_CommandSignatureIsInvalidDiscarded);
+            return false;
+        }
+
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var age = now - cmd.IssuedAt;
         if (age > _maxAgeSeconds || age < -_maxAgeSeconds)
         {
             _logger.LogWarning(L.CommandVerifier_CommandTimestampOutsideWindowAge, age);
-            return false;
-        }
 
-        // Signature verification uses shared Contracts logic so it cannot drift from the server.
-        if (!CommandSignature.Verify(cmd, _publicKey))
-        {
-            _logger.LogWarning(L.CommandVerifier_CommandSignatureIsInvalidDiscarded);
+            // The server really did sign this, so the gap is OUR clock - and in that state nothing can be
+            // sent to us any more, including the fix. Still refuse the command (replay protection stands)
+            // and never take the time from it; just go ask a real time source.
+            _timeSync.Request();
             return false;
         }
 

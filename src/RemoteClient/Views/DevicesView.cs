@@ -87,7 +87,7 @@ public sealed class DevicesView : UserControl, IContentView
         _search.TextChanged += (_, _) => RenderList();
         tools.Controls.Add(_search);
         // Group + status filters (group is populated on each refresh).
-        _statusFilter.Items.AddRange(new object[] { L.DevicesView_FilterAnyStatus, L.DevicesView_Online, L.DevicesView_LinkFlaky, L.DevicesView_ReportingOnly, L.DevicesView_Offline, L.DevicesView_StatusPending });
+        _statusFilter.Items.AddRange(new object[] { L.DevicesView_FilterAnyStatus, L.DevicesView_StateError, L.DevicesView_Online, L.DevicesView_LinkFlaky, L.DevicesView_ReportingOnly, L.DevicesView_Offline, L.DevicesView_StatusPending });
         _statusFilter.SelectedIndex = 0;
         _groupFilter.Margin = new Padding(0, 0, 6, 0);
         _statusFilter.Margin = new Padding(0, 0, 16, 0);
@@ -139,6 +139,7 @@ public sealed class DevicesView : UserControl, IContentView
             // File manager (two-pane), separated like the power commands below.
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(L.FileManager_Files, null, async (_, _) => await OpenFilesSelectedAsync());
+            menu.Items.Add(L.DevicesView_ShowVncPassword, null, async (_, _) => await ShowVncSecretAsync());
 
             // Power commands directly in the menu (each confirms first; cancel is a safe undo).
             menu.Items.Add(new ToolStripSeparator());
@@ -413,6 +414,7 @@ public sealed class DevicesView : UserControl, IContentView
         var state = DeviceLiveness.Of(d);
         var (fg, bg) = state switch
         {
+            DeviceState.Error => (ThemeManager.DangerFg, ThemeManager.DangerBg),
             DeviceState.Pending => (ThemeManager.WarnFg, ThemeManager.WarnBg),
             DeviceState.Online => (ThemeManager.OkFg, ThemeManager.OkBg),
             DeviceState.Flaky => (ThemeManager.WarnFg, ThemeManager.WarnBg),
@@ -469,13 +471,16 @@ public sealed class DevicesView : UserControl, IContentView
         if (_groupFilter.SelectedIndex > 0 && _groupFilter.SelectedItem is string gn)
             items = items.Where(d => string.Equals(d.GroupName, gn, StringComparison.OrdinalIgnoreCase));
 
+        // Filter on the same decision the badge draws, so a row can never be shown under a state it does
+        // not display (they disagreed before: "online" here ignored a pending device the badge called pending).
         items = _statusFilter.SelectedIndex switch
         {
-            1 => items.Where(d => d.Online),
-            2 => items.Where(d => d.LinkFlaky && !d.Online),
-            3 => items.Where(d => d.Reporting && !d.Online && !d.LinkFlaky),
-            4 => items.Where(d => !d.Online && !d.LinkFlaky && !d.Reporting),
-            5 => items.Where(d => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+            1 => items.Where(d => DeviceLiveness.Of(d) == DeviceState.Error),
+            2 => items.Where(d => DeviceLiveness.Of(d) == DeviceState.Online),
+            3 => items.Where(d => DeviceLiveness.Of(d) == DeviceState.Flaky),
+            4 => items.Where(d => DeviceLiveness.Of(d) == DeviceState.Reporting),
+            5 => items.Where(d => DeviceLiveness.Of(d) == DeviceState.Offline),
+            6 => items.Where(d => DeviceLiveness.Of(d) == DeviceState.Pending),
             _ => items,
         };
 
@@ -500,7 +505,8 @@ public sealed class DevicesView : UserControl, IContentView
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
             item.SubItems.Add(RelativeTime(d.LastSeenAt));
             item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));
-            if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
+            if (!string.IsNullOrWhiteSpace(d.Problem)) item.ToolTipText = DeviceLiveness.ProblemText(d);
+            else if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
             else if (d.LinkFlaky) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
             else if (d.Reporting && !d.Online) item.ToolTipText = L.DevicesView_ReportingOnlyTip;
             else if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
@@ -642,7 +648,13 @@ public sealed class DevicesView : UserControl, IContentView
         return false;
     }
 
-    private async Task<string> WaitAccessAsync(string? nonce)
+    /// <summary>
+    /// Waits for the device to answer an access request. When consent is actually required, the wait becomes
+    /// the modal "someone at the device must approve" window; when it is NOT, nobody is being asked, so we
+    /// simply keep polling and time out quietly. Putting that window up regardless was actively misleading:
+    /// a command the agent discarded never reaches a person, yet the console blamed one for not answering.
+    /// </summary>
+    private async Task<string> WaitAccessAsync(string? nonce, bool consentRequired)
     {
         if (string.IsNullOrEmpty(nonce)) return "auto";
         for (int i = 0; i < 4; i++)
@@ -651,9 +663,22 @@ public sealed class DevicesView : UserControl, IContentView
             catch { /* tranziens */ }
             await Task.Delay(600);
         }
-        using var w = new ConsentWaitForm(_api, nonce);
-        w.ShowDialog(this);
-        return w.Outcome;
+
+        if (consentRequired)
+        {
+            using var w = new ConsentWaitForm(_api, nonce);
+            w.ShowDialog(this);
+            return w.Outcome;
+        }
+
+        // No one to wait for: give the agent a bounded chance to answer, then say the device stayed silent.
+        for (int i = 0; i < 25; i++)
+        {
+            try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
+            catch { /* tranziens */ }
+            await Task.Delay(600);
+        }
+        return "timeout";
     }
 
     private async Task ConnectSelectedAsync()
@@ -681,18 +706,25 @@ public sealed class DevicesView : UserControl, IContentView
             if (!CommandReachedDevice(result)) return;
 
             SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
-            var outcome = await WaitAccessAsync(result.Nonce);
+            var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
             if (outcome is not ("auto" or "granted"))
             {
                 var (title, text) = outcome switch
                 {
                     "denied"    => (L.DevicesView_Denied, L.DevicesView_TheUserAtTheDevice),
-                    "timeout"   => (L.DevicesView_NoResponse, L.DevicesView_TheUserDidNotRespond),
+                    "timeout"   => (L.DevicesView_NoResponse, result.ConsentRequired
+                                        ? L.DevicesView_TheUserDidNotRespond      // someone WAS asked
+                                        : L.DevicesView_DeviceDidNotAnswer),      // nobody was
                     "no-user"   => (L.DevicesView_NoUser, L.DevicesView_NoOneIsSignedIn),
                     "locked"    => (L.DevicesView_Disabled, L.DevicesView_RemoteAccessIsLocallyDisabled),
                     "cancelled" => (L.DevicesView_Cancelled, ""),
                     _           => (L.DevicesView_Failed, L.DevicesView_TheConnectionWasNotEstablished),
                 };
+                // A known fault explains the silence better than any guess about the person at the device:
+                // a discarded command never reached anyone, so "did not respond" would be plainly wrong.
+                if (outcome is "timeout" && !string.IsNullOrWhiteSpace(d.Problem))
+                    (title, text) = (DeviceLiveness.Label(d), DeviceLiveness.ProblemText(d));
+
                 SetStatus(title);
                 if (!string.IsNullOrEmpty(text))
                     MessageBox.Show(text, title, MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -745,7 +777,7 @@ public sealed class DevicesView : UserControl, IContentView
             if (!CommandReachedDevice(result)) return;
 
             SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
-            var outcome = await WaitAccessAsync(result.Nonce);
+            var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
             if (outcome is not ("auto" or "granted")) { SetStatus(L.DevicesView_Denied); return; }
 
             SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
@@ -817,6 +849,37 @@ public sealed class DevicesView : UserControl, IContentView
         if (MessageBox.Show(L.Format(L.DevicesView_DeleteConfirm, host), L.DevicesView_Delete, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try { await _api.DeleteDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_Deleted, host)); await RefreshAsync(); }
         catch (Exception ex) { SetStatus(L.DevicesView_DeleteError + ex.Message); }
+    }
+
+    /// <summary>
+    /// Shows the device's VNC password on request. The console never displays it otherwise - it hands the
+    /// secret straight to the viewer - so short of decrypting the database by hand there was no way to read
+    /// one, which is exactly the hole this fills. It re-fetches instead of using the copy already in the
+    /// device list because the server audits the read: the audit entry is the point, not the round trip.
+    /// </summary>
+    private async Task ShowVncSecretAsync()
+    {
+        if (SelectedDevice() is not { } d) { SetStatus(L.DevicesView_SelectADevice); return; }
+        try
+        {
+            var info = await _api.GetVncSecretAsync(d.DeviceId);
+            if (info is null || string.IsNullOrEmpty(info.Secret))
+            {
+                MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword,
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var reported = info.UpdatedAt is { } t ? t.LocalDateTime.ToString("g") : "—";
+            var body = L.Format(L.DevicesView_VncPasswordBody, d.Hostname, info.Secret, reported);
+            // Copying is opt-in: a password left sitting on the clipboard is its own small hazard.
+            if (MessageBox.Show(body, L.DevicesView_ShowVncPassword, MessageBoxButtons.OKCancel,
+                                MessageBoxIcon.Information) != DialogResult.OK) return;
+
+            try { Clipboard.SetText(info.Secret!); SetStatus(L.DevicesView_VncPasswordCopied); }
+            catch { /* clipboard can be held by another process; the dialog already showed the password */ }
+        }
+        catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
     }
 
     private async Task ApproveSelectedAsync()

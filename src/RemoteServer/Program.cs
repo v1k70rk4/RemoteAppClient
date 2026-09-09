@@ -659,6 +659,8 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         SerialNumber = d.SerialNumber,
         AgentRestarts = d.AgentRestarts,
         LastIncident = d.LastIncident,
+        Problem = d.Problem,
+        ProblemSince = d.ProblemSince,
         VncLocked = d.VncLocked,
         BootTimeUtc = d.BootTimeUtc,
         IpAddress = d.IpAddress,
@@ -729,6 +731,29 @@ app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext c
 
 // Device history: liveness transitions and IP changes, newest first. Written only on change and pruned at
 // 90 days by DeviceHistoryWatcher, so this is short enough to be worth actually reading.
+// Reveal a device's VNC password on explicit request, and record that it was read.
+// The console never shows this otherwise - it hands the secret straight to the viewer - so an operator who
+// needs to reach a machine with something else, or to verify what the agent reported, previously had no way
+// to see it at all short of decrypting the database by hand. Admin-only, and audited: reading a stored
+// credential is exactly the kind of access that should leave a trace behind it.
+app.MapGet("/admin/devices/{deviceId}/vnc-secret", async (
+    string deviceId, HttpContext ctx, AppDbContext db, SecretProtector protector, CancellationToken ct) =>
+{
+    var me = (User)ctx.Items["user"]!;
+    if (!AuthService.IsAdmin(me))
+        return Results.Json(new AuthError { Error = "forbidden" }, AgentJsonContext.Default.AuthError, statusCode: 403);
+
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+
+    // Audit before returning: if the write fails we would rather not have handed the secret over silently.
+    await AuditAsync(db, ctx, "vnc-secret-revealed", device.Id, device.Hostname);
+
+    return Results.Json(
+        new VncSecretInfo { Secret = protector.TryUnprotect(device.VncSecret), UpdatedAt = device.VncSecretUpdatedAt },
+        AgentJsonContext.Default.VncSecretInfo);
+});
+
 app.MapGet("/admin/devices/{deviceId}/events", async (string deviceId, int? limit, AppDbContext db, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
@@ -1149,7 +1174,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
 
     return Results.Json(
-        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" },
+        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "", ConsentRequired = consentRequired },
         AgentJsonContext.Default.OpenTunnelResult);
 });
 

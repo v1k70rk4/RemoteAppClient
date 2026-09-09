@@ -348,6 +348,14 @@ public static partial class Strings
     public static string DevicesView_TopbarSubtitle => Get(nameof(DevicesView_TopbarSubtitle));
     public static string DevicesView_LinkFlakyTip => Get(nameof(DevicesView_LinkFlakyTip));
     public static string DevicesView_ReportingOnly => Get(nameof(DevicesView_ReportingOnly));
+    public static string DevicesView_StateError => Get(nameof(DevicesView_StateError));
+    public static string DevicesView_DeviceDidNotAnswer => Get(nameof(DevicesView_DeviceDidNotAnswer));
+    public static string DevicesView_ShowVncPassword => Get(nameof(DevicesView_ShowVncPassword));
+    public static string DevicesView_VncPasswordBody => Get(nameof(DevicesView_VncPasswordBody));
+    public static string DevicesView_VncPasswordCopied => Get(nameof(DevicesView_VncPasswordCopied));
+    public static string DevicesView_ProblemClockAhead => Get(nameof(DevicesView_ProblemClockAhead));
+    public static string DevicesView_ProblemClockBehind => Get(nameof(DevicesView_ProblemClockBehind));
+    public static string DevicesView_ProblemUnknown => Get(nameof(DevicesView_ProblemUnknown));
     public static string DevicesView_ReportingOnlyTip => Get(nameof(DevicesView_ReportingOnlyTip));
     public static string DeviceTelemetryPanel_LinkQuality => Get(nameof(DeviceTelemetryPanel_LinkQuality));
     public static string DeviceTelemetryPanel_Approval => Get(nameof(DeviceTelemetryPanel_Approval));

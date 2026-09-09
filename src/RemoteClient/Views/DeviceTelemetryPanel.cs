@@ -67,6 +67,8 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.DevicesView_Device, d.Hostname);
         var pill = DevicesView.StatusPill(d); // same wording and colour as the list badge - they used to disagree
         Row(L.BootstrapView_Status, pill.Text, pill.Fg, UiFont.Body);
+        if (!string.IsNullOrWhiteSpace(d.Problem))
+            Row(L.DevicesView_StateError, DeviceLiveness.ProblemText(d), ThemeManager.DangerFg, UiFont.Body);
         Row(L.DeviceTelemetryPanel_LinkQuality, d.LinkFlaky ? L.Format(L.DeviceTelemetryPanel_LinkFlakyDetail, d.RecentReconnects) : L.DeviceTelemetryPanel_LinkStable);
         Row(L.DevicesView_LastOnline, d.LastSeenAt?.LocalDateTime.ToString("g"));
         Row(L.DeviceTelemetryPanel_Approval, d.Status);

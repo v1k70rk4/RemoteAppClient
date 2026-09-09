@@ -20,6 +20,7 @@ public sealed class TelemetryService(
     SystemInfoCollector collector,
     AgentStatusState status,
     TransportState transport,
+    RemoteAgent.Time.TimeSyncTrigger timeSync,
     ILogger<TelemetryService> logger) : BackgroundService
 {
     private readonly TelemetryOptions _opt = options.Value.Telemetry;
@@ -57,6 +58,7 @@ public sealed class TelemetryService(
                 if (resp.IsSuccessStatusCode)
                 {
                     status.MarkServerContact(); // status-pipe "last server contact"
+                    CheckClockAgainst(resp.Headers.Date);
                     try
                     {
                         // The server steers the bastion transport via the response body. Older servers
@@ -90,6 +92,33 @@ public sealed class TelemetryService(
         PowerMonitor.Stop();
         http?.Dispose();
     }
+
+    /// <summary>
+    /// Compares our clock to the server's, using the Date header every telemetry response already carries.
+    /// <para>
+    /// This is the only channel that keeps working once the clock is wrong: telemetry is not signed, while
+    /// every COMMAND is refused outside a 60s window - so a drifted machine can no longer be told anything,
+    /// including how to fix itself. Checking here means we notice within one telemetry cycle instead of
+    /// waiting for the periodic sweep, or for a command that will never be accepted anyway.
+    /// </para>
+    /// <para>
+    /// The header has one-second resolution and the round trip adds a little more; that is irrelevant next
+    /// to the tens of seconds that actually break command delivery, so the threshold is deliberately coarse.
+    /// The clock is never set from this value - it only asks the sync service to go consult a real time source.
+    /// </para>
+    /// </summary>
+    private void CheckClockAgainst(DateTimeOffset? serverTime)
+    {
+        if (serverTime is not { } t) return;                      // no Date header; nothing to compare
+        var skew = Math.Abs((DateTimeOffset.UtcNow - t).TotalSeconds);
+        if (skew < ClockSkewTriggerSeconds) return;
+
+        try { logger.LogWarning("Ora-elteres a szerverhez kepest: {Skew:F0}s - idoszinkron kerese.", skew); } catch { }
+        timeSync.Request();                                       // rate-limited inside TimeSyncService
+    }
+
+    /// <summary>Half the agent's 60s command window: react while commands still get through, not after.</summary>
+    private const int ClockSkewTriggerSeconds = 30;
 
     private HttpClient BuildClient()
     {

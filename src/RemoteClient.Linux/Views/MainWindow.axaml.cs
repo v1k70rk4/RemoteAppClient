@@ -187,7 +187,15 @@ public partial class MainWindow : Window
             var d = _devices.FirstOrDefault(x => x.DeviceId == sel.Device.DeviceId) ?? sel.Device;
             // Only a live command channel can carry an access request. "Reporting" and "flaky" are not the
             // same as dark, so name the state instead of calling all three of them offline.
-            if (!d.Online) { DevStatus.Text = L.Format(L.DevicesView_CannotConnectState, DeviceLiveness.Label(d)); return; }
+            if (!d.Online)
+            {
+                // When the fault is known, name it: "hiba" alone gives the operator nothing to act on,
+                // while "the clock is 162s ahead" is the whole answer.
+                DevStatus.Text = string.IsNullOrWhiteSpace(d.Problem)
+                    ? L.Format(L.DevicesView_CannotConnectState, DeviceLiveness.Label(d))
+                    : DeviceLiveness.ProblemText(d);
+                return;
+            }
             if (string.IsNullOrEmpty(d.VncSecret)) { DevStatus.Text = L.DevicesView_NoVNCPasswordForThis; return; }
 
             DevStatus.Text = L.Format(L.DevicesView_OpeningTunnel, d.Hostname);
@@ -195,18 +203,23 @@ public partial class MainWindow : Window
             if (result is null) { DevStatus.Text = L.DevicesView_TunnelRequestFailed; return; }
 
             DevStatus.Text = L.DevicesView_WaitingForTheRemoteDevice;
-            var outcome = await WaitAccessAsync(result.Nonce);
+            var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
             if (outcome is not ("auto" or "granted"))
             {
                 DevStatus.Text = outcome switch
                 {
                     "denied" => L.DevicesView_TheUserAtTheDevice,
-                    "timeout" => L.DevicesView_TheUserDidNotRespond,
+                    "timeout" => result.ConsentRequired
+                        ? L.DevicesView_TheUserDidNotRespond    // someone WAS asked and stayed silent
+                        : L.DevicesView_DeviceDidNotAnswer,     // nobody was asked at all
                     "no-user" => L.DevicesView_NoOneIsSignedIn,
                     "locked" => L.DevicesView_RemoteAccessIsLocallyDisabled,
                     "cancelled" => L.DevicesView_Cancelled,
                     _ => L.DevicesView_TheConnectionWasNotEstablished,
                 };
+                // A known fault explains the silence better than any guess about the person at the device.
+                if (outcome is "timeout" && !string.IsNullOrWhiteSpace(d.Problem))
+                    DevStatus.Text = DeviceLiveness.ProblemText(d);
                 return;
             }
 
@@ -220,10 +233,13 @@ public partial class MainWindow : Window
         finally { ConnectBtn.IsEnabled = true; }
     }
 
-    /// <summary>Polls the access-request outcome by nonce until the device answers (or times out).</summary>
-    private async Task<string> WaitAccessAsync(string nonce)
+    /// <summary>Polls the access-request outcome by nonce until the device answers (or times out).
+    /// Consent shortens the patience: a person either answers their prompt or does not, while a silent
+    /// agent is worth waiting on a little longer before giving up on it.</summary>
+    private async Task<string> WaitAccessAsync(string nonce, bool consentRequired)
     {
-        for (int i = 0; i < 60; i++)
+        var rounds = consentRequired ? 60 : 20;
+        for (int i = 0; i < rounds; i++)
         {
             var outcome = await _api!.GetAccessResultAsync(nonce);
             if (!string.IsNullOrEmpty(outcome)) return outcome;
@@ -412,6 +428,7 @@ public partial class MainWindow : Window
 
         Row(L.DevicesView_Device, d.Hostname);
         Row(L.BootstrapView_Status, DeviceLiveness.Label(d));
+        if (!string.IsNullOrWhiteSpace(d.Problem)) Row(L.DevicesView_StateError, DeviceLiveness.ProblemText(d));
         Row(L.DeviceTelemetryPanel_LinkQuality, d.LinkFlaky ? L.Format(L.DeviceTelemetryPanel_LinkFlakyDetail, d.RecentReconnects) : L.DeviceTelemetryPanel_LinkStable);
         Row(L.DevicesView_LastOnline, d.LastSeenAt?.LocalDateTime.ToString("g"));
         Row(L.DeviceTelemetryPanel_Approval, d.Status);

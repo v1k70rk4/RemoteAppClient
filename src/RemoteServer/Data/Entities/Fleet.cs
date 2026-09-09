@@ -78,6 +78,18 @@ public sealed class Device
     public int AgentRestarts { get; set; }
     public string? LastIncident { get; set; }
 
+    /// <summary>
+    /// What is currently wrong with this device, in the operator's language, or null when it is healthy.
+    /// Set by the server from what telemetry reveals (clock skew today) and cleared the moment the symptom
+    /// is gone. It exists because a device can be perfectly "online" - reporting every minute, badge green -
+    /// while every command sent to it is silently discarded on arrival, and nothing said so.
+    /// </summary>
+    public string? Problem { get; set; }
+
+    /// <summary>When the current problem was first seen. Null while healthy; kept across reports so the
+    /// console can say how long it has been broken rather than restarting the clock on every telemetry.</summary>
+    public DateTimeOffset? ProblemSince { get; set; }
+
     /// <summary>Whether remote access was disabled locally on the device (VNC lock). Display only; enforcement is local.</summary>
     public bool VncLocked { get; set; }
 

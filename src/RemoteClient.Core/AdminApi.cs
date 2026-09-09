@@ -256,6 +256,11 @@ public sealed class AdminApi : IDisposable
         await _http.GetFromJsonAsync($"/admin/devices/{Uri.EscapeDataString(deviceId)}/events?limit={limit}",
             AgentJsonContext.Default.ListDeviceEventInfo, ct) ?? [];
 
+    /// <summary>Reads a device's VNC password. Admin-only, and the server records every call in the audit log.</summary>
+    public async Task<VncSecretInfo?> GetVncSecretAsync(string deviceId, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync($"/admin/devices/{Uri.EscapeDataString(deviceId)}/vnc-secret",
+            AgentJsonContext.Default.VncSecretInfo, ct);
+
     public async Task<List<AuditEntryInfo>> GetAuditAsync(string? action = null, string? actor = null, string? deviceId = null, int limit = 200, CancellationToken ct = default)
     {
         var q = new List<string> { $"limit={limit}" };
