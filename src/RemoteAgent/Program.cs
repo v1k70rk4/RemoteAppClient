@@ -121,6 +121,8 @@ builder.Services.AddSingleton<SystemInfoCollector>();
 builder.Services.AddSingleton<RemoteAgent.Update.UpdateInstaller>();
 
 // Background services.
+builder.Services.AddSingleton<RemoteAgent.Time.TimeSyncTrigger>();
+builder.Services.AddHostedService<TimeSyncService>();
 builder.Services.AddHostedService<CommandChannelService>();
 builder.Services.AddHostedService<TunnelOrchestratorService>();
 builder.Services.AddHostedService<TelemetryService>();

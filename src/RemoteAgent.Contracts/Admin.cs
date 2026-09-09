@@ -3,6 +3,25 @@ using System.Text.Json.Serialization;
 namespace RemoteAgent.Admin;
 
 /// <summary>A device shown in the admin list by client.exe.</summary>
+/// <summary>
+/// Problem codes reported on <see cref="DeviceInfo.Problem"/>. Stored language-neutral as
+/// "code" or "code:value" so the database keeps one form and each console renders it in its own language.
+/// </summary>
+public static class DeviceProblems
+{
+    /// <summary>Device clock differs from the server's; value is the signed offset in seconds ("clock-skew:+88").
+    /// Past the agent's 60s command window this silently discards every command sent to it.</summary>
+    public const string ClockSkew = "clock-skew";
+
+    /// <summary>Splits "code:value" into its parts; value is "" when the code carries none.</summary>
+    public static (string Code, string Value) Parse(string? problem)
+    {
+        if (string.IsNullOrWhiteSpace(problem)) return ("", "");
+        var i = problem.IndexOf(':');
+        return i < 0 ? (problem, "") : (problem[..i], problem[(i + 1)..]);
+    }
+}
+
 public sealed class DeviceInfo
 {
     [JsonPropertyName("deviceId")]
@@ -101,6 +120,18 @@ public sealed class DeviceInfo
 
     [JsonPropertyName("lastIncident")]
     public string? LastIncident { get; set; }
+
+    /// <summary>
+    /// What is currently wrong with the device, as a language-neutral code the console formats
+    /// (see <see cref="DeviceProblems"/>), or null when nothing is. A device can be online, green and
+    /// reporting every minute while every command sent to it is discarded on arrival - this is how it says so.
+    /// </summary>
+    [JsonPropertyName("problem")]
+    public string? Problem { get; set; }
+
+    /// <summary>When the current problem was first observed; null while healthy.</summary>
+    [JsonPropertyName("problemSince")]
+    public DateTimeOffset? ProblemSince { get; set; }
 
     /// <summary>Whether remote access was disabled locally on the device (VNC lock).</summary>
     [JsonPropertyName("vncLocked")]
@@ -243,6 +274,18 @@ public sealed class ServerBackupStatus
 /// One entry of a device's history: a liveness transition (online / flaky / not-controllable / offline) or
 /// an IP change. Only changes are recorded, so a device that stays put and stays online produces nothing.
 /// </summary>
+/// <summary>A device's VNC password, handed over only when an operator explicitly asks to see it.</summary>
+public sealed class VncSecretInfo
+{
+    /// <summary>The plaintext password, or null when the device has not reported one yet.</summary>
+    [JsonPropertyName("secret")]
+    public string? Secret { get; set; }
+
+    /// <summary>When the device last reported this password.</summary>
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
 public sealed class DeviceEventInfo
 {
     [JsonPropertyName("at")]
@@ -369,6 +412,15 @@ public sealed class OpenTunnelResult
     /// <summary>Nonce of the issued command; the console uses it to poll for the access result.</summary>
     [JsonPropertyName("nonce")]
     public string Nonce { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether this request will actually ask the person at the device (device setting, then group, then
+    /// off). The console needs the EFFECTIVE value: it only knows the device's own tri-state, so without
+    /// this it cannot tell "nobody was asked" from "someone was asked and stayed silent" - and it used to
+    /// guess, putting up a "waiting for the user to approve" window where no one had been asked at all.
+    /// </summary>
+    [JsonPropertyName("consentRequired")]
+    public bool ConsentRequired { get; set; }
 }
 
 /// <summary>One file-system entry in a directory listing from the agent file service.</summary>

@@ -23,8 +23,11 @@ public static class DeviceLiveness
     /// and sending telemetry while its control channel is down, so it can be watched but not commanded -
     /// which reads as plain "offline" unless we say otherwise.
     /// </summary>
-    public static string State(bool connected, bool reporting, int recentReconnects) =>
-        connected && reporting ? "online"
+    public static string State(bool connected, bool reporting, int recentReconnects, string? problem = null) =>
+        // A known fault outranks every liveness word: a device can be connected, fresh and green while
+        // silently discarding everything we send it, and "online" would be the least useful thing to say.
+        !string.IsNullOrWhiteSpace(problem) ? "error"
+        : connected && reporting ? "online"
         : recentReconnects >= DeviceInfo.FlakyReconnectThreshold ? "flaky"
         : reporting ? "reporting"
         : "offline";

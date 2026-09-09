@@ -169,6 +169,8 @@ CREATE TABLE `Devices` (
     `LastSeenAt` datetime(6) NULL,
     `AgentRestarts` int NOT NULL,
     `LastIncident` longtext CHARACTER SET utf8mb4 NULL,
+    `Problem` longtext CHARACTER SET utf8mb4 NULL,
+    `ProblemSince` datetime(6) NULL,
     `VncLocked` tinyint(1) NOT NULL,
     `BootTimeUtc` datetime(6) NULL,
     `IpAddress` longtext CHARACTER SET utf8mb4 NULL,

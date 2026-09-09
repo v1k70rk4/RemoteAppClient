@@ -19,6 +19,18 @@
 .PARAMETER Configuration
     Build-konfiguráció. Alapértelmezés: Release
 
+.PARAMETER Deploy
+    A build után az ÉLES telepítést is lecseréli ($InstallDir). Ilyenkor a szolgáltatások a
+    másolás UTÁNIG maradnak leállítva, és a futó konzol-kliens is le lesz lőve — különben
+    zárolná a saját exéjét. Rendszergazda kötelező; nélküle a szkript csak buildel.
+
+.PARAMETER InstallDir
+    Az éles telepítés helye. Alapértelmezés: C:\Program Files\RemoteAppClient
+
+.PARAMETER NoBackup
+    -Deploy mellett kihagyja a lecserélt exék mentését. Alapból mindegyik mellé kerül egy
+    <név>.exe.bak (mindig a legutóbbi állapot), hogy egy rossz build kézzel visszaállítható legyen.
+
 .EXAMPLE
     # Rendszergazda PowerShell-ben:
     .\build.ps1
@@ -28,7 +40,10 @@
 [CmdletBinding()]
 param(
     [string]$OutDir = 'C:\RAC\build',
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [switch]$Deploy,
+    [string]$InstallDir = 'C:\Program Files\RemoteAppClient',
+    [switch]$NoBackup
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,6 +62,14 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltinRole]::Administrator)
+
+# -Deploy nélkül a szkript viselkedése változatlan. Vele viszont Program Files-ba írunk és
+# szolgáltatást állítunk: mindkettő rendszergazdát kíván, és félúton elakadva rosszabb helyet
+# hagynánk magunk után, mint ahonnan indultunk — ezért itt állunk meg, nem a másolásnál.
+if ($Deploy) {
+    if (-not $isAdmin) { throw "A -Deploy rendszergazdát igényel (Program Files + szolgáltatások)." }
+    if (-not (Test-Path $InstallDir)) { throw "Nincs meg a telepítési mappa: $InstallDir" }
+}
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Write-Host "Kimeneti mappa: $OutDir" -ForegroundColor DarkGray
@@ -70,8 +93,19 @@ else {
     Write-Host "         A kliens akkor is elkészül; a teljes frissítéshez futtasd rendszergazdaként." -ForegroundColor Yellow
 }
 
+# --- A konzol-kliens kilövése: -Deploy esetén ő is cserélődik, futás közben pedig zárolja magát. ---
+if ($Deploy) {
+    $procs = @(Get-Process 'RemoteClient' -ErrorAction SilentlyContinue)
+    foreach ($pr in $procs) {
+        Write-Host "[proc] kilövés: RemoteClient (PID $($pr.Id))" -ForegroundColor DarkYellow
+        try { $pr.Kill() } catch {}
+    }
+    foreach ($pr in $procs) { try { $pr.WaitForExit(10000) | Out-Null } catch {} }
+}
+
 # --- Build + másolás komponensenként ---
 $failed = @()
+$deployFailed = @()
 foreach ($name in $components.Keys) {
     $proj = Join-Path $repo $components[$name]
     if (-not (Test-Path $proj)) { throw "Nincs projekt: $proj" }
@@ -96,6 +130,33 @@ foreach ($name in $components.Keys) {
     Remove-Item $stage -Recurse -Force
 }
 
+# --- Éles telepítés cseréje. A szolgáltatások MÉG állnak: ez a másolás egyetlen esélye arra,
+#     hogy ne zárolt exébe ütközzön. Csak az cserélődik, ami ebben a futásban tényleg elkészült. ---
+if ($Deploy) {
+    Write-Host "[deploy] telepítés cseréje: $InstallDir" -ForegroundColor Cyan
+    foreach ($name in $components.Keys) {
+        if ($failed -contains $name) { Write-Warning "$name kimarad (a buildje/másolása nem sikerült)."; continue }
+        $src = Join-Path $OutDir "$name.exe"
+        $dst = Join-Path $InstallDir "$name.exe"
+        if (-not (Test-Path $src)) { Write-Warning "$name kimarad (nincs friss exe: $src)."; continue }
+
+        # Egyetlen, felülírt .bak: marad kézi visszaút, de nem hízik futásonként ~290 MB-tal.
+        if (-not $NoBackup -and (Test-Path $dst)) { Copy-Item $dst "$dst.bak" -Force }
+
+        try {
+            Copy-Item $src $dst -Force
+            if ((Get-FileHash $src -Algorithm SHA256).Hash -ne (Get-FileHash $dst -Algorithm SHA256).Hash) {
+                throw "a kiírt fájl hash-e nem egyezik a forrással"
+            }
+            Write-Host ("  {0,-22} {1}" -f $name, (Get-Item $dst).VersionInfo.FileVersion) -ForegroundColor DarkGreen
+        }
+        catch {
+            $deployFailed += $name
+            Write-Warning "$name cseréje nem sikerült: $($_.Exception.Message)"
+        }
+    }
+}
+
 # --- Szolgáltatások visszaindítása (fordított sorrend: agent, majd updater) ---
 [array]::Reverse($toRestart)
 foreach ($s in $toRestart) {
@@ -117,3 +178,19 @@ Get-ChildItem $OutDir -Filter *.exe | Sort-Object Name | ForEach-Object {
     $mb  = [math]::Round($_.Length / 1MB, 1)
     [pscustomobject]@{ Exe = $_.Name; Verzio = $v; MB = $mb; SHA256 = $sha }
 } | Format-Table -AutoSize
+
+if ($Deploy) {
+    Write-Host "`nÉles telepítés ($InstallDir):" -ForegroundColor Green
+    Get-ChildItem $InstallDir -Filter *.exe | Sort-Object Name | ForEach-Object {
+        [pscustomobject]@{
+            Exe    = $_.Name
+            Verzio = (Get-Item $_.FullName).VersionInfo.FileVersion
+            MB     = [math]::Round($_.Length / 1MB, 1)
+        }
+    } | Format-Table -AutoSize
+
+    if ($deployFailed.Count -gt 0) {
+        Write-Host "Az élesben NEM cserélt: $($deployFailed -join ', ')" -ForegroundColor Yellow
+    }
+    Write-Host "A konzol-klienst nem indítom vissza — indítsd, amikor jónak látod." -ForegroundColor DarkGray
+}

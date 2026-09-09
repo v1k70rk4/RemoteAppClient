@@ -20,6 +20,7 @@ public sealed class AgentOptions
     public CommandChannelOptions CommandChannel { get; set; } = new();
     public TunnelOptions Tunnel { get; set; } = new();
     public TelemetryOptions Telemetry { get; set; } = new();
+    public TimeSyncOptions TimeSync { get; set; } = new();
 }
 
 /// <summary>Outgoing WSS command channel to the server (mTLS + signed commands).</summary>
@@ -99,4 +100,18 @@ public sealed class TelemetryOptions
     public string ServerCertPinSha256 { get; set; } = string.Empty;
 
     public int IntervalSeconds { get; set; } = 60;
+}
+
+/// <summary>
+/// Clock discipline. A machine whose clock drifts past the command window refuses every command the
+/// server sends it — including the one that would fix it — so the agent keeps its own time in order.
+/// </summary>
+public sealed class TimeSyncOptions
+{
+    /// <summary>
+    /// NTP peers used only when nothing is disciplining the clock AND the machine is not domain-joined
+    /// (a domain member takes its time from the DC and must not be overridden). w32tm syntax: space-separated
+    /// "host,flags"; 0x9 = client + SpecialInterval. Empty disables configuring a source at all.
+    /// </summary>
+    public string PeerList { get; set; } = "time.windows.com,0x9 pool.ntp.org,0x9";
 }

@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.1.0-2ea44f" alt="version 2.1.0">
+  <img src="https://img.shields.io/badge/version-2.1.5-2ea44f" alt="version 2.1.5">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 2.1.5](#whats-new-in-215)
 - [What's New in 2.1.0](#whats-new-in-210)
 - [What's New in 2.0.0](#whats-new-in-200)
 - [What's New in 1.9.0](#whats-new-in-190)
@@ -58,6 +59,53 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 2.1.5
+
+A release about **saying what is wrong**. A device could be online, green and reporting every minute while
+silently discarding every command sent to it — and nothing, anywhere, said so. That happened on a live
+machine and cost an afternoon to find; this release makes the fleet admit it in under a minute, and then
+fix itself. This release **changes the database schema**: two nullable columns are added to `Devices`. Prod
+applies the idempotent `upgrade-2.1.5-device-problem.sql`; a fresh install gets them from `schema.sql`.
+
+**A device that admits what is broken**
+- New **error** state, with the reason: the console shows a red badge and the concrete fault rather than a
+  reassuring green one. The first fault it knows is **clock skew**, because that is what bit us — an agent
+  refuses any command whose timestamp is more than 60s from its own clock, so a machine running 88 seconds
+  fast is completely unreachable while looking perfectly healthy.
+- **The server detects it on its own, with no agent update.** It compares the telemetry's own
+  `CollectedAtUtc` against arrival. Telemetry is not signed, so it still arrives from a device whose every
+  command is being thrown away — which makes it the only channel that can report that fault at all. The
+  warning fires at 30s, half the window, while there is still time to fix it.
+- The problem is stored as a language-neutral code and rendered by each console in its own language; an
+  unrecognised code is shown raw rather than hidden, so an older console cannot swallow a fault it has not
+  learnt the name of yet. State changes land in the device history like any other.
+
+**An agent that fixes its own clock**
+- Time sync runs at startup, periodically, and — the part that matters — **whenever the clock is shown to be
+  wrong**. Two independent signals trigger it: a command that carries a valid server signature but an
+  out-of-window timestamp (proof the fault is ours, not a forgery), and the `Date` header on every telemetry
+  response, which catches it within one 60-second cycle without any command needing to arrive.
+- The clock is never taken from either signal — they only prompt the agent to consult a real time source.
+  A domain-joined machine is left alone (its time comes from the DC), and an existing NTP configuration is
+  never overwritten; only a machine with no source at all is given one.
+- The correction is measured and logged: *"the clock was stepped by −180s"*. A system that quietly moves a
+  machine's clock by three minutes should leave a record that it did.
+
+**Fewer confident wrong answers**
+- The console no longer puts up **"waiting for the user at the device to approve"** when no one was asked.
+  It could not tell before: it only knows the device's own tri-state consent setting, while the effective
+  value comes from group inheritance — so the server now returns it. When consent really was requested the
+  wait is unchanged; when it was not, a silent device is reported as a silent device.
+- **Show VNC password** (admin-only, right-click): the console hands the secret straight to the viewer and
+  never displays it, so reading one previously meant decrypting the database by hand. Every read is written
+  to the audit log — that record is the point, which is why it re-fetches rather than using the copy already
+  in the device list.
+- "nem vezérelhető" is now **"csak jelent"**, which fits the badge.
+- `build.ps1 -Deploy` replaces the live install in one step: stops the services, kills the console, swaps the
+  binaries while everything is down, verifies each copy by hash, and only then restarts.
 
 ---
 
