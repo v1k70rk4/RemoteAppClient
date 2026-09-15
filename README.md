@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.1.5-2ea44f" alt="version 2.1.5">
+  <img src="https://img.shields.io/badge/version-2.1.7-2ea44f" alt="version 2.1.7">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 2.1.7](#whats-new-in-217)
 - [What's New in 2.1.5](#whats-new-in-215)
 - [What's New in 2.1.0](#whats-new-in-210)
 - [What's New in 2.0.0](#whats-new-in-200)
@@ -59,6 +60,44 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 2.1.7
+
+A release for **cleaning up a fleet**: notes for hundreds of machines at once, and a badge that stops calling a
+switched-off machine flaky. There is **no database schema change**. Component versions are not aligned this time:
+the Windows console is **2.1.7.0**, everything else is **2.1.6.0**.
+
+**Notes for hundreds of devices at once**
+- **Import notes** (admin-only, the new button next to *Refresh*): open or paste a `hostname;note` list — a sheet
+  saved from Excel as CSV, or two columns copied straight out of it — and see line by line what would happen before
+  anything is written: *New*, *Overwrite*, *Not found*, *Invalid line*, *Repeated*, *Empty note*, *Unchanged*.
+- It writes **only to devices already enrolled**. An unknown name is reported and skipped, never created, so the same
+  list can be run again as more machines arrive — and *Copy unknown names* hands you exactly the ones still missing.
+- **A name shared by several devices goes to the one seen most recently.** The others are usually stale
+  re-enrollments, and leaving them without a note is precisely what makes them easy to find and delete.
+- Nothing is lost by accident: a blank note never clears one, and **overwriting an existing note stays off** until
+  you switch it on — the preview shows the current note next to the new one.
+- Excel is taken as it comes: the Windows code page its plain CSV is written in (as well as UTF-8 and UTF-16), quoted
+  cells, the trailing empty columns of a sheet that once had more, a header row, fully qualified names.
+- The console sends **device IDs, not names**, so the server writes exactly the rows you approved. Every changed note
+  gets its own audit entry (*Note imported*, filterable in the log); the note text itself stays out of the log, since
+  notes are stored encrypted.
+
+**Offline means offline**
+- A machine switched off at the end of the day could still show as **flaky** half an hour later. Flaky means three or
+  more reconnects within the last hour, and it was checked before offline — so a device that reconnected a few times
+  on its way out kept the badge for the whole hour. Now a device that has **stopped reporting is offline**, whatever
+  its link did before; *flaky* is kept for a machine that is still sending data over a bad connection. The server
+  (which writes the device history) and the consoles decide it the same way, and the status column now sorts by it.
+
+**Also**
+- Long lists — audit log, users, groups, device history — no longer grow a stray horizontal scrollbar that hid the
+  last row once the rows overflowed.
+- `build.ps1 -SignScript <script>` signs every exe **before** it is hashed or deployed. Agents verify an update's
+  hash, so signing afterwards would make every agent refuse it. Accounts and certificates stay in your own script,
+  out of the repository, and a failed signature counts as a failed build.
 
 ---
 
