@@ -31,6 +31,12 @@
     With -Deploy, skip saving the replaced exes. By default each one gets a <name>.exe.bak beside it
     (always the previous state), so a bad build can be rolled back by hand.
 
+.PARAMETER SignScript
+    Optional path to a code-signing script, invoked as `& $SignScript -Path <exe>` for every exe this
+    run produced — BEFORE anything is hashed or deployed. Signing accounts, certificates and endpoints
+    belong in that script and never in this repository. An exe whose signing fails is treated like a
+    failed build: it is neither deployed nor reported as done.
+
 .EXAMPLE
     # In an administrator PowerShell:
     .\build.ps1
@@ -39,6 +45,9 @@
 .EXAMPLE
     # Build and replace the live installation in one go:
     .\build.ps1 -Deploy
+.EXAMPLE
+    # Build, sign, then replace the live installation:
+    .\build.ps1 -SignScript C:\RAC\sign.ps1 -Deploy
 #>
 [CmdletBinding()]
 param(
@@ -46,7 +55,8 @@ param(
     [string]$Configuration = 'Release',
     [switch]$Deploy,
     [string]$InstallDir = 'C:\Program Files\RemoteAppClient',
-    [switch]$NoBackup
+    [switch]$NoBackup,
+    [string]$SignScript
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,6 +83,9 @@ if ($Deploy) {
     if (-not $isAdmin) { throw "-Deploy requires administrator (Program Files + services)." }
     if (-not (Test-Path $InstallDir)) { throw "Install folder not found: $InstallDir" }
 }
+# Check the signing script up front too: discovering it is missing only after a full build, with the
+# services already stopped, would waste the build and leave the machine without its agent for nothing.
+if ($SignScript -and -not (Test-Path $SignScript)) { throw "Sign script not found: $SignScript" }
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Write-Host "Output folder: $OutDir" -ForegroundColor DarkGray
@@ -133,6 +146,24 @@ foreach ($name in $components.Keys) {
     Remove-Item $stage -Recurse -Force
 }
 
+# --- Optional signing. It has to happen HERE, before anything below hashes or deploys the exes: the
+#     SHA-256 printed at the end is what gets entered into the server's package upload, and agents
+#     reject an update whose hash does not match. Hashing an unsigned file and then shipping a signed
+#     one would make every agent refuse the update. A signing failure is treated as a build failure,
+#     so an exe that was meant to be signed can never be deployed unsigned. ---
+if ($SignScript) {
+    Write-Host "[sign] using $SignScript" -ForegroundColor Cyan
+    foreach ($name in $components.Keys) {
+        if ($failed -contains $name) { continue }
+        $exe = Join-Path $OutDir "$name.exe"
+        try { & $SignScript -Path $exe }
+        catch {
+            $failed += $name
+            Write-Warning "Signing $name failed — it will not be deployed: $($_.Exception.Message)"
+        }
+    }
+}
+
 # --- Replace the live installation. The services are STILL stopped: this is the one window in which
 #     the copy will not hit a locked exe. Only what this run actually produced gets replaced. ---
 if ($Deploy) {
@@ -179,7 +210,10 @@ Get-ChildItem $OutDir -Filter *.exe | Sort-Object Name | ForEach-Object {
     $v   = (Get-Item $_.FullName).VersionInfo.FileVersion
     $sha = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
     $mb  = [math]::Round($_.Length / 1MB, 1)
-    [pscustomobject]@{ Exe = $_.Name; Version = $v; MB = $mb; SHA256 = $sha }
+    # Show the signature next to the hash, so it is obvious whether the hash you are about to paste into
+    # the package upload belongs to the signed file or to an unsigned one.
+    $signed = (Get-AuthenticodeSignature $_.FullName).Status
+    [pscustomobject]@{ Exe = $_.Name; Version = $v; Signed = $signed; MB = $mb; SHA256 = $sha }
 } | Format-Table -AutoSize
 
 if ($Deploy) {
