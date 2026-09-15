@@ -111,6 +111,11 @@ public static class UiIcons
                 Ln(0.30f, 0.66f, 0.30f, 0.82f); Ln(0.30f, 0.82f, 0.46f, 0.66f);  // tail
                 Ln(0.28f, 0.34f, 0.72f, 0.34f); Ln(0.28f, 0.50f, 0.58f, 0.50f);  // text lines
                 break;
+            case "import":    // arrow down into an open tray (bulk import)
+                Ln(0.5f, 0.14f, 0.5f, 0.60f);                                   // shaft
+                Ln(0.32f, 0.44f, 0.5f, 0.62f); Ln(0.5f, 0.62f, 0.68f, 0.44f);  // head
+                Ln(0.16f, 0.58f, 0.16f, 0.84f); Ln(0.16f, 0.84f, 0.84f, 0.84f); Ln(0.84f, 0.84f, 0.84f, 0.58f);  // tray
+                break;
             case "refresh":
             {
                 // Reload: a ring open at the top with a filled arrowhead at the right end, sweeping clockwise.

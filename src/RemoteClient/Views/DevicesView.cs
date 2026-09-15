@@ -100,6 +100,13 @@ public sealed class DevicesView : UserControl, IContentView
         _tip.SetToolTip(refresh, L.AboutView_Refresh);
         refresh.Click += async (_, _) => await RefreshAsync();
         tools.Controls.Add(refresh);
+        if (_isAdmin)
+        {
+            var importNotes = new IconButton("import") { Size = new Size(38, 38), Margin = new Padding(6, 0, 0, 0) };
+            _tip.SetToolTip(importNotes, L.NoteImport_Title);
+            importNotes.Click += async (_, _) => await ImportNotesAsync();
+            tools.Controls.Add(importNotes);
+        }
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
@@ -839,6 +846,17 @@ public sealed class DevicesView : UserControl, IContentView
         if (MessageBox.Show(L.Format(L.DevicesView_UnlockSignInOnThis, sel.Hostname), L.DevicesView_UnlockSignIn, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         try { await _api.UnlockDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_SignInLockCleared, sel.Hostname)); await RefreshAsync(); }
         catch (Exception ex) { SetStatus(L.DevicesView_UnlockError + ex.Message); }
+    }
+
+    /// <summary>Bulk "hostname;note" import, matched against the devices listed right now. The window takes a copy:
+    /// the 10-second auto-refresh keeps replacing <see cref="_devices"/> while it is open.</summary>
+    private async Task ImportNotesAsync()
+    {
+        using var f = new NoteImportWindow(_api, _devices.ToList());
+        f.ShowDialog(this);
+        if (f.Updated == 0) return;
+        await RefreshAsync();
+        SetStatus(L.Format(L.DevicesView_NotesImported, f.Updated));
     }
 
     private async Task DeleteSelectedAsync()
