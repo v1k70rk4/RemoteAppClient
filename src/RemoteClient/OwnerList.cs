@@ -43,7 +43,7 @@ public sealed class OwnerList : UserControl
         _lv.SmallImageList = new ImageList { ImageSize = new Size(1, rowHeight) }; // forces row height
         _lv.DrawItem += OnDrawItem;
         _lv.DrawSubItem += (_, e) => e.DrawDefault = false;
-        _lv.SizeChanged += (_, _) => { if (_lv.Columns.Count > 0) _lv.Columns[0].Width = _lv.ClientSize.Width; };
+        _lv.SizeChanged += (_, _) => FitColumn();
         _lv.MouseMove += (_, e) => { int i = _lv.GetItemAt(e.X, e.Y)?.Index ?? -1; if (i != _hover) { _hover = i; _lv.Invalidate(); } };
         _lv.MouseLeave += (_, _) => { if (_hover != -1) { _hover = -1; _lv.Invalidate(); } };
         _lv.DoubleClick += (_, _) => { if (_lv.SelectedItems.Count > 0) RowActivated?.Invoke(_lv.SelectedItems[0].Tag!); };
@@ -81,6 +81,15 @@ public sealed class OwnerList : UserControl
     public object? Selected => _lv.SelectedItems.Count == 0 ? null : _lv.SelectedItems[0].Tag;
     public void BeginUpdate() => _lv.BeginUpdate();
     public void EndUpdate() => _lv.EndUpdate();
+
+    // Sized as if the vertical scrollbar were always showing. A column exactly as wide as the client area breaks as
+    // soon as the rows overflow: the scrollbar narrows the client area, the column is suddenly too wide, and ListView
+    // adds a horizontal scrollbar (hiding the last row) that re-fitting the column does not reliably take away again.
+    // Rows are painted across the whole client width, so the spare pixels never show.
+    private void FitColumn()
+    {
+        if (_lv.Columns.Count > 0) _lv.Columns[0].Width = Math.Max(0, _lv.Width - SystemInformation.VerticalScrollBarWidth - 1);
+    }
     public void Clear() => _lv.Items.Clear();
     public void Add(object item) => _lv.Items.Add(new ListViewItem { Tag = item });
 

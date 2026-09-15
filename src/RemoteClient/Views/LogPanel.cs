@@ -59,7 +59,9 @@ public sealed class LogPanel : UserControl
         _list.SmallImageList = new ImageList { ImageSize = new Size(1, 42) }; // forces 42px row height
         _list.DrawItem += DrawRow;
         _list.DrawSubItem += (_, e) => e.DrawDefault = false;
-        _list.SizeChanged += (_, _) => { if (_list.Columns.Count > 0) _list.Columns[0].Width = _list.ClientSize.Width; };
+        // Sized as if the vertical scrollbar were always showing, as in OwnerList: a column as wide as the client area
+        // turns too wide once the rows overflow, and the horizontal scrollbar that brings in hides the last row.
+        _list.SizeChanged += (_, _) => { if (_list.Columns.Count > 0) _list.Columns[0].Width = Math.Max(0, _list.Width - SystemInformation.VerticalScrollBarWidth - 1); };
         _list.MouseMove += (_, e) => { int i = _list.GetItemAt(e.X, e.Y)?.Index ?? -1; if (i != _hover) { _hover = i; _list.Invalidate(); } };
         _list.MouseLeave += (_, _) => { if (_hover != -1) { _hover = -1; _list.Invalidate(); } };
         typeof(ListView).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.SetValue(_list, true);
