@@ -194,6 +194,39 @@ public sealed class DeviceUpdate
 }
 
 /// <summary>
+/// Bulk note import (POST /admin/devices/notes). The console matches its "hostname;note" list against the
+/// device list and previews the outcome, then sends device IDs rather than hostnames: the server writes exactly
+/// the rows the operator approved instead of repeating a hostname lookup that could land somewhere else.
+/// </summary>
+public sealed class DeviceNotesImport
+{
+    [JsonPropertyName("items")]
+    public System.Collections.Generic.List<DeviceNoteItem> Items { get; set; } = [];
+}
+
+public sealed class DeviceNoteItem
+{
+    [JsonPropertyName("deviceId")]
+    public string DeviceId { get; set; } = string.Empty;
+
+    [JsonPropertyName("note")]
+    public string Note { get; set; } = string.Empty;
+}
+
+/// <summary>Outcome of a bulk note import. <see cref="NotFound"/> counts IDs whose device was deleted meanwhile.</summary>
+public sealed class DeviceNotesImportResult
+{
+    [JsonPropertyName("updated")]
+    public int Updated { get; set; }
+
+    [JsonPropertyName("unchanged")]
+    public int Unchanged { get; set; }
+
+    [JsonPropertyName("notFound")]
+    public int NotFound { get; set; }
+}
+
+/// <summary>
 /// Small config blob the server returns in the telemetry response, so it can steer the agent
 /// without a separate signed command. Authenticated by the telemetry mTLS channel; the values are
 /// non-secret (the bastion host key stays pinned regardless of which port is used).

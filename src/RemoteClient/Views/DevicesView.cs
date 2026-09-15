@@ -100,6 +100,13 @@ public sealed class DevicesView : UserControl, IContentView
         _tip.SetToolTip(refresh, L.AboutView_Refresh);
         refresh.Click += async (_, _) => await RefreshAsync();
         tools.Controls.Add(refresh);
+        if (_isAdmin)
+        {
+            var importNotes = new IconButton("import") { Size = new Size(38, 38), Margin = new Padding(6, 0, 0, 0) };
+            _tip.SetToolTip(importNotes, L.NoteImport_Title);
+            importNotes.Click += async (_, _) => await ImportNotesAsync();
+            tools.Controls.Add(importNotes);
+        }
 
         _list.View = View.Details; _list.FullRowSelect = true; _list.MultiSelect = false;
         _list.BorderStyle = BorderStyle.None; _list.ShowItemToolTips = true;
@@ -497,8 +504,7 @@ public sealed class DevicesView : UserControl, IContentView
         {
             // Display is owner-drawn (DrawRow). The sub-item text is kept (not shown) only so the built-in
             // column auto-size has real content to measure instead of collapsing to zero.
-            string status = string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase) ? "pending"
-                          : d.Online ? "online" : d.LinkFlaky ? "flaky" : d.Reporting ? "reporting" : "offline";
+            string status = DeviceLiveness.Label(d);   // the same word the pill draws, so auto-size measures it
             var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname) { Tag = d };
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(status);
@@ -507,7 +513,7 @@ public sealed class DevicesView : UserControl, IContentView
             item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));
             if (!string.IsNullOrWhiteSpace(d.Problem)) item.ToolTipText = DeviceLiveness.ProblemText(d);
             else if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
-            else if (d.LinkFlaky) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
+            else if (d.LinkFlaky && d.Reporting) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
             else if (d.Reporting && !d.Online) item.ToolTipText = L.DevicesView_ReportingOnlyTip;
             else if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
@@ -551,7 +557,7 @@ public sealed class DevicesView : UserControl, IContentView
         {
             0 => d => d.Hostname,
             1 => d => d.GroupName,
-            2 => d => d.Online,
+            2 => d => DeviceLiveness.Of(d),   // enum order: error, pending, online, flaky, reporting, offline
             3 => d => d.LoggedInUser,
             4 => d => d.LastSeenAt,
             5 => d => d.PublicIpAddress,
@@ -840,6 +846,17 @@ public sealed class DevicesView : UserControl, IContentView
         if (MessageBox.Show(L.Format(L.DevicesView_UnlockSignInOnThis, sel.Hostname), L.DevicesView_UnlockSignIn, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         try { await _api.UnlockDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_SignInLockCleared, sel.Hostname)); await RefreshAsync(); }
         catch (Exception ex) { SetStatus(L.DevicesView_UnlockError + ex.Message); }
+    }
+
+    /// <summary>Bulk "hostname;note" import, matched against the devices listed right now. The window takes a copy:
+    /// the 10-second auto-refresh keeps replacing <see cref="_devices"/> while it is open.</summary>
+    private async Task ImportNotesAsync()
+    {
+        using var f = new NoteImportWindow(_api, _devices.ToList());
+        f.ShowDialog(this);
+        if (f.Updated == 0) return;
+        await RefreshAsync();
+        SetStatus(L.Format(L.DevicesView_NotesImported, f.Updated));
     }
 
     private async Task DeleteSelectedAsync()

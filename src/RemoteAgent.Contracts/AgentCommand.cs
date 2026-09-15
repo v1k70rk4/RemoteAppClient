@@ -131,6 +131,8 @@ public static class CommandTypes
 [JsonSerializable(typeof(Enrollment.BootstrapBlob))]
 [JsonSerializable(typeof(Admin.DeviceInfo))]
 [JsonSerializable(typeof(Admin.DeviceUpdate))]
+[JsonSerializable(typeof(Admin.DeviceNotesImport))]
+[JsonSerializable(typeof(Admin.DeviceNotesImportResult))]
 [JsonSerializable(typeof(Admin.UpdateRequest))]
 [JsonSerializable(typeof(Admin.OpenTunnelResult))]
 [JsonSerializable(typeof(Admin.FsList))]

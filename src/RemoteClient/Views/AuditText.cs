@@ -18,6 +18,7 @@ internal static class AuditText
         "access-locked" => L.AuditText_DisabledDeviceLocalLock,
         "device.enrolled" => L.AuditText_DeviceEnrolled,
         "device-update" => L.AuditText_DeviceUpdated,
+        "device-note-import" => L.AuditText_NoteImported,
         "device-delete" => L.DevicesView_Delete,
         "access-available" => L.AuditText_Available,
         "access-no-answer" => L.AuditText_NoResponseTimeout,
@@ -105,7 +106,7 @@ internal static class AuditText
             or "access-cancelled" or "access-logged-out" or "access-failed" or "access-locked" => L.AuditText_TagAccess,
         "device-power" => L.AuditText_TagCommand,
         "device-message" or "access-delivered" => L.AuditText_TagMessage,
-        "device.enrolled" or "device-update" or "device-delete" or "device-unlock" or "device-locked"
+        "device.enrolled" or "device-update" or "device-note-import" or "device-delete" or "device-unlock" or "device-locked"
             or "bootstrap-create" => L.AuditText_TagDevice,
         "login-failed" or "user-create" or "user-update" or "user-reset-password" or "user-password-reset-self"
             or "user-totp-clear" or "user-revoke-sessions" or "password-code-requested"

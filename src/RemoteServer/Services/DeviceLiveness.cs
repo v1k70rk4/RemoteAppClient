@@ -28,7 +28,10 @@ public static class DeviceLiveness
         // silently discarding everything we send it, and "online" would be the least useful thing to say.
         !string.IsNullOrWhiteSpace(problem) ? "error"
         : connected && reporting ? "online"
+        // A device that has stopped reporting is offline, whatever its link did before it went quiet. With the
+        // flaky test first, a machine that was simply shut down - reconnecting a few times on its way out - stayed
+        // "flaky" for the whole hour-long reconnect window, as if it were alive on a bad network.
+        : !reporting ? "offline"
         : recentReconnects >= DeviceInfo.FlakyReconnectThreshold ? "flaky"
-        : reporting ? "reporting"
-        : "offline";
+        : "reporting";
 }

@@ -315,6 +315,19 @@ public sealed class AdminApi : IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>Writes notes to many existing devices in one call; unknown device IDs are skipped by the server.
+    /// Returns null when the server predates bulk import, so the console can say so rather than show a bare HTTP
+    /// error: there, "/admin/devices/notes" only matches the per-device PUT/DELETE route, which answers 405.</summary>
+    public async Task<DeviceNotesImportResult?> ImportDeviceNotesAsync(DeviceNotesImport import, CancellationToken ct = default)
+    {
+        using var content = JsonContent.Create(import, AgentJsonContext.Default.DeviceNotesImport);
+        using var resp = await _http.PostAsync("/admin/devices/notes", content, ct);
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.DeviceNotesImportResult, ct)
+            ?? throw new InvalidOperationException("empty response");
+    }
+
     /// <summary>Approves a Pending device (Status -> Approved).</summary>
     public Task ApproveDeviceAsync(string deviceId, CancellationToken ct = default) =>
         UpdateDeviceAsync(deviceId, new DeviceUpdate { Status = "Approved" }, ct);

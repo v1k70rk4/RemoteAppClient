@@ -41,12 +41,15 @@ public static class DeviceLiveness
         if (!string.IsNullOrWhiteSpace(device.Problem)) return DeviceState.Error;
         if (string.Equals(device.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return DeviceState.Pending;
         if (device.Online) return DeviceState.Online;
+        // A machine that has stopped reporting is offline, whatever its link did before it went quiet. With the
+        // flaky test first, a device that was simply shut down - reconnecting a few times on its way out - stayed
+        // "flaky" for the whole hour-long reconnect window, as if it were alive on a bad network.
+        if (!device.Reporting) return DeviceState.Offline;
         if (device.LinkFlaky) return DeviceState.Flaky;
         // Alive and sending telemetry, but its control channel is down: it cannot be connected to, yet it is
         // not switched off either. Keeping this apart from a dark machine is the whole point — otherwise the
         // row reads "offline" while the last-seen column says "just now", which is what confused us.
-        if (device.Reporting) return DeviceState.Reporting;
-        return DeviceState.Offline;
+        return DeviceState.Reporting;
     }
 
     /// <summary>The localized label for a state.</summary>

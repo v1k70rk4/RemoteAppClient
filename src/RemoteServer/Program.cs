@@ -707,6 +707,46 @@ app.MapPut("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx,
     return Results.NoContent();
 });
 
+// Bulk note import. The console has already matched its "hostname;note" list against the device list and shown
+// the operator the outcome, so this takes device IDs, not hostnames - it writes exactly what was approved.
+// Existing devices only: an unknown ID is counted and skipped, never created. Every changed note gets its own
+// audit entry, under its own action, so each device's log still says where its note came from while a
+// 500-machine import can be filtered out of the global log. Notes and audit entries commit together.
+app.MapPost("/admin/devices/notes", async (HttpContext ctx, AppDbContext db, SecretProtector protector, CancellationToken ct) =>
+{
+    DeviceNotesImport? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.DeviceNotesImport, ct); }
+    catch (JsonException) { return Results.BadRequest(); }
+    if (req is null) return Results.BadRequest();
+
+    // A blank note is not an instruction to clear one - the console never sends it, and an import that silently
+    // wiped notes would be the worst way to find out. Last entry wins for a repeated ID.
+    var wanted = new Dictionary<string, string>(StringComparer.Ordinal);
+    foreach (var item in req.Items)
+        if (!string.IsNullOrWhiteSpace(item.DeviceId) && !string.IsNullOrWhiteSpace(item.Note))
+            wanted[item.DeviceId] = item.Note.Trim();
+
+    var ids = wanted.Keys.ToList();
+    var devices = await db.Devices
+        .Where(d => ids.Contains(d.DeviceId) && !d.DeviceId.StartsWith("opsrc:"))   // never the synthetic source-IP lock records
+        .ToListAsync(ct);
+
+    int updated = 0, unchanged = 0;
+    foreach (var device in devices)
+    {
+        var note = wanted[device.DeviceId];
+        if (string.Equals(protector.TryUnprotect(device.Note), note, StringComparison.Ordinal)) { unchanged++; continue; }
+        device.Note = protector.Protect(note);
+        db.AuditLogs.Add(AuditEntry(ctx, "device-note-import", device.Id, device.Hostname));
+        updated++;
+    }
+    await db.SaveChangesAsync(ct);
+
+    return Results.Json(
+        new DeviceNotesImportResult { Updated = updated, Unchanged = unchanged, NotFound = wanted.Count - devices.Count },
+        AgentJsonContext.Default.DeviceNotesImportResult);
+});
+
 // Delete a device and its dependent rows (telemetry, commands, sessions). Audit history is kept.
 // The agent keeps its local enrollment, so to fully re-provision a device, re-enroll it afterwards.
 app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
@@ -1896,17 +1936,20 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
     }
 }
 
+// Builds an audit entry without saving it, for writes that must commit together with the change they record.
+static RemoteServer.Data.Entities.AuditLog AuditEntry(HttpContext ctx, string action, Guid? target = null, string? detail = null, string? actorOverride = null) => new()
+{
+    Actor = actorOverride ?? (ctx.Items["user"] as RemoteServer.Data.Entities.User)?.Username ?? "system",
+    Action = action, TargetDeviceId = target, DetailJson = detail,
+    Ip = PublicIpOf(ctx),   // real client IP (X-Real-IP / X-Forwarded-For behind nginx), not the proxy hop
+};
+
 // Writes an audit entry best-effort; audit failure must not break the operation. Actor is the signed-in user.
 static async Task AuditAsync(AppDbContext db, HttpContext ctx, string action, Guid? target = null, string? detail = null, string? actorOverride = null)
 {
     try
     {
-        var actor = actorOverride ?? (ctx.Items["user"] as RemoteServer.Data.Entities.User)?.Username ?? "system";
-        db.AuditLogs.Add(new RemoteServer.Data.Entities.AuditLog
-        {
-            Actor = actor, Action = action, TargetDeviceId = target, DetailJson = detail,
-            Ip = PublicIpOf(ctx),   // real client IP (X-Real-IP / X-Forwarded-For behind nginx), not the proxy hop
-        });
+        db.AuditLogs.Add(AuditEntry(ctx, action, target, detail, actorOverride));
         await db.SaveChangesAsync(ctx.RequestAborted);
     }
     catch (Exception ex)
