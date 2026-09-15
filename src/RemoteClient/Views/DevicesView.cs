@@ -497,8 +497,7 @@ public sealed class DevicesView : UserControl, IContentView
         {
             // Display is owner-drawn (DrawRow). The sub-item text is kept (not shown) only so the built-in
             // column auto-size has real content to measure instead of collapsing to zero.
-            string status = string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase) ? "pending"
-                          : d.Online ? "online" : d.LinkFlaky ? "flaky" : d.Reporting ? "reporting" : "offline";
+            string status = DeviceLiveness.Label(d);   // the same word the pill draws, so auto-size measures it
             var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname) { Tag = d };
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(status);
@@ -507,7 +506,7 @@ public sealed class DevicesView : UserControl, IContentView
             item.SubItems.Add(DeviceTelemetryPanel.PublicIp(d));
             if (!string.IsNullOrWhiteSpace(d.Problem)) item.ToolTipText = DeviceLiveness.ProblemText(d);
             else if (d.LoginLocked) item.ToolTipText = L.Format(L.DevicesView_SignInLockedFailedAttempts, d.LoginFailCount);
-            else if (d.LinkFlaky) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
+            else if (d.LinkFlaky && d.Reporting) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
             else if (d.Reporting && !d.Online) item.ToolTipText = L.DevicesView_ReportingOnlyTip;
             else if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
             _list.Items.Add(item);
@@ -551,7 +550,7 @@ public sealed class DevicesView : UserControl, IContentView
         {
             0 => d => d.Hostname,
             1 => d => d.GroupName,
-            2 => d => d.Online,
+            2 => d => DeviceLiveness.Of(d),   // enum order: error, pending, online, flaky, reporting, offline
             3 => d => d.LoggedInUser,
             4 => d => d.LastSeenAt,
             5 => d => d.PublicIpAddress,
