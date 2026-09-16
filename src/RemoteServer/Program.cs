@@ -32,7 +32,11 @@ builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseMySql(
         builder.Configuration.GetConnectionString("MariaDb") ?? "",
         new MariaDbServerVersion(new Version(10, 11, 14)),
-        my => my.EnableRetryOnFailure()));
+        my => my.EnableRetryOnFailure())
+    // Every executed SQL statement is an Information event by default, which buried the journal: a few
+    // dozen agents reporting each minute wrote hundreds of lines. Debug keeps it one switch away for
+    // troubleshooting; failed commands are still logged as errors.
+    .ConfigureWarnings(w => w.Log((Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.CommandExecuted, LogLevel.Debug))));
 
 builder.Services.AddSingleton<CommandSigner>();
 builder.Services.AddSingleton<CertificateAuthority>();
