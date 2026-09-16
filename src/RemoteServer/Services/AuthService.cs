@@ -55,6 +55,57 @@ public sealed class AuthService(AppDbContext db)
         return raw;
     }
 
+    // ---- read-only access tokens (racctl) -----------------------------------------------------------
+
+    /// <summary>Raw access tokens start with this, so the /admin gate can tell them from session tokens.</summary>
+    public const string ApiTokenPrefix = "rac_";
+    public const int MaxActiveApiTokensPerUser = 10;
+
+    public static bool LooksLikeApiToken(string? token) =>
+        token is not null && token.StartsWith(ApiTokenPrefix, StringComparison.Ordinal);
+
+    /// <summary>Mints a token for the user's own account. The raw value is returned once and never stored.</summary>
+    public async Task<(ApiToken Token, string Raw)> CreateApiTokenAsync(User user, string name, TimeSpan? ttl, string scope, CancellationToken ct)
+    {
+        var raw = ApiTokenPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
+        var token = new ApiToken
+        {
+            UserId = user.Id,
+            Name = name,
+            TokenHash = HashToken(raw),
+            Prefix = raw[..12],
+            Scope = scope,
+            ExpiresAt = ttl is { } t ? DateTimeOffset.UtcNow + t : null,
+        };
+        db.ApiTokens.Add(token);
+        await db.SaveChangesAsync(ct);
+        return (token, raw);
+    }
+
+    /// <summary>Owner (with roles) plus token for a live access token; null when unknown, revoked, expired, or
+    /// the owner is no longer an active admin. Records last use, throttled to one write a minute.</summary>
+    public async Task<(User User, ApiToken Token)?> ValidateApiTokenAsync(string raw, string? ip, CancellationToken ct)
+    {
+        var hash = HashToken(raw);
+        var token = await db.ApiTokens
+            .Include(t => t.User).ThenInclude(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+        if (token is null || token.RevokedAt is not null) return null;
+        if (token.ExpiresAt is { } exp && exp < DateTimeOffset.UtcNow) return null;
+        // Same bar as a session: an active admin whose account setup is complete. A password reset or a
+        // cleared TOTP parks the tokens too, until the owner has signed in properly again.
+        if (!token.User.IsActive || !IsAdmin(token.User) || token.User.MustChangePassword || !token.User.TotpConfirmed) return null;
+
+        var now = DateTimeOffset.UtcNow;
+        if (token.LastUsedAt is null || now - token.LastUsedAt > TimeSpan.FromMinutes(1) || token.LastUsedIp != ip)
+        {
+            token.LastUsedAt = now;
+            token.LastUsedIp = ip;
+            await db.SaveChangesAsync(ct);
+        }
+        return (token.User, token);
+    }
+
     /// <summary>User with roles plus session for a valid token; otherwise null.</summary>
     public async Task<(User User, UserSession Session)?> ValidateAsync(string? token, CancellationToken ct)
     {
@@ -96,6 +147,10 @@ public sealed class AuthService(AppDbContext db)
         // A full sign-out also drops "remember this device" trusts, so TOTP is required again next time.
         var trusts = await db.DeviceTrusts.Where(t => t.UserId == userId && t.RevokedAt == null).ToListAsync(ct);
         foreach (var t in trusts) t.RevokedAt = DateTimeOffset.UtcNow;
+
+        // ...and the user's read-only access tokens: a lockout that left racctl working would not be one.
+        var tokens = await db.ApiTokens.Where(t => t.UserId == userId && t.RevokedAt == null).ToListAsync(ct);
+        foreach (var t in tokens) t.RevokedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
     }

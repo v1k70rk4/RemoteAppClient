@@ -36,6 +36,15 @@ public sealed class ServerOptions
     /// SSH host key that agents pin is root-owned.</summary>
     public string ConsoleBackupDir { get; set; } = "/var/lib/remoteserver/console-backup";
 
+    /// <summary>Directory for the server's own daily-rolling log files, served by /admin/server/logs. Must be
+    /// writable by the service user (setup.sh gives it /var/lib/remoteserver); when it cannot be created the
+    /// server keeps the newest records in memory only and says so in the diagnostics snapshot. On Windows
+    /// (development) an unreachable Linux default falls back to a "logs" folder next to the binary.</summary>
+    public string LogDir { get; set; } = "/var/lib/remoteserver/logs";
+
+    /// <summary>How many days of log files to keep.</summary>
+    public int LogRetentionDays { get; set; } = 14;
+
     /// <summary>Public server base URL, for example https://c2.example.com, embedded in bootstrap blobs.</summary>
     public string PublicUrl { get; set; } = string.Empty;
 

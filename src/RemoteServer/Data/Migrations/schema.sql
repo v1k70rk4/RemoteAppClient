@@ -253,6 +253,22 @@ CREATE UNIQUE INDEX `IX_Devices_DeviceId` ON `Devices` (`DeviceId`);
 
 CREATE INDEX `IX_Devices_GroupId` ON `Devices` (`GroupId`);
 
+CREATE TABLE `ApiTokens` (
+    `Id` char(36) COLLATE ascii_general_ci NOT NULL,
+    `UserId` char(36) COLLATE ascii_general_ci NOT NULL,
+    `Name` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `TokenHash` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+    `Prefix` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `Scope` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    `ExpiresAt` datetime(6) NULL,
+    `LastUsedAt` datetime(6) NULL,
+    `LastUsedIp` longtext CHARACTER SET utf8mb4 NULL,
+    `RevokedAt` datetime(6) NULL,
+    CONSTRAINT `PK_ApiTokens` PRIMARY KEY (`Id`),
+    CONSTRAINT `FK_ApiTokens_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
+) CHARACTER SET=utf8mb4;
+
 CREATE INDEX `IX_Devices_Status` ON `Devices` (`Status`);
 
 CREATE UNIQUE INDEX `IX_Devices_TunnelPort` ON `Devices` (`TunnelPort`);
@@ -281,6 +297,10 @@ CREATE INDEX `IX_UserRoles_RoleId` ON `UserRoles` (`RoleId`);
 CREATE UNIQUE INDEX `IX_Users_Username` ON `Users` (`Username`);
 
 CREATE UNIQUE INDEX `IX_UserSessions_TokenHash` ON `UserSessions` (`TokenHash`);
+
+CREATE UNIQUE INDEX `IX_ApiTokens_TokenHash` ON `ApiTokens` (`TokenHash`);
+
+CREATE INDEX `IX_ApiTokens_UserId` ON `ApiTokens` (`UserId`);
 
 CREATE INDEX `IX_UserSessions_UserId` ON `UserSessions` (`UserId`);
 

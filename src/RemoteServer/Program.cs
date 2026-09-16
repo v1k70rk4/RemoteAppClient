@@ -10,6 +10,7 @@ using RemoteAgent.Telemetry;
 using RemoteServer.Configuration;
 using RemoteServer.Data;
 using RemoteServer.Data.Entities;
+using RemoteServer.Diagnostics;
 using RemoteServer.Hub;
 using RemoteServer.Security;
 using RemoteServer.Services;
@@ -25,6 +26,22 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 512L * 1024 * 1024);
 
 builder.Services.Configure<ServerOptions>(builder.Configuration.GetSection(ServerOptions.SectionName));
+
+// The server's own log, kept where the server can read it back (see LogStore): journald still gets
+// everything through the console provider, but only root can read that on the box, and the developers do
+// not have root on production. Registered here, before the host builds, so the very first startup lines
+// are in it too.
+LogStore logStore;
+{
+    var section = builder.Configuration.GetSection(ServerOptions.SectionName);
+    var defaults = new ServerOptions();
+    var logDir = section["LogDir"] ?? defaults.LogDir;
+    if (OperatingSystem.IsWindows() && logDir.StartsWith('/')) logDir = Path.Combine(AppContext.BaseDirectory, "logs");
+    var keepDays = int.TryParse(section["LogRetentionDays"], out var d) ? d : defaults.LogRetentionDays;
+    logStore = new LogStore(logDir, keepDays);
+    builder.Services.AddSingleton(logStore);
+    builder.Logging.AddProvider(new LogStoreProvider(logStore));
+}
 
 // MariaDB (Galera) with EF Core 9 + Pomelo. Retry handles Galera transient
 // Avoids swallowing certification/deadlock errors. Connection string comes from env/secret.
@@ -56,6 +73,21 @@ builder.Services.AddHostedService<CommandExpiryWatcher>();
 builder.Services.AddHostedService<DeviceHistoryWatcher>();
 
 var app = builder.Build();
+
+// The container does not own an instance it was handed, so flush the log file ourselves on the way out:
+// the last lines before a self-update stop are the ones worth having.
+app.Lifetime.ApplicationStopped.Register(logStore.Dispose);
+
+// Stopping: send every agent away first, so the host does not sit out its shutdown timeout on open sockets
+// (see AgentConnectionRegistry.BeginShutdownAsync). This turned a 30 s stop into a few seconds.
+{
+    var registry = app.Services.GetRequiredService<AgentConnectionRegistry>();
+    app.Lifetime.ApplicationStopping.Register(() =>
+    {
+        var told = registry.BeginShutdownAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+        app.Logger.LogInformation("Shutting down: close sent to {Count} agents", told);
+    });
+}
 
 // Ping agents and drop the socket once they stop answering. Without a timeout a link that dies silently -
 // a laptop losing wi-fi sends no FIN/RST - leaves the socket Open indefinitely: the connection registry
@@ -93,6 +125,36 @@ app.Use(async (ctx, next) =>
 
     var auth = ctx.RequestServices.GetRequiredService<AuthService>();
     var token = BearerToken(ctx);
+
+    // Read-only access tokens ("rac_...") are a different credential with a much narrower door: validation
+    // re-checks that the owner is still an active admin, and the allowlist in ApiTokenGate is all a token can
+    // reach - a leaked token yields logs and listings, never a tunnel, a secret or a change.
+    if (AuthService.LooksLikeApiToken(token))
+    {
+        var ip = PublicIpOf(ctx) ?? "?";
+        if (ApiTokenGate.IsBlocked(ip)) { ctx.Response.StatusCode = 429; return; }
+        var raw = token!;
+        var t = await auth.ValidateApiTokenAsync(raw, ip, ctx.RequestAborted);
+        if (t is null)
+        {
+            ApiTokenGate.RecordFailure(ip);
+            app.Logger.LogWarning("Access token rejected from {Ip} ({Prefix}...)", ip, raw[..Math.Min(12, raw.Length)]);
+            ctx.Response.StatusCode = 401;
+            await ctx.Response.WriteAsJsonAsync(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError);
+            return;
+        }
+        if (!ApiTokenGate.Allows(t.Value.Token.Scope, ctx.Request.Method, ctx.Request.Path))
+        {
+            ctx.Response.StatusCode = 403;
+            await ctx.Response.WriteAsJsonAsync(new AuthError { Error = "token_scope" }, AgentJsonContext.Default.AuthError);
+            return;
+        }
+        ctx.Items["user"] = t.Value.User;
+        ctx.Items["apiToken"] = t.Value.Token;
+        await next();
+        return;
+    }
+
     var v = await auth.ValidateAsync(token, ctx.RequestAborted);
     if (v is null)
     {
@@ -495,18 +557,22 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
     registry.Register(deviceId, socket);
     log.LogInformation(L.Program_AgentConnectedDevice, deviceId);
 
+    // The loop ends when the agent goes away OR the server is stopping (the registry's shutdown token fires
+    // a few seconds after every agent was sent a close frame), so a stop never waits on this request.
+    using var life = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted, registry.ShutdownToken);
+
     // On connect, deliver pending Queued commands in a short scope so DbContext is not
     // held for the entire connection lifetime.
     using (var scope = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>().CreateScope())
     {
         var commands = scope.ServiceProvider.GetRequiredService<CommandService>();
-        await commands.DrainQueuedAsync(deviceId, ctx.RequestAborted);
+        await commands.DrainQueuedAsync(deviceId, life.Token);
     }
 
     try
     {
         var scopes = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>();
-        await PumpIncomingAsync(socket, deviceId, accessResults, scopes, log, ctx.RequestAborted);
+        await PumpIncomingAsync(socket, deviceId, accessResults, scopes, log, life.Token);
     }
     catch (OperationCanceledException) { /* shutdown/disconnect */ }
     catch (WebSocketException ex) { log.LogDebug(ex, L.Program_WSClosedDevice, deviceId); }
@@ -520,7 +586,7 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
 // === SSH-over-WebSocket bridge: a device tunnels its ssh through wss://…/ssh and we pipe it to the
 // bastion sshd. mTLS-gated like /agent; the inner SSH still requires the bastion CA cert (double auth).
 // The endpoint only ever bridges to loopback sshd — no arbitrary target. ===
-app.Map("/ssh", async (HttpContext ctx, Microsoft.Extensions.Options.IOptions<ServerOptions> srvOpts, ILoggerFactory lf) =>
+app.Map("/ssh", async (HttpContext ctx, Microsoft.Extensions.Options.IOptions<ServerOptions> srvOpts, AgentConnectionRegistry registry, ILoggerFactory lf) =>
 {
     if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = StatusCodes.Status400BadRequest; return; }
     var log = lf.CreateLogger("SshTunnel");
@@ -528,13 +594,15 @@ app.Map("/ssh", async (HttpContext ctx, Microsoft.Extensions.Options.IOptions<Se
     if (deviceId is null) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
 
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
+    // A bridged tunnel dies with the server anyway; ending it on the shutdown token keeps a stop from waiting on it.
+    using var life = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted, registry.ShutdownToken);
     var port = srvOpts.Value.Bastion.Port;
     using var tcp = new System.Net.Sockets.TcpClient();
-    try { await tcp.ConnectAsync(System.Net.IPAddress.Loopback, port, ctx.RequestAborted); }
+    try { await tcp.ConnectAsync(System.Net.IPAddress.Loopback, port, life.Token); }
     catch (Exception ex) { log.LogWarning(ex, "SSH bridge: cannot reach sshd on 127.0.0.1:{Port}", port); return; }
 
     log.LogInformation("SSH tunnel open: device {Device}", deviceId);
-    try { await WsTcpBridge.RunAsync(socket, tcp.GetStream(), ctx.RequestAborted); }
+    try { await WsTcpBridge.RunAsync(socket, tcp.GetStream(), life.Token); }
     catch (OperationCanceledException) { /* shutdown/disconnect */ }
     catch (WebSocketException) { /* peer closed */ }
     finally { log.LogInformation("SSH tunnel closed: device {Device}", deviceId); }
@@ -630,6 +698,10 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
     // Telemetry lands every 60s, so three intervals of tolerance separates "alive" from "gone quiet".
     var liveCutoff = DateTimeOffset.UtcNow.AddMinutes(-3);
 
+    // A read-only access token gets the fleet picture but no secrets: neither the VNC passwords nor the
+    // operator notes leave the server for a single-factor credential.
+    bool viaToken = ctx.Items["apiToken"] is not null;
+
     var list = devices
         .Where(d => !d.DeviceId.StartsWith("opsrc:", StringComparison.Ordinal))   // hide synthetic source-IP lock records
         .Select(d => new DeviceInfo
@@ -645,7 +717,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         Reporting = d.LastSeenAt > liveCutoff,
         RecentReconnects = registry.RecentReconnects(d.DeviceId),
         LastSeenAt = d.LastSeenAt,
-        VncSecret = protector.TryUnprotect(d.VncSecret),
+        VncSecret = viaToken ? null : protector.TryUnprotect(d.VncSecret),
         GroupId = d.GroupId,
         GroupName = d.Group?.Name,
         UpdateAllowed = d.UpdateAllowed,
@@ -679,7 +751,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         SleepDcMinutes = d.SleepDcMinutes,
         LoginFailCount = d.LoginFailCount,
         LoginLocked = d.LoginLockedAt is not null,
-        Note = protector.TryUnprotect(d.Note),
+        Note = viaToken ? null : protector.TryUnprotect(d.Note),
         UpdatePending = pendingInfo.ContainsKey(d.Id),
         UpdatePendingInfo = pendingInfo.GetValueOrDefault(d.Id),
     }).ToList();
@@ -1052,26 +1124,54 @@ app.MapGet("/admin/server/backup/download", async (HttpContext ctx, AppDbContext
 });
 
 app.MapGet("/admin/server/status", (IOptions<ServerOptions> opt) =>
+    Results.Json(ServerUpdateStatusOf(opt.Value), AgentJsonContext.Default.ServerUpdateStatus));
+
+// === Diagnostics: the server's own log and a health snapshot. Admin session or read-only access token. ===
+// Both exist so a developer without root on the box can still see what the server saw: the log is the one
+// the server writes for itself (LogStore), the snapshot is what the service user can observe on its own.
+
+app.MapGet("/admin/server/logs", async (int? tail, string? level, string? since, string? q, string? day, HttpContext ctx, LogStore logs) =>
 {
-    var dir = opt.Value.UpdatesDir;
-    var incoming = Path.Combine(dir, "incoming");
-    var tar = Path.Combine(incoming, "server.tar.gz");
-    string? Read(string n) { var p = Path.Combine(dir, n); return File.Exists(p) ? File.ReadAllText(p).Trim() : null; }
-    ServerUpdateResult? result = null;
-    var st = Read("result.status");
-    if (st is not null)
-        result = new ServerUpdateResult { Ok = st == "ok", Message = Read("result.log") ?? "", At = Read("result.at") ?? "" };
-    var info = new ServerUpdateStatus
+    var n = Math.Clamp(tail ?? 500, 1, 5000);
+    var min = LogStore.ParseLevel(level);
+    if (!string.IsNullOrWhiteSpace(level) && level.Trim().ToLowerInvariant() != "all" && min is null)
+        return Results.BadRequest(new { error = "bad_level" });
+    DateTimeOffset? sinceAt = null;
+    if (!string.IsNullOrWhiteSpace(since))
     {
-        Version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "?",
-        StagedTar = File.Exists(tar),
-        StagedTarSize = File.Exists(tar) ? new FileInfo(tar).Length : 0,
-        StagedSql = File.Exists(Path.Combine(incoming, "upgrade.sql")),
-        LastResult = result,
-        BackupAvailable = File.Exists(Path.Combine(dir, "last_backup")),
-        HelperReady = File.Exists("/opt/remoteserver-update/deploy.sh"),
-    };
-    return Results.Json(info, AgentJsonContext.Default.ServerUpdateStatus);
+        sinceAt = ParseSince(since);
+        if (sinceAt is null) return Results.BadRequest(new { error = "bad_since" });
+    }
+    DateOnly? dayAt = null;
+    if (!string.IsNullOrWhiteSpace(day))
+    {
+        if (!DateOnly.TryParseExact(day.Trim(), "yyyy-MM-dd", out var dd)) return Results.BadRequest(new { error = "bad_day" });
+        dayAt = dd;
+    }
+
+    await logs.FlushAsync(ctx.RequestAborted);   // what was logged a moment ago must already be readable
+    var (records, source) = logs.Query(dayAt, sinceAt, min, q, n);
+
+    var sb = new System.Text.StringBuilder();
+    sb.Append("# RemoteServer ").Append(System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "?")
+      .Append(" on ").Append(Environment.MachineName)
+      .Append(" · now ").Append(DateTimeOffset.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
+      .Append(" · source ").Append(source)
+      .Append(" · ").Append(records.Count).Append(" records (tail ").Append(n);
+    if (min is { } m) sb.Append(", level >= ").Append(LogStore.Short(m));
+    if (sinceAt is { } s) sb.Append(", since ").Append(s.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+    if (dayAt is { } dy) sb.Append(", day ").Append(dy.ToString("yyyy-MM-dd"));
+    if (!string.IsNullOrEmpty(q)) sb.Append(", filter \"").Append(q).Append('"');
+    sb.Append(")\n");
+    foreach (var r in records) sb.Append(LogStore.Format(r));
+    return Results.Text(sb.ToString(), "text/plain; charset=utf-8");
+});
+
+app.MapGet("/admin/server/diag", async (HttpContext ctx, AppDbContext db, AgentConnectionRegistry registry, LogStore logs, IOptions<ServerOptions> opt, CancellationToken ct) =>
+{
+    var via = ctx.Items["apiToken"] is ApiToken t ? $"token:{t.Name} ({t.Scope})" : "session";
+    var diag = await ServerDiagnostics.CollectAsync(db, registry, logs, opt.Value, ServerUpdateStatusOf(opt.Value), via, ct);
+    return Results.Json(diag, AgentJsonContext.Default.ServerDiag);
 });
 
 // Current packages per channel and component, used by the client channel view.
@@ -1429,7 +1529,7 @@ app.MapDelete("/admin/tokens-list/{id:guid}", async (Guid id, HttpContext ctx, A
 // === Server settings: branding (owner + support) and email sending. ===
 app.MapGet("/admin/settings", async (AppDbContext db, CancellationToken ct) =>
 {
-    var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+    var s = await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct);
     var info = new ServerSettingsInfo();
     if (s is not null)
     {
@@ -1451,7 +1551,7 @@ app.MapPut("/admin/settings", async (HttpContext ctx, AppDbContext db, SecretPro
     var upd = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.ServerSettingsInfo, ct);
     if (upd is null) return Results.BadRequest();
 
-    var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+    var s = await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct);
     if (s is null) { s = new ServerSettings(); db.ServerSettings.Add(s); }
 
     s.OwnerName = Nz(upd.OwnerName); s.SupportPhone = Nz(upd.SupportPhone); s.SupportEmail = Nz(upd.SupportEmail);
@@ -1521,10 +1621,65 @@ app.MapPut("/admin/me/viewer-prefs", async (HttpContext ctx, AppDbContext db, Ca
     return Results.NoContent();
 });
 
+// === Access tokens: an admin's own read-only tokens for tooling (racctl). Self-service by design - you
+// list, mint and revoke yours, nobody mints one for somebody else - so a token always maps to the person
+// who asked for it. What a token may read is the allowlist in ApiTokenGate. ===
+
+app.MapGet("/admin/me/tokens", async (HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var me = (User)ctx.Items["user"]!;
+    var list = await db.ApiTokens
+        .Where(t => t.UserId == me.Id && t.RevokedAt == null)
+        .OrderByDescending(t => t.CreatedAt)
+        .Select(t => new ApiTokenInfo
+        {
+            Id = t.Id, Name = t.Name, Prefix = t.Prefix, Scope = t.Scope,
+            CreatedAt = t.CreatedAt, ExpiresAt = t.ExpiresAt, LastUsedAt = t.LastUsedAt, LastUsedIp = t.LastUsedIp,
+        })
+        .ToListAsync(ct);
+    return Results.Json(list, AgentJsonContext.Default.ListApiTokenInfo);
+});
+
+app.MapPost("/admin/me/tokens", async (HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+{
+    var me = (User)ctx.Items["user"]!;
+    ApiTokenCreateRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.ApiTokenCreateRequest, ct); }
+    catch (JsonException) { return Results.BadRequest(new { error = "invalid_request" }); }
+    var name = (req?.Name ?? "").Trim();
+    if (name.Length is 0 or > 64) return Results.BadRequest(new { error = "bad_name" });
+    if (req!.ExpiresInDays is { } days && days is < 1 or > 3650) return Results.BadRequest(new { error = "bad_expiry" });
+    var scope = string.IsNullOrWhiteSpace(req.Scope) ? ApiTokenGate.ScopeRead : req.Scope.Trim();
+    if (!ApiTokenGate.IsKnownScope(scope)) return Results.BadRequest(new { error = "bad_scope" });
+
+    var now = DateTimeOffset.UtcNow;
+    var active = await db.ApiTokens.CountAsync(t => t.UserId == me.Id && t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > now), ct);
+    if (active >= AuthService.MaxActiveApiTokensPerUser) return Results.BadRequest(new { error = "too_many" });
+
+    var (token, raw) = await auth.CreateApiTokenAsync(me, name, req.ExpiresInDays is { } dd ? TimeSpan.FromDays(dd) : null, scope, ct);
+    await AuditAsync(db, ctx, "api-token-create", null, $"{name} · {token.Prefix}… · {scope}");
+    return Results.Json(new ApiTokenCreated { Id = token.Id, Name = token.Name, Prefix = token.Prefix, Scope = token.Scope, Token = raw, ExpiresAt = token.ExpiresAt },
+        AgentJsonContext.Default.ApiTokenCreated);
+});
+
+app.MapPost("/admin/me/tokens/{id:guid}/revoke", async (Guid id, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var me = (User)ctx.Items["user"]!;
+    var token = await db.ApiTokens.FirstOrDefaultAsync(t => t.Id == id && t.UserId == me.Id, ct);
+    if (token is null) return Results.NotFound();
+    if (token.RevokedAt is null)
+    {
+        token.RevokedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await AuditAsync(db, ctx, "api-token-revoke", null, $"{token.Name} · {token.Prefix}…");
+    }
+    return Results.NoContent();
+});
+
 // Public branding through the tunnel before sign-in; auth gate has an exception for it.
 app.MapGet("/admin/branding", async (AppDbContext db, CancellationToken ct) =>
 {
-    var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+    var s = await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct);
     var b = new BrandingInfo { OwnerName = s?.OwnerName, SupportPhone = s?.SupportPhone, SupportEmail = s?.SupportEmail };
     return Results.Json(b, AgentJsonContext.Default.BrandingInfo);
 });
@@ -1589,7 +1744,7 @@ app.MapPost("/admin/msi", async (
     var (rawToken, tokenEntity) = await enroll.CreateTokenAsync(100000, expiresInHours: null, groupId, note: "msi-bootstrap", ct, autoApprove: false);
     var blob = BootstrapCodec.Encode(new BootstrapBlob { Url = url.TrimEnd('/'), Token = rawToken });
 
-    var ownerName = (await db.ServerSettings.FirstOrDefaultAsync(ct))?.OwnerName;
+    var ownerName = (await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct))?.OwnerName;
     var res = await msi.BuildAsync(agentExe, updaterExe, clientExe, blob, agentPkg.Version, label, startMenuShortcut, ownerName, vncMsi, ct);
     if (!res.Ok) return Results.Problem(res.Error ?? "msi_failed");
 
@@ -1650,7 +1805,7 @@ app.MapPost("/admin/users", async (HttpContext ctx, AppDbContext db, IEmailSende
     await SetRoleAsync(db, user.Id, role, ct);
     await db.SaveChangesAsync(ct);
 
-    string? serverLang = req.EmailCode ? ResolveServerLanguage(await db.ServerSettings.FirstOrDefaultAsync(ct)) : null;
+    string? serverLang = req.EmailCode ? ResolveServerLanguage(await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct)) : null;
     bool emailSent = req.EmailCode && await EmailResetCodeAsync(email, user, code, serverLang, ct); // admin-triggered → server language
 
     await AuditAsync(db, ctx, "user-create", null, $"{user.Username} · {role}{(emailSent ? " · token emailed" : "")}");
@@ -1727,7 +1882,7 @@ app.MapPost("/admin/users/{id:guid}/reset-password", async (Guid id, bool? email
     await auth.RevokeAllForUserAsync(id, ct);
     await db.SaveChangesAsync(ct);
 
-    string? serverLang = emailCode == true ? ResolveServerLanguage(await db.ServerSettings.FirstOrDefaultAsync(ct)) : null;
+    string? serverLang = emailCode == true ? ResolveServerLanguage(await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct)) : null;
     bool emailSent = emailCode == true && await EmailResetCodeAsync(email, user, code, serverLang, ct); // admin-triggered → server language
 
     await AuditAsync(db, ctx, "user-reset-password", null, $"{user.Username}{(emailSent ? " · token emailed" : "")}{(clearTotp == true ? " · TOTP cleared" : "")}");
@@ -1944,7 +2099,10 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
 static RemoteServer.Data.Entities.AuditLog AuditEntry(HttpContext ctx, string action, Guid? target = null, string? detail = null, string? actorOverride = null) => new()
 {
     Actor = actorOverride ?? (ctx.Items["user"] as RemoteServer.Data.Entities.User)?.Username ?? "system",
-    Action = action, TargetDeviceId = target, DetailJson = detail,
+    Action = action, TargetDeviceId = target,
+    // An action done with an access token is the owner's, but the log says which token did it: an admin
+    // can then tell their own console session from a script running under their name.
+    DetailJson = ctx.Items["apiToken"] is ApiToken tok ? (string.IsNullOrEmpty(detail) ? "" : detail + " · ") + "token:" + tok.Name : detail,
     Ip = PublicIpOf(ctx),   // real client IP (X-Real-IP / X-Forwarded-For behind nginx), not the proxy hop
 };
 
@@ -1968,6 +2126,46 @@ static string? BearerToken(HttpContext ctx)
 {
     var h = ctx.Request.Headers.Authorization.ToString();
     return h.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? h["Bearer ".Length..].Trim() : null;
+}
+
+/// <summary>"30m", "2h", "1d", "90s" relative to now, or an ISO-8601 instant (UTC when unqualified).</summary>
+static DateTimeOffset? ParseSince(string s)
+{
+    s = s.Trim();
+    if (s.Length >= 2 && char.IsAsciiDigit(s[0]) && "smhd".Contains(char.ToLowerInvariant(s[^1]))
+        && double.TryParse(s[..^1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) && v >= 0)
+    {
+        var span = char.ToLowerInvariant(s[^1]) switch
+        {
+            's' => TimeSpan.FromSeconds(v), 'm' => TimeSpan.FromMinutes(v), 'h' => TimeSpan.FromHours(v), _ => TimeSpan.FromDays(v),
+        };
+        return DateTimeOffset.UtcNow - span;
+    }
+    return DateTimeOffset.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var at) ? at : null;
+}
+
+/// <summary>Self-update state as the "Server update" tab and the diagnostics snapshot both show it.</summary>
+static ServerUpdateStatus ServerUpdateStatusOf(ServerOptions opt)
+{
+    var dir = opt.UpdatesDir;
+    var incoming = Path.Combine(dir, "incoming");
+    var tar = Path.Combine(incoming, "server.tar.gz");
+    string? Read(string n) { var p = Path.Combine(dir, n); return File.Exists(p) ? File.ReadAllText(p).Trim() : null; }
+    ServerUpdateResult? result = null;
+    var st = Read("result.status");
+    if (st is not null)
+        result = new ServerUpdateResult { Ok = st == "ok", Message = Read("result.log") ?? "", At = Read("result.at") ?? "" };
+    return new ServerUpdateStatus
+    {
+        Version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "?",
+        StagedTar = File.Exists(tar),
+        StagedTarSize = File.Exists(tar) ? new FileInfo(tar).Length : 0,
+        StagedSql = File.Exists(Path.Combine(incoming, "upgrade.sql")),
+        LastResult = result,
+        BackupAvailable = File.Exists(Path.Combine(dir, "last_backup")),
+        HelperReady = File.Exists("/opt/remoteserver-update/deploy.sh"),
+    };
 }
 
 // Minimum-version gate: if the client is older than allowed, return mustUpdate with the
@@ -2103,7 +2301,7 @@ static async Task RegisterLoginFailAsync(AppDbContext db, IEmailSender email, Ht
     {
         await AuditAsync(db, ctx, "device-locked", device.Id, $"{username} · {LoginFailLockThreshold}", actorOverride: "system");
 
-        var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+        var s = await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct);
         var to = s?.SupportEmail;
         if (!string.IsNullOrWhiteSpace(to))
         {
@@ -2228,7 +2426,10 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
             result = await socket.ReceiveAsync(buffer, ct);
             if (result.MessageType == WebSocketMessageType.Close)
             {
-                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", ct);
+                // An agent-initiated close still needs our reply. When WE sent the close first (shutdown),
+                // this frame is the agent's reply and the handshake is already complete.
+                if (socket.State == WebSocketState.CloseReceived)
+                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", ct);
                 return;
             }
             message.Write(buffer, 0, result.Count);

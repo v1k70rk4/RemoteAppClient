@@ -23,6 +23,37 @@ public sealed class AgentConnectionRegistry
 
     public bool IsConnected(string deviceId) => _connections.ContainsKey(deviceId);
 
+    // ---- shutdown -------------------------------------------------------------------------------------
+    // Without this a server stop took the host's full 30 s shutdown timeout every time: the agent sockets
+    // are long-lived requests that would happily stay open, and Kestrel waits for in-flight requests. So on
+    // stopping we tell every agent to leave (close frame 1001 "server restarting" - they reconnect with
+    // their normal backoff, no agent change needed), and a few seconds later abort whoever did not answer.
+
+    private readonly CancellationTokenSource _shutdown = new();
+
+    /// <summary>Fires a grace period into shutdown; the socket handlers link their loops to it.</summary>
+    public CancellationToken ShutdownToken => _shutdown.Token;
+
+    /// <summary>Sends the close frame to every live socket, then arms <see cref="ShutdownToken"/> to fire after
+    /// <paramref name="grace"/>. Returns how many sockets were told.</summary>
+    public async Task<int> BeginShutdownAsync(TimeSpan grace)
+    {
+        var sockets = _connections.Values.ToArray();
+        using var cts = new CancellationTokenSource(grace);
+        await Task.WhenAll(sockets.Select(async s =>
+        {
+            try
+            {
+                // Output only: the handler's pending ReceiveAsync picks up the agent's reply and ends the loop.
+                if (s.State == WebSocketState.Open)
+                    await s.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, "server restarting", cts.Token);
+            }
+            catch { /* a socket that is already gone is exactly what we want */ }
+        }));
+        _shutdown.CancelAfter(grace);
+        return sockets.Length;
+    }
+
     public void Register(string deviceId, WebSocket socket)
     {
         _connections[deviceId] = socket;

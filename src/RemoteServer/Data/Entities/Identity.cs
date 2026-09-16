@@ -134,6 +134,37 @@ public sealed class UserSession
 }
 
 /// <summary>
+/// Read-only access token an admin mints for their own tooling (racctl): it opens the server log, the health
+/// snapshot and the device list without the password or 2FA, and everything read with it is attributed to
+/// the owner. The raw token ("rac_...") is shown once; only its hash is stored. Accepted solely on the
+/// tunnel-only /admin path and only while the owner is still an active admin.
+/// </summary>
+public sealed class ApiToken
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public User User { get; set; } = null!;
+
+    /// <summary>Operator-chosen label ("racctl on my laptop").</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Token SHA-256 hash (hex). The raw token is never stored.</summary>
+    public string TokenHash { get; set; } = string.Empty;
+
+    /// <summary>First characters of the raw token, for recognising it in listings.</summary>
+    public string Prefix { get; set; } = string.Empty;
+
+    /// <summary>"diag": read-only diagnostics and fleet listing. Reserved for finer scopes later.</summary>
+    public string Scope { get; set; } = "diag";
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
+    public string? LastUsedIp { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+}
+
+/// <summary>
 /// "Remember this device" 2FA trust: lets the user skip TOTP on this device for a bounded period after a
 /// full 2FA sign-in. The password is still required every login — only the second factor is remembered.
 /// The raw token lives only on the client (DPAPI); the DB stores its hash. Revoked on password change.

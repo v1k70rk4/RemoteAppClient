@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.1.8-2ea44f" alt="version 2.1.8">
+  <img src="https://img.shields.io/badge/version-2.2.0-2ea44f" alt="version 2.2.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 2.2.0](#whats-new-in-220)
 - [What's New in 2.1.8](#whats-new-in-218)
 - [What's New in 2.1.7](#whats-new-in-217)
 - [What's New in 2.1.5](#whats-new-in-215)
@@ -63,6 +64,59 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [TightVNC And Licensing](#tightvnc-and-licensing)
 
 ---
+
+## What's New in 2.2.0
+
+A release about **seeing and running the server without a shell on the box**. Every component is **2.2.0.0**.
+There is a **schema change**: `upgrade-2.2.0-api-tokens.sql` adds one table and is idempotent.
+
+**The server's own log, readable from the console**
+- The server writes a daily-rolling log file next to its other state (`/var/lib/remoteserver/logs`, 14 days;
+  `Server:LogDir` and `Server:LogRetentionDays` change that) and serves it over the admin session. *Server settings
+  → Diagnostics* shows the newest records with level, time-window and text filters, with Copy and Save as. Until now
+  the log lived only in journald, which the service user cannot read: on a box where nobody has root, nobody could
+  read it.
+- If the directory cannot be created, the server keeps the newest records in memory and says so in the snapshot.
+
+**A health snapshot**
+- One click, or `racctl diag`: version, uptime, memory and load, disks, database latency and table sizes, fleet
+  counts (devices, connected, reporting, flaky, pending commands), the log's state, what the public name resolves
+  to compared with the box's own addresses, the certificate the public 443 actually serves and its expiry, and the
+  self-update state. Both mistakes of the last server move would have shown up in it within a minute.
+
+**Access tokens for tooling**
+- An admin mints tokens for their own account (*Diagnostics → Access tokens*). A token is shown once and only its
+  hash is stored; it needs neither the password nor 2FA, and everything done with it is attributed to the admin,
+  with the token's name in the audit detail. Revoke it any time; revoking a user's sessions revokes their tokens too.
+- Two scopes. **Read-only**, the default, opens the log, the snapshot and the fleet listings and never a secret: a
+  token never receives VNC passwords or device notes, and cannot reach the backup, MSIs, enrollment tokens or user
+  management. **Read + server update** adds exactly the three self-update routes (stage, apply, roll back) and is
+  deliberately loud in the UI, because a package the helper installs *is* the server.
+- A token is accepted only on the tunnel-only `/admin` path: without an enrolled device's SSH access a leaked token
+  reaches nothing. Ten rejected tokens from one address block token authentication for ten minutes.
+
+**racctl, a command-line client**
+- `src/RemoteClient.Cli` builds `racctl.exe`: `logs`, `diag`, `status`, `devices`, `events`, `audit`, `get`, and with
+  an update token `update <tar.gz> [--sql upgrade.sql]`, `apply` and `rollback`, the same steps as the console's
+  *Server update* tab, waiting for the helper's verdict. It reaches the server through the local agent's broker like
+  the console does, so it works on an enrolled Windows device with the agent running, and keeps its token
+  DPAPI-protected. It is not a release artifact: build it where you use it.
+
+**A server stop takes a second, not thirty**
+- Every server stop used to take the host's full 30-second shutdown timeout: the agents' command-channel sockets are
+  long-lived requests that stay open, and the host waits for open requests. On stopping, the server now sends every
+  agent a close frame and aborts whoever has not answered within three seconds. Measured with 11 connected agents,
+  a self-update went from 37 s to 8 s, and because a clean close resets the agents' reconnect backoff, all of them
+  were back within two seconds of the new server listening; they used to trickle back over one to two minutes.
+
+**Also**
+- The single-row settings query no longer trips EF Core's *First without OrderBy* warning.
+
+**Upgrading**
+- Server: upload `RemoteServer-linux-x64.tar.gz`, then `upgrade-2.2.0-api-tokens.sql` (the tar first: uploading a
+  tar clears a previously staged SQL), then *Update server*.
+- Console: 2.2.0 is needed for the Diagnostics tab and token management; older consoles keep working.
+- Agent, updater, Lite and the Linux console: no functional change, the version is aligned.
 
 ## What's New in 2.1.8
 
@@ -542,7 +596,11 @@ Important routing rules:
 | `RemoteAgent` | Windows service: enrollment bootstrap, command channel, command verification, telemetry, VNC provisioning, local broker, reverse tunnel, updates | Managed Windows devices as SYSTEM |
 | `RemoteAgent.Updater` | Helper service: watchdog, heartbeat monitoring, and executable replacement for agent updates | Managed Windows devices as SYSTEM |
 | `RemoteClient` | WinForms/MaterialSkin console for operators and administrators | Windows admin/operator devices |
-| `RemoteServer` | ASP.NET Core server: enrollment, auth, admin API, command signing, telemetry ingest, package storage, MSI generation, audit | Linux |
+| `RemoteClient.Lite` | Viewer-only Windows console: signs in with an ephemeral SSH certificate, no local agent needed | Windows operator devices |
+| `RemoteClient.Linux` | Viewer-only Avalonia console for Linux operators | Linux operator devices |
+| `RemoteClient.Cli` | `racctl`: command-line access to the log, the health snapshot, the fleet listings and the server self-update with an access token | Enrolled Windows devices |
+| `RemoteClient.Core` | Shared console logic: admin API client, tunnel transports, localization | Referenced by the consoles and `racctl` |
+| `RemoteServer` | ASP.NET Core server: enrollment, auth, admin API, command signing, telemetry ingest, package storage, MSI generation, audit, diagnostics | Linux |
 | `RemoteAgent.Contracts` | Shared DTOs and canonical command signature logic | Referenced by client, agent, and server |
 | `RemoteAgent.Resources` | Shared resources | Referenced by application projects |
 
@@ -891,6 +949,14 @@ single-file, self-contained EXEs:
 Signing scripts and output folders are machine-specific and belong in `build.local.psd1` next to `build.ps1`
 (ignored by git); `Get-Help .\build.ps1 -Detailed` shows its format. A signing script is invoked as
 `& <script> -Path <file>`. Default output: `C:\RAC\build`, and `C:\RAC\release` for `-Tag`.
+
+`racctl` is not part of the release assets; build it where you use it and store a token minted in the console:
+
+```powershell
+dotnet publish src/RemoteClient.Cli/RemoteClient.Cli.csproj -c Release -o C:\tools\racctl
+C:\tools\racctl\racctl.exe token rac_...      # DPAPI-protected, current user
+C:\tools\racctl\racctl.exe logs --level warn --since 2h
+```
 
 Build the server on Linux:
 

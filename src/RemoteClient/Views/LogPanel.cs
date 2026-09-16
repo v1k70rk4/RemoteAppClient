@@ -39,6 +39,8 @@ public sealed class LogPanel : UserControl
             new FilterItem("device.enrolled", L.LogPanel_Enrollment),
             new FilterItem("device-update", L.AuditText_DeviceUpdated),
             new FilterItem("device-note-import", L.AuditText_NoteImported),
+            new FilterItem("api-token-create", L.AuditText_ApiTokenCreated),
+            new FilterItem("api-token-revoke", L.AuditText_ApiTokenRevoked),
             new FilterItem("rollout", "Rollout"),
         });
         _filter.SelectedIndex = 0;

@@ -19,6 +19,8 @@ internal static class AuditText
         "device.enrolled" => L.AuditText_DeviceEnrolled,
         "device-update" => L.AuditText_DeviceUpdated,
         "device-note-import" => L.AuditText_NoteImported,
+        "api-token-create" => L.AuditText_ApiTokenCreated,
+        "api-token-revoke" => L.AuditText_ApiTokenRevoked,
         "device-delete" => L.DevicesView_Delete,
         "access-available" => L.AuditText_Available,
         "access-no-answer" => L.AuditText_NoResponseTimeout,

@@ -471,6 +471,81 @@ public sealed class AdminApi : IDisposable
     public async Task<ServerUpdateStatus> GetServerUpdateStatusAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/server/status", AgentJsonContext.Default.ServerUpdateStatus, ct) ?? new ServerUpdateStatus();
 
+    // ---- diagnostics + read-only access tokens (server 2.2.0) ---------------------------------------
+    // These answer null on a server that predates them (404/405), so a console can say "update the
+    // server" instead of showing a raw HTTP error.
+
+    /// <summary>The server's own log as text, newest <paramref name="tail"/> records. <paramref name="level"/> is
+    /// "info" / "warn" / "error" (minimum), <paramref name="since"/> "30m" / "2h" / "1d" or an ISO instant,
+    /// <paramref name="day"/> yyyy-MM-dd for one specific day file.</summary>
+    public async Task<string?> GetServerLogsAsync(int tail = 500, string? level = null, string? since = null, string? contains = null, string? day = null, CancellationToken ct = default)
+    {
+        var q = new List<string> { "tail=" + tail };
+        if (!string.IsNullOrWhiteSpace(level)) q.Add("level=" + Uri.EscapeDataString(level));
+        if (!string.IsNullOrWhiteSpace(since)) q.Add("since=" + Uri.EscapeDataString(since));
+        if (!string.IsNullOrWhiteSpace(contains)) q.Add("q=" + Uri.EscapeDataString(contains));
+        if (!string.IsNullOrWhiteSpace(day)) q.Add("day=" + Uri.EscapeDataString(day));
+        using var resp = await _http.GetAsync("/admin/server/logs?" + string.Join('&', q), ct);
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <summary>Health snapshot: process, host, database, fleet counts, log state, public DNS and TLS.</summary>
+    public async Task<ServerDiag?> GetServerDiagAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync("/admin/server/diag", ct);
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.ServerDiag, ct);
+    }
+
+    /// <summary>Raw body of an admin GET, for tooling (racctl get). Throws HttpRequestException carrying the status.</summary>
+    public async Task<string> GetRawAsync(string pathAndQuery, CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync(pathAndQuery, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <summary>The signed-in admin's own live access tokens (never the secrets).</summary>
+    public async Task<List<ApiTokenInfo>?> ListApiTokensAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync("/admin/me/tokens", ct);
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.ListApiTokenInfo, ct) ?? [];
+    }
+
+    /// <summary>Mints a token for the signed-in admin; the returned secret is shown once and never again.
+    /// <paramref name="scope"/> is <see cref="ApiTokenScopes.Read"/> or <see cref="ApiTokenScopes.Update"/>.
+    /// Null on a server without tokens; throws AuthException with the server's code ("too_many", "bad_name") on refusal.</summary>
+    public async Task<ApiTokenCreated?> CreateApiTokenAsync(string name, int? expiresInDays, string scope = ApiTokenScopes.Read, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsJsonAsync("/admin/me/tokens",
+            new ApiTokenCreateRequest { Name = name, ExpiresInDays = expiresInDays, Scope = scope }, AgentJsonContext.Default.ApiTokenCreateRequest, ct);
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) return null;
+        if (resp.StatusCode == HttpStatusCode.BadRequest)
+        {
+            string code = "bad_request";
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+                if (doc.RootElement.TryGetProperty("error", out var e) && e.GetString() is { } s) code = s;
+            }
+            catch { /* keep the generic code */ }
+            throw new AuthException(code);
+        }
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.ApiTokenCreated, ct);
+    }
+
+    public async Task RevokeApiTokenAsync(Guid id, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/me/tokens/{id}/revoke", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Builds an MSI for a group from a channel, optionally including the console client and Start menu shortcut. Returns file name and download URL.</summary>
     public async Task<(string fileName, string url)> BuildMsiAsync(Guid? groupId, string channel, bool includeClient = true, bool shortcut = true, CancellationToken ct = default)
     {
