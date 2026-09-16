@@ -539,3 +539,156 @@ public sealed class BrandingInfo
     [JsonPropertyName("supportPhone")] public string? SupportPhone { get; set; }
     [JsonPropertyName("supportEmail")] public string? SupportEmail { get; set; }
 }
+
+// === Read-only access tokens + server diagnostics ===
+//
+// An access token is a per-admin, read-only credential ("rac_..." bearer) for tooling such as racctl: it
+// opens the server log, the health snapshot and the device list without the admin's password or 2FA, and
+// everything read with it is attributed to that admin. The raw token is shown exactly once at creation;
+// the server keeps only its hash. It is accepted only on the tunnel-only /admin path, so a leaked token
+// alone - without an enrolled device's SSH key - reaches nothing.
+
+/// <summary>An access token as listed to its owner. Never carries the secret.</summary>
+public sealed class ApiTokenInfo
+{
+    [JsonPropertyName("id")] public Guid Id { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    /// <summary>First characters of the token ("rac_ab12cd34"), enough to recognise it in a config file.</summary>
+    [JsonPropertyName("prefix")] public string Prefix { get; set; } = string.Empty;
+    /// <summary>"diag": read-only diagnostics + fleet listing.</summary>
+    [JsonPropertyName("scope")] public string Scope { get; set; } = "diag";
+    [JsonPropertyName("createdAt")] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyName("expiresAt")] public DateTimeOffset? ExpiresAt { get; set; }
+    [JsonPropertyName("lastUsedAt")] public DateTimeOffset? LastUsedAt { get; set; }
+    [JsonPropertyName("lastUsedIp")] public string? LastUsedIp { get; set; }
+}
+
+public sealed class ApiTokenCreateRequest
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    /// <summary>Null = never expires.</summary>
+    [JsonPropertyName("expiresInDays")] public int? ExpiresInDays { get; set; }
+    /// <summary>"diag" (read-only, the default) or "update" (read-only plus server update / rollback).</summary>
+    [JsonPropertyName("scope")] public string Scope { get; set; } = ApiTokenScopes.Read;
+}
+
+/// <summary>Creation result: the only time the raw token is ever sent.</summary>
+public sealed class ApiTokenCreated
+{
+    [JsonPropertyName("id")] public Guid Id { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("prefix")] public string Prefix { get; set; } = string.Empty;
+    [JsonPropertyName("scope")] public string Scope { get; set; } = ApiTokenScopes.Read;
+    [JsonPropertyName("token")] public string Token { get; set; } = string.Empty;
+    [JsonPropertyName("expiresAt")] public DateTimeOffset? ExpiresAt { get; set; }
+}
+
+/// <summary>Access-token scopes as the server and the consoles spell them.</summary>
+public static class ApiTokenScopes
+{
+    /// <summary>Log, health snapshot, fleet listings. Never a secret, never a change.</summary>
+    public const string Read = "diag";
+    /// <summary>Everything in <see cref="Read"/> plus staging and applying a server package and rolling back.</summary>
+    public const string Update = "update";
+}
+
+/// <summary>Server health snapshot ("Server settings -> Diagnostics", racctl diag). Everything in here the
+/// server can see as its own unprivileged service user; nothing needs root.</summary>
+public sealed class ServerDiag
+{
+    [JsonPropertyName("version")] public string Version { get; set; } = string.Empty;
+    [JsonPropertyName("hostname")] public string Hostname { get; set; } = string.Empty;
+    [JsonPropertyName("os")] public string Os { get; set; } = string.Empty;
+    [JsonPropertyName("runtime")] public string Runtime { get; set; } = string.Empty;
+    [JsonPropertyName("utcNow")] public DateTimeOffset UtcNow { get; set; }
+    [JsonPropertyName("startedAt")] public DateTimeOffset StartedAt { get; set; }
+    [JsonPropertyName("uptimeSeconds")] public long UptimeSeconds { get; set; }
+    [JsonPropertyName("processMemoryMb")] public long ProcessMemoryMb { get; set; }
+    [JsonPropertyName("gcHeapMb")] public long GcHeapMb { get; set; }
+    [JsonPropertyName("threads")] public int Threads { get; set; }
+    /// <summary>Linux 1/5/15-minute load average; null where /proc is not available.</summary>
+    [JsonPropertyName("loadAverage")] public string? LoadAverage { get; set; }
+    [JsonPropertyName("memoryTotalMb")] public long? MemoryTotalMb { get; set; }
+    [JsonPropertyName("memoryAvailableMb")] public long? MemoryAvailableMb { get; set; }
+    [JsonPropertyName("disks")] public System.Collections.Generic.List<ServerDiagDisk> Disks { get; set; } = [];
+    [JsonPropertyName("database")] public ServerDiagDb Database { get; set; } = new();
+    [JsonPropertyName("fleet")] public ServerDiagFleet Fleet { get; set; } = new();
+    [JsonPropertyName("log")] public ServerDiagLog Log { get; set; } = new();
+    [JsonPropertyName("publicUrl")] public string? PublicUrl { get; set; }
+    [JsonPropertyName("dns")] public ServerDiagDns? Dns { get; set; }
+    [JsonPropertyName("tls")] public ServerDiagTls? Tls { get; set; }
+    [JsonPropertyName("update")] public ServerUpdateStatus? Update { get; set; }
+    /// <summary>"session" or "token:&lt;name&gt;" - how this snapshot was requested.</summary>
+    [JsonPropertyName("requestVia")] public string RequestVia { get; set; } = string.Empty;
+}
+
+public sealed class ServerDiagDisk
+{
+    [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+    [JsonPropertyName("totalGb")] public double TotalGb { get; set; }
+    [JsonPropertyName("freeGb")] public double FreeGb { get; set; }
+}
+
+public sealed class ServerDiagDb
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("latencyMs")] public double LatencyMs { get; set; }
+    [JsonPropertyName("sizeMb")] public double SizeMb { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("tables")] public System.Collections.Generic.List<ServerDiagTable> Tables { get; set; } = [];
+}
+
+public sealed class ServerDiagTable
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    /// <summary>Storage-engine estimate, not an exact count.</summary>
+    [JsonPropertyName("rows")] public long Rows { get; set; }
+    [JsonPropertyName("sizeMb")] public double SizeMb { get; set; }
+}
+
+public sealed class ServerDiagFleet
+{
+    [JsonPropertyName("devices")] public int Devices { get; set; }
+    /// <summary>Live C2 sockets in the registry.</summary>
+    [JsonPropertyName("connected")] public int Connected { get; set; }
+    /// <summary>Devices whose telemetry arrived within the freshness window.</summary>
+    [JsonPropertyName("reporting")] public int Reporting { get; set; }
+    [JsonPropertyName("flaky")] public int Flaky { get; set; }
+    [JsonPropertyName("eventsLastHour")] public int EventsLastHour { get; set; }
+    [JsonPropertyName("pendingCommands")] public int PendingCommands { get; set; }
+    [JsonPropertyName("lastTelemetryAt")] public DateTimeOffset? LastTelemetryAt { get; set; }
+}
+
+public sealed class ServerDiagLog
+{
+    /// <summary>Directory of the rolling log files; null when the server could not create it (memory only).</summary>
+    [JsonPropertyName("directory")] public string? Directory { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("fileBytes")] public long FileBytes { get; set; }
+    [JsonPropertyName("memoryRecords")] public int MemoryRecords { get; set; }
+    [JsonPropertyName("warningsLastHour")] public int WarningsLastHour { get; set; }
+    [JsonPropertyName("errorsLastHour")] public int ErrorsLastHour { get; set; }
+}
+
+/// <summary>Does the public name still point at this box? A migration that forgot the DNS shows up here.</summary>
+public sealed class ServerDiagDns
+{
+    [JsonPropertyName("host")] public string Host { get; set; } = string.Empty;
+    [JsonPropertyName("resolved")] public System.Collections.Generic.List<string> Resolved { get; set; } = [];
+    [JsonPropertyName("local")] public System.Collections.Generic.List<string> Local { get; set; } = [];
+    /// <summary>Null when resolution failed; false is normal behind NAT.</summary>
+    [JsonPropertyName("matchesLocal")] public bool? MatchesLocal { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
+/// <summary>The certificate the public 443 actually serves, fetched through the real front door.</summary>
+public sealed class ServerDiagTls
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("subject")] public string? Subject { get; set; }
+    [JsonPropertyName("issuer")] public string? Issuer { get; set; }
+    [JsonPropertyName("notAfter")] public DateTimeOffset? NotAfter { get; set; }
+    [JsonPropertyName("daysLeft")] public int? DaysLeft { get; set; }
+    [JsonPropertyName("serial")] public string? Serial { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
