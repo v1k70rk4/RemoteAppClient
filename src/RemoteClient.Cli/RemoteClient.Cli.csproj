@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- racctl: read-only command-line access to the admin API (the server's log, a health snapshot, the
+       device list) with a per-admin access token, reaching the server through the local agent's broker
+       exactly like the console does. Windows-only because the broker is; the token sits DPAPI-protected in
+       %APPDATA%\RemoteClient\racctl.token. Not a release artifact: build it where you use it
+       (dotnet build src/RemoteClient.Cli -c Release). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RemoteClient.Cli</RootNamespace>
+    <AssemblyName>racctl</AssemblyName>
+    <Version>2.2.0.0</Version>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteClient.Core\RemoteClient.Core.csproj" />
+    <ProjectReference Include="..\RemoteAgent.Contracts\RemoteAgent.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+  </ItemGroup>
+
+</Project>
