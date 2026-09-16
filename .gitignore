@@ -10,6 +10,8 @@ publish/
 *.crt
 id_ed25519*
 cloudflare.ini
+# machine-specific signing scripts and folders for build.ps1 - never committed
+build.local.psd1
 appsettings.*.Local.json
 secrets.json
 

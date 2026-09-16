@@ -1,99 +1,314 @@
 #requires -Version 7
 <#
 .SYNOPSIS
-    RemoteAppClient — builds the Windows components (agent, updater, operator console) into
-    single-file, self-contained exes in one output folder (C:\RAC by default, the install location).
+    RemoteAppClient build: the Windows exes (signed for the fleet or for a release), the Linux server package,
+    and MSI signing. Run it without parameters to see the options.
 
 .DESCRIPTION
-    All three csproj files are already win-x64 + self-contained + single-file, so publish yields a
-    single exe each. Because RemoteAgent and RemoteAgent.Updater are SERVICES running from the output
-    folder (they lock their own exe), this script STOPS them for the duration of the build when run as
-    administrator, then STARTS them again. The console client (RemoteClient.exe) is not a service.
+    Pick one action:
 
-    At the end it prints version + SHA-256 for each exe (what you feed to the server's package upload
-    and rollout). The server (RemoteServer) does NOT belong here — it runs on Linux with its own deploy.
+      -Fleet        Fleet build: agent, updater and console, signed with the fleet certificate.
+                    Add -Deploy to replace this machine's live installation, -Server for the server package too.
+      -Tag          Release build for a GitHub tag: agent, updater, console and Lite - every Windows asset of a
+                    release - signed with the release certificate. Written apart from the fleet build and never
+                    deployed.
+      -Msi          Signs the MSI(s) in the MSI folder with the fleet certificate. Builds nothing.
+      -ServerOnly   Only the Linux server package, RemoteServer-linux-x64.tar.gz, for the console's Server
+                    update tab. Touches nothing Windows-side and needs no administrator rights.
+      -Unsigned     Unsigned build of agent, updater and console, for development. -Deploy and -Server allowed.
+      -SignScript   Like -Fleet, but signed by any script you name.
+
+    Signing always happens BEFORE anything is hashed or deployed: agents verify an update's SHA-256, so a hash
+    taken from the unsigned file would make every agent refuse the signed one. A signing failure counts as a
+    build failure, so an exe meant to be signed is never deployed unsigned.
+
+    Nothing machine- or organisation-specific lives in this script. The signing scripts - which hold accounts,
+    certificates and endpoints - and the folders come from build.local.psd1 next to this file, which is never
+    committed. Precedence: command-line parameter, then build.local.psd1, then the built-in default. Example:
+
+        @{
+            FleetSignScript = 'D:\signing\fleet.ps1'      # invoked as: & <script> -Path <file>
+            TagSignScript   = 'D:\signing\release.ps1'
+            FleetOutDir     = 'C:\RAC\build'
+            ReleaseOutDir   = 'D:\release'
+            MsiDir          = 'C:\RAC\MSI'
+        }
+
+    All Windows projects are win-x64 + self-contained + single-file, so each publish yields one exe. The server
+    is cross-published for linux-x64 from Windows and packed with explicit Unix file modes.
+
+.PARAMETER Fleet
+    Fleet build, signed by the fleet signing script.
+
+.PARAMETER Tag
+    Release build (includes RemoteClient.Lite), signed by the release signing script. Warns when the working tree
+    is dirty or HEAD carries no tag, because the signed exes are meant to replace the CI's unsigned assets of
+    exactly that tag.
+
+.PARAMETER Msi
+    Signs every .msi in the MSI folder with the fleet signing script. Run on its own.
+
+.PARAMETER ServerOnly
+    Builds only the server package. Run on its own.
+
+.PARAMETER Server
+    Adds the server package to a Windows build.
+
+.PARAMETER Unsigned
+    Windows build without signing.
+
+.PARAMETER SignScript
+    Windows build signed by this script, invoked as `& $SignScript -Path <file>` for every exe.
+
+.PARAMETER Deploy
+    After building, replace the LIVE installation in -InstallDir. The services stay stopped until the copy is
+    done, and the running console client is killed as well - otherwise it would hold a lock on its own exe.
+    Requires administrator. Not available with -Tag: release exes do not belong in the fleet's installation.
 
 .PARAMETER OutDir
-    Output folder. Default: C:\RAC\build
+    Output folder. Default: ReleaseOutDir with -Tag, FleetOutDir otherwise (build.local.psd1), else
+    C:\RAC\release and C:\RAC\build.
 
 .PARAMETER Configuration
     Build configuration. Default: Release
-
-.PARAMETER Deploy
-    After building, also replace the LIVE installation in $InstallDir. The services then stay stopped
-    UNTIL the copy is done, and the running console client is killed as well — otherwise it would hold
-    a lock on its own exe. Requires administrator; without this switch the script only builds.
 
 .PARAMETER InstallDir
     Location of the live installation. Default: C:\Program Files\RemoteAppClient
 
 .PARAMETER NoBackup
-    With -Deploy, skip saving the replaced exes. By default each one gets a <name>.exe.bak beside it
-    (always the previous state), so a bad build can be rolled back by hand.
+    With -Deploy, skip saving the replaced exes. By default each one gets a <name>.exe.bak beside it (always the
+    previous state), so a bad build can be rolled back by hand.
 
-.PARAMETER SignScript
-    Optional path to a code-signing script, invoked as `& $SignScript -Path <exe>` for every exe this
-    run produced — BEFORE anything is hashed or deployed. Signing accounts, certificates and endpoints
-    belong in that script and never in this repository. An exe whose signing fails is treated like a
-    failed build: it is neither deployed nor reported as done.
+.PARAMETER MsiDir
+    Folder of the MSI(s) that -Msi signs. Default: MsiDir in build.local.psd1, else C:\RAC\MSI
+
+.PARAMETER FleetSignScript
+    Signing script for -Fleet and -Msi. Default: FleetSignScript in build.local.psd1.
+
+.PARAMETER TagSignScript
+    Signing script for -Tag. Default: TagSignScript in build.local.psd1.
 
 .EXAMPLE
-    # In an administrator PowerShell:
-    .\build.ps1
+    # Fleet build, signed, and replace this machine's installation (administrator PowerShell):
+    .\build.ps1 -Fleet -Deploy
 .EXAMPLE
-    .\build.ps1 -OutDir D:\release
+    # Release build for the tag that was just pushed:
+    .\build.ps1 -Tag
 .EXAMPLE
-    # Build and replace the live installation in one go:
-    .\build.ps1 -Deploy
+    # Sign the MSI generated by the server:
+    .\build.ps1 -Msi
 .EXAMPLE
-    # Build, sign, then replace the live installation:
-    .\build.ps1 -SignScript C:\RAC\sign.ps1 -Deploy
+    # Only the server package, for the console's Server update tab:
+    .\build.ps1 -ServerOnly
 #>
 [CmdletBinding()]
 param(
-    [string]$OutDir = 'C:\RAC\build',
-    [string]$Configuration = 'Release',
+    [switch]$Fleet,
+    [switch]$Tag,
+    [switch]$Msi,
+    [switch]$ServerOnly,
+    [switch]$Server,
+    [switch]$Unsigned,
+    [string]$SignScript,
     [switch]$Deploy,
+    [string]$OutDir,
+    [string]$Configuration = 'Release',
     [string]$InstallDir = 'C:\Program Files\RemoteAppClient',
     [switch]$NoBackup,
-    [string]$SignScript
+    [string]$MsiDir,
+    [string]$FleetSignScript,
+    [string]$TagSignScript
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = $PSScriptRoot
 
-# Component -> csproj (the output exe is named after AssemblyName: <component>.exe)
-$components = [ordered]@{
-    'RemoteAgent'         = 'src\RemoteAgent\RemoteAgent.csproj'
-    'RemoteAgent.Updater' = 'src\RemoteAgent.Updater\RemoteAgent.Updater.csproj'
-    'RemoteClient'        = 'src\RemoteClient\RemoteClient.csproj'
+# --- Machine-specific settings (build.local.psd1, never committed) -----------------------------------------------
+$localFile = Join-Path $repo 'build.local.psd1'
+$localSettings = if (Test-Path $localFile) { Import-PowerShellDataFile $localFile } else { @{} }
+function Pick([string]$FromParameter, [string]$Key, [string]$Default) {
+    if ($FromParameter) { return $FromParameter }
+    if ($localSettings.ContainsKey($Key) -and $localSettings[$Key]) { return [string]$localSettings[$Key] }
+    return $Default
+}
+$FleetSignScript = Pick $FleetSignScript 'FleetSignScript' ''
+$TagSignScript   = Pick $TagSignScript   'TagSignScript'   ''
+$MsiDir          = Pick $MsiDir          'MsiDir'          'C:\RAC\MSI'
+$fleetOutDir     = Pick ''               'FleetOutDir'     'C:\RAC\build'
+$releaseOutDir   = Pick ''               'ReleaseOutDir'   'C:\RAC\release'
+
+function Show-Usage {
+    function Mark([string]$p) { if (-not $p) { '(not configured)' } elseif (Test-Path $p) { $p } else { "$p  (NOT FOUND)" } }
+    Write-Host ""
+    Write-Host "RemoteAppClient build - pick what to do:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  .\build.ps1 -Fleet [-Deploy] [-Server]        fleet build: agent, updater, console - fleet certificate"
+    Write-Host "  .\build.ps1 -Tag                               release build: agent, updater, console, Lite - release certificate"
+    Write-Host "  .\build.ps1 -Msi                               sign the MSI(s) in $MsiDir - fleet certificate"
+    Write-Host "  .\build.ps1 -ServerOnly                        server package: RemoteServer-linux-x64.tar.gz"
+    Write-Host "  .\build.ps1 -Unsigned [-Deploy] [-Server]      unsigned build, for development"
+    Write-Host ""
+    Write-Host "  fleet signing  : $(Mark $FleetSignScript)" -ForegroundColor DarkGray
+    Write-Host "  release signing: $(Mark $TagSignScript)" -ForegroundColor DarkGray
+    Write-Host "  output         : fleet $fleetOutDir, release $releaseOutDir" -ForegroundColor DarkGray
+    if (Test-Path $localFile) { Write-Host "  settings       : $localFile" -ForegroundColor DarkGray }
+    else { Write-Host "  settings       : no build.local.psd1 - see Get-Help .\build.ps1 -Detailed for its format" -ForegroundColor Yellow }
+    Write-Host ""
+    Write-Host "  Details: Get-Help .\build.ps1 -Detailed" -ForegroundColor DarkGray
+    Write-Host ""
 }
 
+# ELF programs (the apphost, createdump) and shell scripts need the executable bit; shared libraries do not.
+function Test-UnixExecutable([System.IO.FileInfo]$File) {
+    if ($File.Name -match '\.so(\.\d+)*$' -or $File.Length -lt 4) { return $false }
+    $head = [byte[]]::new(4)
+    $fs = [System.IO.File]::OpenRead($File.FullName)
+    try { [void]$fs.Read($head, 0, 4) } finally { $fs.Dispose() }
+    return ($head[0] -eq 0x7F -and $head[1] -eq 0x45 -and $head[2] -eq 0x4C -and $head[3] -eq 0x46) -or
+           ($head[0] -eq 0x23 -and $head[1] -eq 0x21)
+}
+
+# Packs a folder into a .tar.gz with explicit Unix modes. A tool running on Windows has to invent a mode for
+# every NTFS file, and a wrong guess - a directory the service user cannot enter, a helper that is not
+# executable - only shows up on the Linux box, as a failed health check and a rollback. So: directories
+# 0755, programs and scripts 0755, everything else 0644. Ownership is left to the server's update helper.
+function Write-TarGz([string]$Source, [string]$Destination) {
+    $root = (Resolve-Path $Source).Path.TrimEnd('\') + '\'
+    $tar = [System.Formats.Tar.TarWriter]::new(
+        [System.IO.Compression.GZipStream]::new([System.IO.File]::Create($Destination), [System.IO.Compression.CompressionLevel]::Optimal),
+        [System.Formats.Tar.TarEntryFormat]::Pax, $false)
+    try {
+        foreach ($item in Get-ChildItem $Source -Recurse -Force | Sort-Object FullName) {
+            $name = $item.FullName.Substring($root.Length).Replace('\', '/')
+            if ($item.PSIsContainer) {
+                $entry = [System.Formats.Tar.PaxTarEntry]::new([System.Formats.Tar.TarEntryType]::Directory, "$name/")
+                $entry.Mode = [System.IO.UnixFileMode]493                                  # 0755
+                $entry.ModificationTime = $item.LastWriteTimeUtc
+                $tar.WriteEntry($entry)
+                continue
+            }
+            $entry = [System.Formats.Tar.PaxTarEntry]::new([System.Formats.Tar.TarEntryType]::RegularFile, $name)
+            $entry.Mode = [System.IO.UnixFileMode]$(if (Test-UnixExecutable $item) { 493 } else { 420 })   # 0755 / 0644
+            $entry.ModificationTime = $item.LastWriteTimeUtc
+            $data = [System.IO.File]::OpenRead($item.FullName)
+            try { $entry.DataStream = $data; $tar.WriteEntry($entry) } finally { $data.Dispose() }
+        }
+    }
+    finally { $tar.Dispose() }   # closes the gzip stream and the file with it
+}
+
+function Get-SignerName([string]$File) {
+    $sig = Get-AuthenticodeSignature $File
+    if (-not $sig.SignerCertificate) { return '' }
+    return $sig.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+}
+
+# --- What was asked for ------------------------------------------------------------------------------------------
+$buildModes = @(
+    if ($Fleet)      { '-Fleet' }
+    if ($Tag)        { '-Tag' }
+    if ($SignScript) { '-SignScript' }
+    if ($Unsigned)   { '-Unsigned' }
+)
+$windowsBuild = $buildModes.Count -gt 0
+
+if (-not ($windowsBuild -or $Msi -or $ServerOnly)) {
+    if ($Server -or $Deploy) { Write-Host "-Server and -Deploy go with a Windows build; for the server package alone use -ServerOnly." -ForegroundColor Yellow }
+    Show-Usage
+    return
+}
+if ($buildModes.Count -gt 1) { throw "Pick one of $($buildModes -join ', ') - a build is signed by one certificate." }
+if ($Msi -and ($windowsBuild -or $ServerOnly -or $Server -or $Deploy)) { throw "-Msi runs on its own: it signs the MSI the server generated from an earlier build." }
+if ($ServerOnly -and ($windowsBuild -or $Server -or $Deploy)) { throw "-ServerOnly runs on its own; to add the server package to a Windows build use -Server." }
+if ($Tag -and $Deploy) { throw "-Tag builds are signed for the public release; they are not deployed to the fleet's installation." }
+
+$signWith = if ($Tag) { $TagSignScript } elseif ($Fleet -or $Msi) { $FleetSignScript } elseif ($SignScript) { $SignScript } else { $null }
+if (($Tag -or $Fleet -or $Msi) -and -not $signWith) {
+    $key = if ($Tag) { 'TagSignScript' } else { 'FleetSignScript' }
+    throw "No signing script configured: set $key in $localFile, or pass -$key."
+}
+# Check the signing script up front: discovering it is missing only after a full build, with the services
+# already stopped, would waste the build and leave the machine without its agent for nothing.
+if ($signWith -and -not (Test-Path $signWith)) { throw "Sign script not found: $signWith" }
+
+# --- -Msi: sign what the server generated, nothing else ------------------------------------------------------------
+if ($Msi) {
+    $msis = @(Get-ChildItem $MsiDir -Filter *.msi -File -ErrorAction SilentlyContinue | Sort-Object Name)
+    if ($msis.Count -eq 0) { throw "No .msi file in $MsiDir" }
+
+    $rows = foreach ($m in $msis) {
+        $generated = $m.LastWriteTime   # signing rewrites the file; show when it was generated, not signed
+        $ok = $true
+        try { & $signWith -Path $m.FullName }
+        catch { $ok = $false; Write-Warning "Signing $($m.Name) failed: $($_.Exception.Message)" }
+        [pscustomobject]@{
+            Msi       = $m.Name
+            Generated = $generated.ToString('yyyy-MM-dd HH:mm')
+            Signed    = if ($ok) { (Get-AuthenticodeSignature $m.FullName).Status.ToString() } else { 'FAILED' }
+            Signer    = Get-SignerName $m.FullName
+            MB        = [math]::Round((Get-Item $m.FullName).Length / 1MB, 1)
+            SHA256    = (Get-FileHash $m.FullName -Algorithm SHA256).Hash
+        }
+    }
+    $rows | Format-Table -AutoSize
+    if ($rows.Signed -contains 'FAILED') { throw "Not every MSI could be signed." }
+    return
+}
+
+# --- Builds ------------------------------------------------------------------------------------------------------
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw "No 'dotnet' on PATH — install the .NET 10 SDK."
+}
+if (-not $OutDir) { $OutDir = if ($Tag) { $releaseOutDir } else { $fleetOutDir } }
+
+# Component -> csproj (the output exe is named after AssemblyName: <component>.exe)
+$components = [ordered]@{}
+if ($windowsBuild) {
+    $components['RemoteAgent']         = 'src\RemoteAgent\RemoteAgent.csproj'
+    $components['RemoteAgent.Updater'] = 'src\RemoteAgent.Updater\RemoteAgent.Updater.csproj'
+    $components['RemoteClient']        = 'src\RemoteClient\RemoteClient.csproj'
+    # A release carries the viewer-only console as well; the fleet build does not need it.
+    if ($Tag) { $components['RemoteClient.Lite'] = 'src\RemoteClient.Lite\RemoteClient.Lite.csproj' }
 }
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltinRole]::Administrator)
 
-# Without -Deploy the script behaves exactly as before. With it we write into Program Files and stop
-# services: both need administrator, and failing halfway would leave things in a worse state than we
-# started from — so we stop here, not at the copy.
+# With -Deploy we write into Program Files and stop services: both need administrator, and failing halfway
+# would leave things in a worse state than we started from - so we stop here, not at the copy.
 if ($Deploy) {
     if (-not $isAdmin) { throw "-Deploy requires administrator (Program Files + services)." }
     if (-not (Test-Path $InstallDir)) { throw "Install folder not found: $InstallDir" }
 }
-# Check the signing script up front too: discovering it is missing only after a full build, with the
-# services already stopped, would waste the build and leave the machine without its agent for nothing.
-if ($SignScript -and -not (Test-Path $SignScript)) { throw "Sign script not found: $SignScript" }
+
+# A release build has to match its tag: the signed exes replace the CI's unsigned assets of exactly that commit.
+$releaseTag = $null
+if ($Tag -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    $releaseTag = git -C $repo describe --tags --exact-match HEAD 2>$null
+    if (git -C $repo status --porcelain 2>$null) {
+        Write-Host "WARNING: the working tree has uncommitted changes - these exes will not match any tag." -ForegroundColor Yellow
+    }
+    if ($releaseTag) { Write-Host "Release tag: $releaseTag" -ForegroundColor DarkGray }
+    else { Write-Host "WARNING: HEAD carries no tag - tag the release first, so the signed exes match it." -ForegroundColor Yellow }
+}
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Write-Host "Output folder: $OutDir" -ForegroundColor DarkGray
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-# --- Stop the services (a running exe locks itself). Updater FIRST — it supervises the agent. ---
+# --- Stop the services, but only when this run is going to overwrite their exe: with -Deploy, or when the output
+#     folder is where a service runs from. A running exe locks itself. Updater FIRST - it supervises the agent. ---
+$serviceDirs = foreach ($s in 'RemoteAgent', 'RemoteAgent.Updater') {
+    $p = (Get-CimInstance Win32_Service -Filter "Name='$s'" -ErrorAction SilentlyContinue).PathName
+    if (-not $p) { continue }
+    $exePath = if ($p -match '^"([^"]+)"') { $Matches[1] } elseif ($p -match '^(.+?\.exe)') { $Matches[1] } else { $p }
+    [System.IO.Path]::GetFullPath((Split-Path $exePath)).TrimEnd('\')
+}
+$overwritesServices = $components.Count -gt 0 -and
+    ($Deploy -or ($serviceDirs -contains [System.IO.Path]::GetFullPath($OutDir).TrimEnd('\')))
+
 $toRestart = @()
-if ($isAdmin) {
+if ($overwritesServices -and $isAdmin) {
     foreach ($s in @('RemoteAgent.Updater', 'RemoteAgent')) {
         $svc = Get-Service $s -ErrorAction SilentlyContinue
         if ($svc -and $svc.Status -eq 'Running') {
@@ -104,7 +319,7 @@ if ($isAdmin) {
         }
     }
 }
-else {
+elseif ($overwritesServices) {
     Write-Host "WARNING: not administrator — the running RemoteAgent/Updater exe cannot be replaced." -ForegroundColor Yellow
     Write-Host "         The client is still built; run as administrator for a full update." -ForegroundColor Yellow
 }
@@ -146,17 +361,16 @@ foreach ($name in $components.Keys) {
     Remove-Item $stage -Recurse -Force
 }
 
-# --- Optional signing. It has to happen HERE, before anything below hashes or deploys the exes: the
-#     SHA-256 printed at the end is what gets entered into the server's package upload, and agents
-#     reject an update whose hash does not match. Hashing an unsigned file and then shipping a signed
-#     one would make every agent refuse the update. A signing failure is treated as a build failure,
-#     so an exe that was meant to be signed can never be deployed unsigned. ---
-if ($SignScript) {
-    Write-Host "[sign] using $SignScript" -ForegroundColor Cyan
+# --- Signing. It has to happen HERE, before anything below hashes or deploys the exes: the SHA-256 printed at
+#     the end is what gets entered into the server's package upload, and agents reject an update whose hash does
+#     not match. Hashing an unsigned file and then shipping a signed one would make every agent refuse the update.
+#     A signing failure is treated as a build failure, so an exe meant to be signed is never deployed unsigned. ---
+if ($signWith -and $components.Count -gt 0) {
+    Write-Host "[sign] using $signWith" -ForegroundColor Cyan
     foreach ($name in $components.Keys) {
         if ($failed -contains $name) { continue }
         $exe = Join-Path $OutDir "$name.exe"
-        try { & $SignScript -Path $exe }
+        try { & $signWith -Path $exe }
         catch {
             $failed += $name
             Write-Warning "Signing $name failed — it will not be deployed: $($_.Exception.Message)"
@@ -169,7 +383,7 @@ if ($SignScript) {
 if ($Deploy) {
     Write-Host "[deploy] replacing installation: $InstallDir" -ForegroundColor Cyan
     foreach ($name in $components.Keys) {
-        if ($failed -contains $name) { Write-Warning "$name skipped (its build/copy failed)."; continue }
+        if ($failed -contains $name) { Write-Warning "$name skipped (its build, copy or signing failed)."; continue }
         $src = Join-Path $OutDir "$name.exe"
         $dst = Join-Path $InstallDir "$name.exe"
         if (-not (Test-Path $src)) { Write-Warning "$name skipped (no fresh exe: $src)."; continue }
@@ -198,23 +412,68 @@ foreach ($s in $toRestart) {
     Start-Service $s -ErrorAction SilentlyContinue
 }
 
+# --- Optional: the Linux server package, after the services are back up so a slow server publish never
+#     keeps this machine's agent down. Same archive the CI attaches to a release. ---
+$serverPackage = $null
+if ($Server -or $ServerOnly) {
+    $proj = Join-Path $repo 'src\RemoteServer\RemoteServer.csproj'
+    $stage = Join-Path $env:TEMP 'rac_pub_RemoteServer'
+    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+
+    Write-Host "[build] RemoteServer (linux-x64) ..." -ForegroundColor Cyan
+    dotnet publish $proj -c $Configuration -r linux-x64 --self-contained -o $stage --nologo -v minimal
+    if ($LASTEXITCODE -ne 0) { throw "Build of RemoteServer failed (dotnet exit=$LASTEXITCODE)." }
+    # The server's update helper looks for exactly this apphost; without it the upload would only fail on the box.
+    if (-not (Test-Path (Join-Path $stage 'RemoteServer'))) { throw "No RemoteServer apphost produced in $stage" }
+
+    $serverPackage = Join-Path $OutDir 'RemoteServer-linux-x64.tar.gz'
+    Write-TarGz -Source $stage -Destination $serverPackage
+    $serverVersion = (Get-Item (Join-Path $stage 'RemoteServer.dll')).VersionInfo.FileVersion
+    Remove-Item $stage -Recurse -Force
+}
+
 $sw.Stop()
 if ($failed.Count -gt 0) {
-    Write-Host "`nDone with errors ($([math]::Round($sw.Elapsed.TotalSeconds,1))s). Not replaced: $($failed -join ', ')" -ForegroundColor Yellow
+    Write-Host "`nDone with errors ($([math]::Round($sw.Elapsed.TotalSeconds,1))s). Failed: $($failed -join ', ')" -ForegroundColor Yellow
 }
 else {
     Write-Host "`nDone ($([math]::Round($sw.Elapsed.TotalSeconds,1))s). Output: $OutDir" -ForegroundColor Green
 }
 
-Get-ChildItem $OutDir -Filter *.exe | Sort-Object Name | ForEach-Object {
-    $v   = (Get-Item $_.FullName).VersionInfo.FileVersion
-    $sha = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-    $mb  = [math]::Round($_.Length / 1MB, 1)
-    # Show the signature next to the hash, so it is obvious whether the hash you are about to paste into
-    # the package upload belongs to the signed file or to an unsigned one.
-    $signed = (Get-AuthenticodeSignature $_.FullName).Status
-    [pscustomobject]@{ Exe = $_.Name; Version = $v; Signed = $signed; MB = $mb; SHA256 = $sha }
-} | Format-Table -AutoSize
+# Only what this run built - an older exe left in the folder must not pass for a fresh one. The signer column
+# shows at a glance which certificate a hash belongs to.
+if ($components.Count -gt 0) {
+    $rows = foreach ($name in $components.Keys) {
+        $file = Join-Path $OutDir "$name.exe"
+        if (-not (Test-Path $file)) { continue }
+        [pscustomobject]@{
+            Exe     = "$name.exe"
+            Version = (Get-Item $file).VersionInfo.FileVersion
+            Signed  = (Get-AuthenticodeSignature $file).Status
+            Signer  = Get-SignerName $file
+            MB      = [math]::Round((Get-Item $file).Length / 1MB, 1)
+            SHA256  = (Get-FileHash $file -Algorithm SHA256).Hash
+        }
+    }
+    $rows | Format-Table -AutoSize
+}
+
+if ($Tag -and $failed.Count -eq 0) {
+    $files = ($components.Keys | ForEach-Object { '"' + (Join-Path $OutDir "$_.exe") + '"' }) -join ' '
+    $target = if ($releaseTag) { $releaseTag } else { '<tag>' }
+    Write-Host "To replace the release's unsigned exes: gh release upload $target $files --clobber" -ForegroundColor DarkGray
+}
+
+if ($serverPackage) {
+    $pkg = Get-Item $serverPackage
+    [pscustomobject]@{
+        Package = $pkg.Name
+        Version = $serverVersion
+        MB      = [math]::Round($pkg.Length / 1MB, 1)
+        SHA256  = (Get-FileHash $pkg.FullName -Algorithm SHA256).Hash
+    } | Format-Table -AutoSize
+    Write-Host "Upload it in the console: Server settings -> Server update." -ForegroundColor DarkGray
+}
 
 if ($Deploy) {
     Write-Host "`nLive installation ($InstallDir):" -ForegroundColor Green
@@ -222,6 +481,7 @@ if ($Deploy) {
         [pscustomobject]@{
             Exe     = $_.Name
             Version = (Get-Item $_.FullName).VersionInfo.FileVersion
+            Signer  = Get-SignerName $_.FullName
             MB      = [math]::Round($_.Length / 1MB, 1)
         }
     } | Format-Table -AutoSize
@@ -231,3 +491,5 @@ if ($Deploy) {
     }
     Write-Host "The console client is not restarted — start it when you are ready." -ForegroundColor DarkGray
 }
+
+if ($failed.Count -gt 0) { exit 1 }
