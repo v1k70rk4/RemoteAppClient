@@ -49,6 +49,9 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Client-Verify \$ssl_client_verify;
+        # The DN is how the server knows WHICH device is talking. Without it telemetry is filed under
+        # "unknown" - one fake device collecting the whole fleet's data - and /api/vnc-secret answers 401.
+        proxy_set_header X-Client-Dn \$ssl_client_s_dn;
     }
     location /admin/ {
         allow 127.0.0.1; deny all;
