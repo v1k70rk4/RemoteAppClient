@@ -33,6 +33,24 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private UiButton _updBtn = null!;
     private UiButton _rbBtn = null!;
 
+    // Diagnostics tab: the server's own log + health snapshot, and the admin's read-only access tokens (racctl).
+    private readonly UiCombo _diagLevel = new(200);
+    private readonly UiCombo _diagTail = new(130);
+    private readonly TextField _diagFilter = new(L.ServerSettingsView_DiagFilter, 220, mono: true);
+    private readonly UiButton _diagLogBtn = new(L.ServerSettingsView_DiagLog);
+    private readonly UiButton _diagSnapBtn = new(L.ServerSettingsView_DiagSnapshot, UiButton.Style.Outline);
+    private readonly UiButton _diagCopyBtn = new(L.FileManager_Copy, UiButton.Style.Outline);
+    private readonly UiButton _diagSaveBtn = new(L.ServerSettingsView_DiagSave, UiButton.Style.Outline);
+    private readonly TextBox _diagOut = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 9.5F) };
+    private readonly Label _diagStatus = new() { AutoSize = true, Font = UiFont.Small, ForeColor = ThemeManager.Text2, BackColor = ThemeManager.Panel, Margin = new Padding(2, 8, 0, 0) };
+    private readonly OwnerList _tokens = new(40);
+    private readonly UiButton _tokenNewBtn = new(L.ServerSettingsView_TokenNew);
+    private readonly UiButton _tokenRevokeBtn = new(L.BootstrapView_Revoke, UiButton.Style.Danger);
+    private string _diagText = "";   // last fetched log/snapshot, for Copy and Save
+
+    private sealed record LevelItem(string? Code, string Name) { public override string ToString() => Name; }
+    private sealed record TailItem(int Lines) { public override string ToString() => L.Format(L.ServerSettingsView_DiagLines, Lines); }
+
     // General
     private readonly TextField _owner = new("", 440);
     private readonly TextField _phone = new("", 440, mono: true);
@@ -74,7 +92,7 @@ public sealed class ServerSettingsView : UserControl, IContentView
         _tabs.SetTabs(new[]
         {
             ("general", L.ChannelsView_General), ("email", L.ServerSettingsView_EmailDelivery), ("update", L.ServerSettingsView_ServerUpdate),
-            ("backup", L.ServerSettingsView_Backup),
+            ("backup", L.ServerSettingsView_Backup), ("diag", L.ServerSettingsView_Diagnostics),
         }, "general");
         _tabs.TabSelected += SelectTab;
 
@@ -92,6 +110,29 @@ public sealed class ServerSettingsView : UserControl, IContentView
         // Wired once here, not in BuildBackupTab: that runs on every tab switch and would stack handlers.
         _backupCreate.Click += async (_, _) => await StartBackupAsync();
         _backupDownload.Click += async (_, _) => await DownloadBackupAsync();
+
+        // Diagnostics tab wiring, once (same reason as above).
+        _diagLevel.Items.AddRange([
+            new LevelItem(null, L.ServerSettingsView_DiagLevelAll), new LevelItem("info", L.ServerSettingsView_DiagLevelInfo),
+            new LevelItem("warn", L.ServerSettingsView_DiagLevelWarn), new LevelItem("error", L.ServerSettingsView_DiagLevelError),
+        ]);
+        _diagLevel.SelectedIndex = 0;
+        _diagTail.Items.AddRange([new TailItem(200), new TailItem(500), new TailItem(2000), new TailItem(5000)]);
+        _diagTail.SelectedIndex = 1;
+        _diagLogBtn.Click += async (_, _) => await LoadLogsAsync();
+        _diagSnapBtn.Click += async (_, _) => await LoadSnapshotAsync();
+        _diagCopyBtn.Click += (_, _) => CopyDiag();
+        _diagSaveBtn.Click += (_, _) => SaveDiag();
+        _tokens.SetColumns(
+            new OwnerList.Col(L.UsersView_Name, 200),
+            new OwnerList.Col(L.ServerSettingsView_TokenScopeCol, 150),
+            new OwnerList.Col(L.ServerSettingsView_TokenPrefix, 130),
+            new OwnerList.Col(L.BootstrapView_Created, 140),
+            new OwnerList.Col(L.TrustedDevicesPanel_Expires, 140),
+            new OwnerList.Col(L.UsersView_LastUsed, 240));
+        _tokens.PaintRow += PaintTokenRow;
+        _tokenNewBtn.Click += async (_, _) => await NewTokenAsync();
+        _tokenRevokeBtn.Click += async (_, _) => await RevokeTokenAsync();
         _language.Items.AddRange(new object[] { new LangItem("auto", L.ServerSettingsView_LanguageAuto), new LangItem("en", "English"), new LangItem("hu", "Magyar") });
         _language.SelectedIndex = 0;
 
@@ -183,16 +224,202 @@ public sealed class ServerSettingsView : UserControl, IContentView
     private void SelectTab(string tab)
     {
         _tabs.SetActive(tab);
-        _saveRow.Visible = tab is not ("update" or "backup");   // neither tab has anything to Save
+        _saveRow.Visible = tab is not ("update" or "backup" or "diag");   // none of these has anything to Save
         _tabContent.Controls.Clear();
         _tabContent.Controls.Add(tab switch
         {
             "email" => BuildEmailTab(),
             "update" => BuildServerUpdateTab(),
             "backup" => BuildBackupTab(),
+            "diag" => BuildDiagTab(),
             _ => BuildGeneralTab(),
         });
         if (tab == "backup") _ = RefreshBackupAsync();
+        if (tab == "diag") _ = RefreshTokensAsync();
+    }
+
+    /// <summary>
+    /// Diagnostics tab: the server's own log and a health snapshot, read over the admin session - no root,
+    /// no shell, the server writes and serves this log itself - plus the admin's read-only access tokens
+    /// for racctl. The log console is the same dark box as the update tab's.
+    /// </summary>
+    private Control BuildDiagTab()
+    {
+        var root = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.Bg, Padding = new Padding(18, 8, 18, 10) };
+
+        // Top card: intro + log controls.
+        var top = new Panel { Dock = DockStyle.Top, Height = 136, BackColor = ThemeManager.Bg };
+        var card = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.Panel, Padding = new Padding(18, 14, 18, 14) };
+        card.Paint += (_, e) => UiPaint.DrawCard(e.Graphics, new Rectangle(0, 0, card.Width - 1, card.Height - 1), 12, ThemeManager.Panel, ThemeManager.BorderSoft);
+        var inner = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = ThemeManager.Panel };
+        // Plain Label: MaterialLabel does not honour MaximumSize, so long copy would run off the card.
+        var help = new Label { Text = L.ServerSettingsView_DiagIntro, AutoSize = true, MaximumSize = new Size(800, 0), Font = UiFont.Small, ForeColor = ThemeManager.Text3, BackColor = ThemeManager.Panel, Margin = new Padding(2, 0, 0, 10) };
+        inner.Controls.Add(help);
+        inner.SizeChanged += (_, _) => { if (inner.ClientSize.Width > 16) help.MaximumSize = new Size(inner.ClientSize.Width - 8, 0); };
+        var controls = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Margin = new Padding(0), BackColor = ThemeManager.Panel };
+        Control[] row = [_diagLevel, _diagTail, _diagFilter, _diagLogBtn, _diagSnapBtn, _diagCopyBtn, _diagSaveBtn];
+        foreach (var c in row) c.Margin = new Padding(0, 0, 8, 0);
+        controls.Controls.AddRange(row);
+        inner.Controls.Add(controls);
+        inner.Controls.Add(_diagStatus);
+        card.Controls.Add(inner);
+        top.Controls.Add(card);
+
+        // Bottom card: access tokens.
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 250, BackColor = ThemeManager.Bg, Padding = new Padding(0, 12, 0, 0) };
+        var tcard = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.Panel, Padding = new Padding(18, 14, 18, 14) };
+        tcard.Paint += (_, e) => UiPaint.DrawCard(e.Graphics, new Rectangle(0, 0, tcard.Width - 1, tcard.Height - 1), 12, ThemeManager.Panel, ThemeManager.BorderSoft);
+        var thead = new Panel { Dock = DockStyle.Top, Height = 70, BackColor = ThemeManager.Panel };
+        var title = new Label { Text = L.ServerSettingsView_Tokens, AutoSize = true, Font = UiFont.SectionTitle, ForeColor = ThemeManager.Text, BackColor = ThemeManager.Panel, Location = new Point(0, 0) };
+        var tintro = new Label { Text = L.ServerSettingsView_TokensIntro, AutoSize = true, MaximumSize = new Size(700, 0), Font = UiFont.Small, ForeColor = ThemeManager.Text3, BackColor = ThemeManager.Panel, Location = new Point(0, 24) };
+        var tbtns = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, BackColor = ThemeManager.Panel };
+        _tokenNewBtn.Margin = new Padding(0, 0, 8, 0); _tokenRevokeBtn.Margin = new Padding(0);
+        tbtns.Controls.AddRange([_tokenNewBtn, _tokenRevokeBtn]);
+        thead.Controls.AddRange([title, tintro, tbtns]);
+        thead.Resize += (_, _) =>
+        {
+            tbtns.Location = new Point(Math.Max(0, thead.ClientSize.Width - tbtns.Width), 0);
+            tintro.MaximumSize = new Size(Math.Max(200, thead.ClientSize.Width - tbtns.Width - 24), 0);
+        };
+        _tokens.Dock = DockStyle.Fill;
+        tcard.Controls.Add(_tokens);
+        tcard.Controls.Add(thead);
+        bottom.Controls.Add(tcard);
+
+        // Middle: the dark console with the log or the snapshot.
+        var console = new Panel { Dock = DockStyle.Fill, BackColor = ColorTranslator.FromHtml("#0a0f16"), Padding = new Padding(14, 12, 14, 12) };
+        _diagOut.Dock = DockStyle.Fill;
+        _diagOut.BackColor = ColorTranslator.FromHtml("#0a0f16");
+        _diagOut.ForeColor = ColorTranslator.FromHtml("#9bd6a8");
+        console.Controls.Add(_diagOut);
+        var consoleHost = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.Bg, Padding = new Padding(0, 12, 0, 0) };
+        consoleHost.Controls.Add(console);
+
+        // Fill first, then the edges: WinForms docks the last-added control outermost.
+        root.Controls.Add(consoleHost);
+        root.Controls.Add(bottom);
+        root.Controls.Add(top);
+        return root;
+    }
+
+    private async Task LoadLogsAsync()
+    {
+        var level = (_diagLevel.SelectedItem as LevelItem)?.Code;
+        var tail = (_diagTail.SelectedItem as TailItem)?.Lines ?? 500;
+        _diagStatus.Text = L.ServerSettingsView_DiagLoading;
+        _diagLogBtn.Enabled = false;
+        try
+        {
+            var text = await _api.GetServerLogsAsync(tail, level, null, _diagFilter.Query, null);
+            if (text is null) { _diagStatus.Text = L.ServerSettingsView_DiagServerTooOld; return; }
+            ShowDiag(text);
+            _diagStatus.Text = "";
+        }
+        catch (Exception ex) { _diagStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+        finally { _diagLogBtn.Enabled = true; }
+    }
+
+    private async Task LoadSnapshotAsync()
+    {
+        _diagStatus.Text = L.ServerSettingsView_DiagLoading;
+        _diagSnapBtn.Enabled = false;
+        try
+        {
+            var d = await _api.GetServerDiagAsync();
+            if (d is null) { _diagStatus.Text = L.ServerSettingsView_DiagServerTooOld; return; }
+            ShowDiag(DiagText.Render(d));
+            _diagStatus.Text = "";
+        }
+        catch (Exception ex) { _diagStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+        finally { _diagSnapBtn.Enabled = true; }
+    }
+
+    private void ShowDiag(string text)
+    {
+        _diagText = text;
+        _diagOut.Text = text.Length == 0 ? L.ServerSettingsView_DiagEmpty : Crlf(text);
+        // The newest records are at the end; that is where the eye should land.
+        _diagOut.SelectionStart = _diagOut.TextLength;
+        _diagOut.ScrollToCaret();
+    }
+
+    private void CopyDiag()
+    {
+        if (_diagText.Length == 0) return;
+        try { Clipboard.SetText(Crlf(_diagText)); _diagStatus.Text = L.ServerSettingsView_DiagCopied; }
+        catch (Exception ex) { _diagStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    private void SaveDiag()
+    {
+        if (_diagText.Length == 0) return;
+        using var dlg = new SaveFileDialog
+        {
+            FileName = $"racd-diag-{DateTime.Now:yyyyMMdd-HHmm}.txt",
+            Filter = "Text (*.txt)|*.txt|All files (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
+        try
+        {
+            File.WriteAllText(dlg.FileName, Crlf(_diagText), new System.Text.UTF8Encoding(false));
+            _diagStatus.Text = L.Format(L.ServerSettingsView_BackupSaved, dlg.FileName);
+        }
+        catch (Exception ex) { _diagStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    private async Task RefreshTokensAsync()
+    {
+        try
+        {
+            var list = await _api.ListApiTokensAsync();
+            _tokens.BeginUpdate();
+            _tokens.Clear();
+            if (list is null) { _diagStatus.Text = L.ServerSettingsView_DiagServerTooOld; _tokenNewBtn.Enabled = false; }
+            else { foreach (var t in list) _tokens.Add(t); _tokenNewBtn.Enabled = true; }
+            _tokens.EndUpdate();
+        }
+        catch (Exception ex) { _diagStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    private void PaintTokenRow(object? sender, RowPaintEventArgs e)
+    {
+        var t = (ApiTokenInfo)e.Item;
+        var now = DateTimeOffset.UtcNow;
+        bool update = t.Scope == ApiTokenScopes.Update;
+        e.Text(0, t.Name, UiFont.BodySemi, ThemeManager.Text);
+        // The update scope is the one that can change the server, so it is the one that stands out.
+        e.Text(1, update ? L.ServerSettingsView_TokenScopeUpdateShort : L.ServerSettingsView_TokenScopeReadShort, UiFont.Body, update ? ThemeManager.WarnFg : ThemeManager.Text2);
+        e.Text(2, t.Prefix + "…", UiFont.Mono, ThemeManager.Text2);
+        e.Text(3, t.CreatedAt.LocalDateTime.ToString("g"), UiFont.Body, ThemeManager.Text2);
+        e.Text(4, t.ExpiresAt is { } x ? x.LocalDateTime.ToString("g") : L.ServerSettingsView_TokenNever, UiFont.Body,
+            t.ExpiresAt is { } soon && soon < now.AddDays(7) ? ThemeManager.WarnFg : ThemeManager.Text2);
+        e.Text(5, t.LastUsedAt is { } u
+                ? u.LocalDateTime.ToString("g") + (string.IsNullOrEmpty(t.LastUsedIp) ? "" : "  ·  " + t.LastUsedIp)
+                : L.ServerSettingsView_TokenNever,
+            UiFont.Body, ThemeManager.Text2);
+    }
+
+    private async Task NewTokenAsync()
+    {
+        using var f = new NewApiTokenForm();
+        if (f.ShowDialog(FindForm()) != DialogResult.OK) return;
+        try
+        {
+            var created = await _api.CreateApiTokenAsync(f.TokenName, f.ExpiresInDays, f.Scope);
+            if (created is null) { _diagStatus.Text = L.ServerSettingsView_DiagServerTooOld; return; }
+            using (var reveal = new ApiTokenRevealForm(created)) reveal.ShowDialog(FindForm());
+            await RefreshTokensAsync();
+        }
+        catch (AuthException ex) when (ex.Code == "too_many") { _diagStatus.Text = L.Format(L.ServerSettingsView_TokenTooMany, 10); }
+        catch (Exception ex) { _diagStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
+    }
+
+    private async Task RevokeTokenAsync()
+    {
+        if (_tokens.Selected is not ApiTokenInfo t) return;
+        if (MessageBox.Show(L.Format(L.ServerSettingsView_TokenRevokeConfirm, t.Name), L.ServerSettingsView_Tokens, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.RevokeApiTokenAsync(t.Id); await RefreshTokensAsync(); }
+        catch (Exception ex) { _diagStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
     }
 
     /// <summary>

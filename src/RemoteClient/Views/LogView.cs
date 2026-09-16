@@ -34,6 +34,8 @@ public sealed class LogView : UserControl, IContentView
             new FilterItem("device.enrolled", L.LogPanel_Enrollment),
             new FilterItem("device-update", L.AuditText_DeviceUpdated),
             new FilterItem("device-note-import", L.AuditText_NoteImported),
+            new FilterItem("api-token-create", L.AuditText_ApiTokenCreated),
+            new FilterItem("api-token-revoke", L.AuditText_ApiTokenRevoked),
             new FilterItem("user-create", L.AuditText_UserCreated),
             new FilterItem("user-update", L.AuditText_UserUpdated),
             new FilterItem("rollout", "Rollout"),
