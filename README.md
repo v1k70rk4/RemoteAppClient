@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.1.7-2ea44f" alt="version 2.1.7">
+  <img src="https://img.shields.io/badge/version-2.1.8-2ea44f" alt="version 2.1.8">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
 </p>
@@ -39,6 +39,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
+- [What's New in 2.1.8](#whats-new-in-218)
 - [What's New in 2.1.7](#whats-new-in-217)
 - [What's New in 2.1.5](#whats-new-in-215)
 - [What's New in 2.1.0](#whats-new-in-210)
@@ -60,6 +61,46 @@ Use this only on systems you own or are explicitly authorized to administer.
 - [Release Packages](#release-packages)
 - [Repository Layout](#repository-layout)
 - [TightVNC And Licensing](#tightvnc-and-licensing)
+
+---
+
+## What's New in 2.1.8
+
+A release about **how RemoteAppClient itself is built and shipped**: the Windows executables are **code-signed**, a
+server installed with `setup.sh` identifies its devices again, and one script covers every build. There is **no
+database schema change**. Component versions: server and Windows console **2.1.7.0**, everything else **2.1.6.0**.
+
+**Signed releases**
+- The Windows assets of a release — agent, updater, console and Lite — are signed with an **Open Source Developer
+  code-signing certificate** and timestamped, so the signature stays valid after the certificate expires. Windows
+  can now verify who published them: Smart App Control accepts a valid signature, and SmartScreen reputation builds
+  up on the certificate instead of starting from zero with every new file.
+- The key lives in the cloud and signing needs the maintainer present, so CI still builds unsigned. `build.ps1 -Tag`
+  rebuilds the tagged commit, signs it, and prints the command that replaces the release's unsigned exes.
+
+**A fresh server that tells its devices apart**
+- The server identifies a device by its client certificate, whose name nginx forwards as `X-Client-Dn`.
+  `deploy/steps/07-nginx.sh` set that header for the command channel but **not for `/api/`**, so a server installed
+  with `setup.sh` filed the telemetry of every device under a single device called `unknown`, answered VNC password
+  reports with 401, and showed every real machine as *reporting only*. Hand-built configurations were not affected;
+  it surfaced when a server was restored onto a new machine.
+- On an existing server installed with `setup.sh`: add `proxy_set_header X-Client-Dn $ssl_client_s_dn;` to the
+  `location /api/` block of the site configuration, reload nginx, then delete the device whose Telemetry tab shows
+  deviceId `unknown`. Devices sort themselves out within a minute.
+
+**One build script for every job**
+- `.\build.ps1` without parameters now explains itself: `-Fleet` (signed with the fleet certificate, optionally
+  `-Deploy`), `-Tag` (release build, signed with the release certificate, never deployed), `-Msi` (signs the MSI the
+  server generated), `-ServerOnly` (the Linux server package) and `-Unsigned` (development).
+- **The server package can be built on Windows**: `RemoteServer-linux-x64.tar.gz`, ready for the console's *Server
+  update* tab. It is packed with explicit Unix file modes — only the apphost and `createdump` are executable — because
+  a mode guessed by a Windows tool only fails once it reaches the Linux box.
+- Signing scripts and folders are machine-specific and live in `build.local.psd1` next to the script, which git
+  ignores: the public script carries no accounts, certificates or paths.
+- A build no longer stops this machine's agent services unless it is really about to overwrite them (`-Deploy`).
+
+**Also**
+- The server logs executed SQL at Debug instead of Information; the journal had become mostly SQL text.
 
 ---
 
@@ -836,19 +877,22 @@ Requirements:
 - `wixl` on Linux when building MSI packages server-side.
 - `osslsigncode` only if MSI Authenticode signing is configured.
 
-Build all Windows components as single-file, self-contained EXEs:
+Build with `build.ps1` (run it without parameters to see the options). The Windows components come out as
+single-file, self-contained EXEs:
 
 ```powershell
-.\build.ps1
+.\build.ps1 -Unsigned          # agent, updater, console - development build
+.\build.ps1 -Fleet -Deploy     # signed with the fleet certificate, then replace this machine's installation
+.\build.ps1 -Tag               # release build (adds RemoteClient.Lite), signed with the release certificate
+.\build.ps1 -Msi               # sign the MSI(s) generated by the server
+.\build.ps1 -ServerOnly        # the server package, RemoteServer-linux-x64.tar.gz
 ```
 
-Default output:
+Signing scripts and output folders are machine-specific and belong in `build.local.psd1` next to `build.ps1`
+(ignored by git); `Get-Help .\build.ps1 -Detailed` shows its format. A signing script is invoked as
+`& <script> -Path <file>`. Default output: `C:\RAC\build`, and `C:\RAC\release` for `-Tag`.
 
-```text
-C:\RAC\build
-```
-
-Build the server:
+Build the server on Linux:
 
 ```bash
 dotnet publish src/RemoteServer/RemoteServer.csproj \
