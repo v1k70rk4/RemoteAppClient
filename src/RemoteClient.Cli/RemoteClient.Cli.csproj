@@ -12,7 +12,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>RemoteClient.Cli</RootNamespace>
     <AssemblyName>racctl</AssemblyName>
-    <Version>2.2.1.0</Version>
+    <Version>2.2.2.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>

@@ -109,7 +109,10 @@ public sealed class MsiBuilder(IOptions<ServerOptions> options, ILogger<MsiBuild
         var sb = new StringBuilder();
         sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
         sb.AppendLine("""<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">""");
-        sb.AppendLine($"""  <Product Name="{X(name)}" Id="*" UpgradeCode="{UpgradeCode}" Language="1033" Codepage="1252" Version="{version}" Manufacturer="{X(manufacturer)}">""");
+        // A constant ProductCode (see ServerOptions.MsiProductCode): Id="*" minted a new one per build, which made
+        // every rebuilt MSI a different product to Intune/GPO. wixl still mints a fresh PackageCode per build.
+        var productCode = Guid.TryParse(_opt.MsiProductCode, out var pc) ? pc : Guid.Parse(new ServerOptions().MsiProductCode);
+        sb.AppendLine($"""  <Product Name="{X(name)}" Id="{productCode.ToString("D").ToUpperInvariant()}" UpgradeCode="{UpgradeCode}" Language="1033" Codepage="1252" Version="{version}" Manufacturer="{X(manufacturer)}">""");
         sb.AppendLine("""    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Description="RemoteAppClient agent" />""");
         sb.AppendLine("""    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />""");
         sb.AppendLine("""    <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />""");
