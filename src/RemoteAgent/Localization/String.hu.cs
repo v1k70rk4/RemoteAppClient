@@ -130,5 +130,6 @@ internal static partial class Strings
         [nameof(VncProvisioningService_VncReportRejectedHTTP)] = "VNC-jelszó jelentése elutasítva: HTTP {Code}",
         [nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning)] = "A VNC helyileg le van tiltva — a provisioning kihagyva.",
         [nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM)] = "VNC provisioning kihagyva (admin/SYSTEM jog kell).",
+        [nameof(VncProvisioningService_WaitingForTightVnc)] = "A TightVNC nincs telepítve, és a telepítő sem tartalmazta; a VNC provisioning lefut, amint egy „vnc” kiterítés feltelepíti.",
     };
 }
