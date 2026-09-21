@@ -49,6 +49,17 @@ public sealed class ServerOptions
     public string PublicUrl { get; set; } = string.Empty;
 
     /// <summary>
+    /// ProductCode of every MSI this server generates. Fixed on purpose: deployment tools (Intune, GPO, SCCM)
+    /// detect an installation by its ProductCode, and a freshly generated code made every rebuilt MSI look
+    /// like a different product - so it was pushed onto machines that already ran the agent, where the shared
+    /// UpgradeCode turned it into a major upgrade that uninstalls and re-enrolls the device. The MSI is only
+    /// the first installer; versions ship through the release channels, so the ProductCode has no reason to
+    /// move. The PackageCode still changes with every build. Override only if you must keep a code that is
+    /// already deployed in your estate.
+    /// </summary>
+    public string MsiProductCode { get; set; } = "2056042B-3070-4A61-BCA3-F7CDF988722A";
+
+    /// <summary>
     /// Oldest console client version allowed to sign in. Older clients receive "mustUpdate"
     /// without a session and must update. Empty = no limit.
     /// </summary>
