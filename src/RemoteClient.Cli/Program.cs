@@ -51,24 +51,22 @@ try
                 Console.Out.Write(text);
             });
         case "diag":
-            return await RunAsync(async api =>
-            {
-                var d = await api.GetServerDiagAsync() ?? throw new TooOldException();
-                Console.WriteLine(Pretty(JsonSerializer.Serialize(d, AgentJsonContext.Default.ServerDiag)));
-            });
+            // The server's JSON verbatim, not a round trip through this build's DTO: a newer server's fields must
+            // show up even when racctl is older (that is how the "packages" check went unseen for an hour).
+            return await RunAsync(async api => Console.WriteLine(Pretty(await api.GetRawAsync("/admin/server/diag"))));
         case "status":
-            return await RunAsync(async api =>
-                Console.WriteLine(Pretty(JsonSerializer.Serialize(await api.GetServerUpdateStatusAsync(), AgentJsonContext.Default.ServerUpdateStatus))));
+            return await RunAsync(async api => Console.WriteLine(Pretty(await api.GetRawAsync("/admin/server/status"))));
         case "devices":
             return await RunAsync(async api =>
             {
                 var list = await api.GetDevicesAsync();
-                Console.WriteLine($"{"hostname",-28} {"state",-10} {"last seen (UTC)",-20} {"ip",-16} {"public ip",-16} {"agent",-10} problem");
+                // "rc" = C2 reconnects within the last hour; three or more is what the console calls a flaky link.
+                Console.WriteLine($"{"hostname",-28} {"state",-10} {"last seen (UTC)",-20} {"ip",-16} {"public ip",-16} {"agent",-10} {"vnc",-10} {"rc",2} problem");
                 foreach (var d in list.OrderBy(d => d.Hostname, StringComparer.OrdinalIgnoreCase))
                 {
                     var state = DeviceLiveness.Of(d);
                     var seen = d.LastSeenAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
-                    Console.WriteLine($"{Cut(d.Hostname, 28),-28} {state,-10} {seen,-20} {Cut(d.IpAddress, 16),-16} {Cut(d.PublicIpAddress, 16),-16} {Cut(d.AgentVersion, 10),-10} {d.Problem}");
+                    Console.WriteLine($"{Cut(d.Hostname, 28),-28} {state,-10} {seen,-20} {Cut(d.IpAddress, 16),-16} {Cut(d.PublicIpAddress, 16),-16} {Cut(d.AgentVersion, 10),-10} {Cut(d.VncVersion, 10),-10} {d.RecentReconnects,2} {d.Problem}");
                 }
                 Console.WriteLine($"-- {list.Count} devices");
             });
@@ -94,9 +92,12 @@ try
         case "get":
             return await RunAsync(async api =>
             {
-                if (argv.Count != 1 || !argv[0].StartsWith("/admin/", StringComparison.Ordinal))
-                    throw new UsageException("get needs one path starting with /admin/");
-                var body = await api.GetRawAsync(argv[0]);
+                // Git Bash rewrites an argument that begins with "/" into a Windows path ("C:/Program Files/Git/admin/
+                // devices") before racctl ever sees it; take the part from "/admin/" on so the command works in any shell.
+                var path = argv.Count == 1 ? argv[0] : "";
+                int at = path.IndexOf("/admin/", StringComparison.Ordinal);
+                if (at < 0) throw new UsageException("get needs one path starting with /admin/");
+                var body = await api.GetRawAsync(path[at..]);
                 Console.WriteLine(body.TrimStart().StartsWith('{') || body.TrimStart().StartsWith('[') ? Pretty(body) : body);
             });
         case "update":
