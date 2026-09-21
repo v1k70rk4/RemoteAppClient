@@ -614,6 +614,8 @@ public sealed class ServerDiag
     [JsonPropertyName("database")] public ServerDiagDb Database { get; set; } = new();
     [JsonPropertyName("fleet")] public ServerDiagFleet Fleet { get; set; } = new();
     [JsonPropertyName("log")] public ServerDiagLog Log { get; set; } = new();
+    /// <summary>Null on a server that predates the check.</summary>
+    [JsonPropertyName("packages")] public ServerDiagPackages? Packages { get; set; }
     [JsonPropertyName("publicUrl")] public string? PublicUrl { get; set; }
     [JsonPropertyName("dns")] public ServerDiagDns? Dns { get; set; }
     [JsonPropertyName("tls")] public ServerDiagTls? Tls { get; set; }
@@ -668,6 +670,15 @@ public sealed class ServerDiagLog
     [JsonPropertyName("memoryRecords")] public int MemoryRecords { get; set; }
     [JsonPropertyName("warningsLastHour")] public int WarningsLastHour { get; set; }
     [JsonPropertyName("errorsLastHour")] public int ErrorsLastHour { get; set; }
+}
+
+/// <summary>The packages the channels currently serve, and the ones whose file is not on disk. The package
+/// directory is not in the fleet backup, so a restored server lists here what has to be uploaded again.</summary>
+public sealed class ServerDiagPackages
+{
+    [JsonPropertyName("current")] public int Current { get; set; }
+    /// <summary>"channel/component version (file)" per current package without a file.</summary>
+    [JsonPropertyName("missing")] public System.Collections.Generic.List<string> Missing { get; set; } = [];
 }
 
 /// <summary>Does the public name still point at this box? A migration that forgot the DNS shows up here.</summary>

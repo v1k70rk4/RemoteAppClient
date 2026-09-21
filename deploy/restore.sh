@@ -84,6 +84,11 @@ if [ "$MODE" = "db" ]; then
   ok "$n device(s) restored"
   if curl -fsS --max-time 5 http://127.0.0.1:5000/health >/dev/null 2>&1; then ok "server healthy"; else warn "server not healthy - check: sudo journalctl -u remoteserver -n 50"; fi
   log "Done. Agents should reconnect on their own; watch the fleet list."
+  # The package directory is deliberately not in the archive (large, re-uploadable), but its rows are in the
+  # database just restored: until the files are back, updates cannot be downloaded and no MSI can be built.
+  warn "Release packages are NOT part of the backup. In the console, under Release channels, upload again the"
+  warn "current agent, updater, client AND vnc (TightVNC) packages. The server logs each missing file at startup,"
+  warn "and Server settings -> Diagnostics -> Snapshot lists them under 'packages'."
   exit 0
 fi
 

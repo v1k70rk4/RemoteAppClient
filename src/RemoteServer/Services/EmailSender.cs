@@ -26,7 +26,7 @@ public sealed class EmailSender(AppDbContext db, SecretProtector protector, ILog
     public async Task<(bool Ok, string? Error)> SendAsync(string to, string subject, string body, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(to)) return (false, L.EmailSender_MissingRecipient);
-        var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+        var s = await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct);
         if (s is null) return (false, L.EmailSender_NoEmailSettings);
 
         try

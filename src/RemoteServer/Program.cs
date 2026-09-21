@@ -78,6 +78,23 @@ var app = builder.Build();
 // the last lines before a self-update stop are the ones worth having.
 app.Lifetime.ApplicationStopped.Register(logStore.Dispose);
 
+// Started: say it out loud when a channel's current package has no file behind it. The package directory is
+// not part of the fleet backup, so this is exactly the state a server is in after a restore onto a new box -
+// and until the files are uploaded again, updates cannot be downloaded and MSIs cannot be built.
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var dir = scope.ServiceProvider.GetRequiredService<IOptions<ServerOptions>>().Value.PackagesDir;
+        var (_, missing) = await ServerDiagnostics.CurrentPackagesAsync(db, dir, CancellationToken.None);
+        foreach (var m in missing)
+            app.Logger.LogWarning("Package file missing: {Package}. Upload it again under Release channels.", m);
+    }
+    catch (Exception ex) { app.Logger.LogDebug(ex, "Package file check skipped"); }
+}));
+
 // Stopping: send every agent away first, so the host does not sit out its shutdown timeout on open sockets
 // (see AgentConnectionRegistry.BeginShutdownAsync). This turned a 30 s stop into a few seconds.
 {
@@ -1712,10 +1729,20 @@ app.MapPost("/admin/msi", async (
     var updaterPkg = await db.ReleasePackages.Where(p => p.Channel == ch && p.Component == "updater")
         .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
 
+    // A package row whose file is gone is an error, never a reason to quietly build a smaller MSI. The package
+    // directory is not part of the fleet backup (it is large and re-uploadable), so after a restore onto a new
+    // box the rows exist and the files do not - and an MSI silently built without TightVNC installs devices
+    // that look healthy and have no VNC password. Refuse and name the file, so the operator uploads it again.
+    IResult FileMissing(string component, string fileName)
+    {
+        app.Logger.LogWarning("MSI build refused: the {Component} package file {File} is missing from {Dir}", component, fileName, opt.Value.PackagesDir);
+        return Results.NotFound(new { error = component + "_file_missing", file = fileName });
+    }
+
     var agentExe = Path.Combine(opt.Value.PackagesDir, agentPkg.FileName);
-    if (!File.Exists(agentExe)) return Results.NotFound(new { error = "agent_file_missing" });
+    if (!File.Exists(agentExe)) return FileMissing("agent", agentPkg.FileName);
     var updaterExe = updaterPkg is null ? null : Path.Combine(opt.Value.PackagesDir, updaterPkg.FileName);
-    if (updaterExe is not null && !File.Exists(updaterExe)) updaterExe = null;
+    if (updaterExe is not null && !File.Exists(updaterExe)) return FileMissing("updater", updaterPkg!.FileName);
 
     // Optional console client: current 'client' package on the channel when requested and available.
     string? clientExe = null;
@@ -1725,8 +1752,8 @@ app.MapPost("/admin/msi", async (
             .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
         if (clientPkg is not null)
         {
-            var path = Path.Combine(opt.Value.PackagesDir, clientPkg.FileName);
-            if (File.Exists(path)) clientExe = path;
+            clientExe = Path.Combine(opt.Value.PackagesDir, clientPkg.FileName);
+            if (!File.Exists(clientExe)) return FileMissing("client", clientPkg.FileName);
         }
     }
 
@@ -1736,8 +1763,13 @@ app.MapPost("/admin/msi", async (
         .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
     if (vncPkg is not null)
     {
-        var vp = Path.Combine(opt.Value.PackagesDir, vncPkg.FileName);
-        if (File.Exists(vp)) vncMsi = vp;
+        vncMsi = Path.Combine(opt.Value.PackagesDir, vncPkg.FileName);
+        if (!File.Exists(vncMsi)) return FileMissing("vnc", vncPkg.FileName);
+    }
+    else
+    {
+        // Legitimate on a server that never had TightVNC uploaded, but worth saying: the console shows it too.
+        app.Logger.LogWarning("Building an MSI without TightVNC: channel {Channel} has no vnc package", ch);
     }
 
     // Group bootstrap: AutoApprove=false site token makes installed devices Pending.
@@ -1760,6 +1792,7 @@ app.MapPost("/admin/msi", async (
         channel = ch, group = label, version = agentPkg.Version,
         includesUpdater = updaterExe is not null,
         includesClient = clientExe is not null,
+        includesVnc = vncMsi is not null,
     });
 });
 
