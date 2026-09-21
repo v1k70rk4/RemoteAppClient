@@ -62,16 +62,24 @@ public sealed class MsiPanel : UserControl
         {
             Enabled = false; _status.Text = L.MsiPanel_BuildingMSIOnTheServer;
             var groupId = ((GroupItem)_group.SelectedItem!).Id;
-            var (fileName, _) = await _api.BuildMsiAsync(groupId, (string)_channel.SelectedItem!, _client.Checked, _client.Checked && _shortcut.Checked);
+            var built = await _api.BuildMsiAsync(groupId, (string)_channel.SelectedItem!, _client.Checked, _client.Checked && _shortcut.Checked);
+            var fileName = built.FileName;
+            // An MSI without TightVNC installs devices that look healthy and cannot be reached: say so, loudly.
+            var warning = built.IncludesVnc ? "" : "\r\n" + L.MsiPanel_BuiltWithoutVnc;
 
             using var sd = new SaveFileDialog { FileName = fileName, Filter = "MSI|*.msi" };
             if (sd.ShowDialog(this) == DialogResult.OK)
             {
                 _status.Text = L.MsiPanel_Downloading;
                 await _api.DownloadMsiAsync(fileName, sd.FileName);
-                _status.Text = L.MsiPanel_Done + sd.FileName;
+                _status.Text = L.MsiPanel_Done + sd.FileName + warning;
             }
-            else _status.Text = L.MsiPanel_BuiltOnTheServer + fileName + L.MsiPanel_DownloadSkipped;
+            else _status.Text = L.MsiPanel_BuiltOnTheServer + fileName + L.MsiPanel_DownloadSkipped + warning;
+        }
+        catch (MsiBuildException ex) when (ex.Code.EndsWith("_file_missing", StringComparison.Ordinal))
+        {
+            // The package row exists but its file does not - typical after a restore onto a new server.
+            _status.Text = L.Format(L.MsiPanel_PackageFileMissing, ex.Code[..^"_file_missing".Length], ex.File ?? "?");
         }
         catch (Exception ex) { _status.Text = L.ForgotPasswordForm_Error + ex.Message; }
         finally { Enabled = true; }

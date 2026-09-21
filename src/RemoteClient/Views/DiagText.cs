@@ -48,6 +48,14 @@ internal static class DiagText
             : $"{l.Directory} · {l.FileBytes / 1024} KB on disk · {l.MemoryRecords} in memory");
         Line("", $"last hour: {l.WarningsLastHour} warnings, {l.ErrorsLastHour} errors");
 
+        if (d.Packages is { } pk)
+        {
+            Line("packages", pk.Missing.Count == 0
+                ? $"{pk.Current} current · all files present"
+                : $"{pk.Current} current · {pk.Missing.Count} FILES MISSING (upload them again under Release channels)");
+            foreach (var m in pk.Missing) Line("", m);
+        }
+
         Line("public url", d.PublicUrl ?? "-");
         if (d.Dns is { } dns)
             Line("dns", dns.Error is not null

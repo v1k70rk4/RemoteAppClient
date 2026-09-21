@@ -184,4 +184,5 @@ internal static partial class Strings
     public static string VncProvisioningService_VncReportRejectedHTTP => Get(nameof(VncProvisioningService_VncReportRejectedHTTP));
     public static string VncProvisioningService_VNCIsLocallyDisabledProvisioning => Get(nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning));
     public static string VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM => Get(nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM));
+    public static string VncProvisioningService_WaitingForTightVnc => Get(nameof(VncProvisioningService_WaitingForTightVnc));
 }

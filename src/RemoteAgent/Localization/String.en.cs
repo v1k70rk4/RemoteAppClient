@@ -130,5 +130,6 @@ internal static partial class Strings
         [nameof(VncProvisioningService_VncReportRejectedHTTP)] = "VNC password report rejected: HTTP {Code}",
         [nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning)] = "VNC is locally disabled; provisioning skipped.",
         [nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM)] = "VNC provisioning skipped (admin/SYSTEM rights required).",
+        [nameof(VncProvisioningService_WaitingForTightVnc)] = "TightVNC is not installed and this installer did not bundle it; VNC will be provisioned as soon as a 'vnc' rollout installs it.",
     };
 }

@@ -32,7 +32,7 @@ public sealed class SecretExpiryWatcher(IServiceScopeFactory scopeFactory, ILogg
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var email = scope.ServiceProvider.GetRequiredService<IEmailSender>();
 
-        var s = await db.ServerSettings.FirstOrDefaultAsync(ct);
+        var s = await db.ServerSettings.OrderBy(x => x.Id).FirstOrDefaultAsync(ct);
         if (s is null || s.EmailProvider != "graph" || s.GraphSecretExpiresAt is not { } expiry) return;
         if (s.SecretExpiryNotifiedAt is not null) return; // already warned for this expiry
 

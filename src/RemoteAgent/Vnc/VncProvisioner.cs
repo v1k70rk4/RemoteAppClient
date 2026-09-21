@@ -42,6 +42,9 @@ public static class VncProvisioner
         }
     }
 
+    /// <summary>Whether the TightVNC server service exists, put there by the bundled MSI or by a "vnc" rollout.</summary>
+    public static bool IsInstalled() => ServiceExists();
+
     /// <summary>Installs TightVNC when missing. Returns whether it was installed now.</summary>
     public static async Task<bool> EnsureInstalledAsync(string msiPath)
     {

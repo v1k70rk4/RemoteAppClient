@@ -60,10 +60,36 @@ public static class ServerDiagnostics
         var tlsTask = host is null ? Task.FromResult<ServerDiagTls?>(null) : TlsAsync(host, ct);
         diag.Database = await DatabaseAsync(db, ct);
         diag.Fleet = await FleetAsync(db, registry, now, ct);
+        try
+        {
+            var (current, missing) = await CurrentPackagesAsync(db, opt.PackagesDir, ct);
+            diag.Packages = new ServerDiagPackages { Current = current, Missing = missing };
+        }
+        catch { /* the database part already reports the DB error */ }
         await Task.WhenAll(dnsTask, tlsTask);
         diag.Dns = dnsTask.Result;
         diag.Tls = tlsTask.Result;
         return diag;
+    }
+
+    /// <summary>
+    /// The package each channel currently serves per component, and which of them have no file on disk. Rows
+    /// survive a restore (they are in the database); the files do not (the package directory is deliberately
+    /// not in the backup), so this is the check that tells a freshly moved server what still has to be uploaded.
+    /// </summary>
+    public static async Task<(int Current, List<string> Missing)> CurrentPackagesAsync(AppDbContext db, string packagesDir, CancellationToken ct)
+    {
+        var rows = await db.ReleasePackages.AsNoTracking().ToListAsync(ct);
+        var current = rows
+            .GroupBy(p => (p.Channel, p.Component))
+            .Select(g => g.OrderByDescending(p => p.UploadedAt).First())
+            .OrderBy(p => p.Channel).ThenBy(p => p.Component)
+            .ToList();
+        var missing = current
+            .Where(p => !File.Exists(Path.Combine(packagesDir, p.FileName)))
+            .Select(p => $"{p.Channel}/{p.Component} {p.Version} ({p.FileName})")
+            .ToList();
+        return (current.Count, missing);
     }
 
     private static string? HostOf(string? publicUrl)

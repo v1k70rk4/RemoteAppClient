@@ -46,19 +46,7 @@ public sealed class VncProvisioningService(
 
                 if (string.IsNullOrEmpty(password))
                 {
-                    password = VncProvisioner.GeneratePassword();
-                    try
-                    {
-                        await VncProvisioner.EnsureInstalledAsync(msi);
-                        VncProvisioner.ApplyHardening(password);
-                        WriteSecret(secretFile, password);
-                        logger.LogInformation(L.VncProvisioningService_VNCProvisionedPerDevicePassword);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, L.VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM);
-                        password = null;
-                    }
+                    password = await TryFirstProvisionAsync(msi, secretFile);
                 }
                 else
                 {
@@ -91,6 +79,9 @@ public sealed class VncProvisioningService(
             {
                 var secretFile = Path.Combine(_opt.EnrollmentDir, "vnc.secret");
                 var pw = ReadSecret(secretFile);
+                // Not provisioned yet: TightVNC may have arrived with a "vnc" rollout since startup.
+                if (string.IsNullOrEmpty(pw))
+                    pw = await TryFirstProvisionAsync(msiPath, secretFile);
                 if (!string.IsNullOrEmpty(pw))
                 {
                     await VncProvisioner.EnsureHealthyAsync(pw, msiPath);
@@ -102,6 +93,45 @@ public sealed class VncProvisioningService(
                 }
             }
             catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VncReportFailed); }
+        }
+    }
+
+    // First provisioning can only happen once TightVNC is there: either the MSI this device was installed from
+    // bundled it (vnc\tightvnc.msi next to the agent) or a later "vnc" rollout installed it. It used to run once,
+    // at startup, so a device installed from an MSI built without TightVNC sat without a VNC password even after
+    // the rollout delivered TightVNC, until somebody restarted the service - painful on a flaky mobile link,
+    // where the device has to be caught online twice. The watchdog now retries on every tick; a real failure
+    // (msiexec, registry) backs off so it is not hammered every 30 seconds.
+    private DateTimeOffset _nextProvisionAttempt = DateTimeOffset.MinValue;
+    private int _provisionFailures;
+    private bool _waitingLogged;
+
+    private async Task<string?> TryFirstProvisionAsync(string msi, string secretFile)
+    {
+        if (!VncProvisioner.IsInstalled() && !File.Exists(msi))
+        {
+            // Nothing to install from. Say so once, then wait quietly for the rollout.
+            if (!_waitingLogged) { _waitingLogged = true; logger.LogWarning(L.VncProvisioningService_WaitingForTightVnc); }
+            return null;
+        }
+        if (DateTimeOffset.UtcNow < _nextProvisionAttempt) return null;
+
+        try
+        {
+            var password = VncProvisioner.GeneratePassword();
+            await VncProvisioner.EnsureInstalledAsync(msi);
+            VncProvisioner.ApplyHardening(password);
+            WriteSecret(secretFile, password);
+            _provisionFailures = 0;
+            logger.LogInformation(L.VncProvisioningService_VNCProvisionedPerDevicePassword);
+            return password;
+        }
+        catch (Exception ex)
+        {
+            _provisionFailures++;
+            _nextProvisionAttempt = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(Math.Min(30 * Math.Pow(2, _provisionFailures), 1800));
+            logger.LogWarning(ex, L.VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM);
+            return null;
         }
     }
 
