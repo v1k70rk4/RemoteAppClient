@@ -533,6 +533,8 @@ public static partial class Strings
         [nameof(MsiPanel_Done)] = "Kész: ",
         [nameof(MsiPanel_BuiltOnTheServer)] = "Legyártva a szerveren: ",
         [nameof(MsiPanel_DownloadSkipped)] = " (letöltés kihagyva)",
+        [nameof(MsiPanel_PackageFileMissing)] = "A szerveren már nincs meg az aktuális {0} csomag fájlja ({1}). Töltsd fel újra a Kiadási csatornáknál, utána építsd újra az MSI-t.",
+        [nameof(MsiPanel_BuiltWithoutVnc)] = "TightVNC NÉLKÜL készült: ezen a csatornán nincs vnc csomag. Az ebből telepített gépek csak egy vnc-kiterítés után kapnak VNC-t.",
         [nameof(NewUserForm_DisplayNameForExampleJohn)] = "Megjelenítendő név (pl. Révész Viktor)",
         [nameof(NewUserForm_EmailRequired)] = "E-mail (kötelező)",
         [nameof(NewUserForm_SendResetCodeByEmail)] = "Reset-kód kiküldése e-mailben",

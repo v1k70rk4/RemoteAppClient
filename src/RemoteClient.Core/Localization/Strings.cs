@@ -587,6 +587,8 @@ public static partial class Strings
     public static string MsiPanel_Done => Get(nameof(MsiPanel_Done));
     public static string MsiPanel_BuiltOnTheServer => Get(nameof(MsiPanel_BuiltOnTheServer));
     public static string MsiPanel_DownloadSkipped => Get(nameof(MsiPanel_DownloadSkipped));
+    public static string MsiPanel_PackageFileMissing => Get(nameof(MsiPanel_PackageFileMissing));
+    public static string MsiPanel_BuiltWithoutVnc => Get(nameof(MsiPanel_BuiltWithoutVnc));
     public static string NewUserForm_DisplayNameForExampleJohn => Get(nameof(NewUserForm_DisplayNameForExampleJohn));
     public static string NewUserForm_EmailRequired => Get(nameof(NewUserForm_EmailRequired));
     public static string NewUserForm_SendResetCodeByEmail => Get(nameof(NewUserForm_SendResetCodeByEmail));

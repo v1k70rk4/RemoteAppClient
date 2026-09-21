@@ -533,6 +533,8 @@ public static partial class Strings
         [nameof(MsiPanel_Done)] = "Done: ",
         [nameof(MsiPanel_BuiltOnTheServer)] = "Built on the server: ",
         [nameof(MsiPanel_DownloadSkipped)] = " (download skipped)",
+        [nameof(MsiPanel_PackageFileMissing)] = "The server no longer has the file of the current {0} package ({1}). Upload it again under Release channels, then build the MSI again.",
+        [nameof(MsiPanel_BuiltWithoutVnc)] = "Built WITHOUT TightVNC: this channel has no vnc package. Devices installed from this MSI get VNC only after a vnc rollout.",
         [nameof(NewUserForm_DisplayNameForExampleJohn)] = "Display name (for example John Smith)",
         [nameof(NewUserForm_EmailRequired)] = "Email (required)",
         [nameof(NewUserForm_SendResetCodeByEmail)] = "Send reset code by email",

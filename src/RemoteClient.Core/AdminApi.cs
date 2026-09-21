@@ -7,6 +7,17 @@ using RemoteAgent.Commands;
 
 namespace RemoteClient;
 
+/// <summary>What the server put into a generated MSI.</summary>
+public sealed record MsiBuildResult(string FileName, string Url, bool IncludesUpdater, bool IncludesClient, bool IncludesVnc);
+
+/// <summary>The server refused to build an MSI. <see cref="Code"/> is its machine-readable reason
+/// ("vnc_file_missing", "no_agent_package", ...), <see cref="File"/> the package file it could not find.</summary>
+public sealed class MsiBuildException(string code, string? file) : Exception(code)
+{
+    public string Code { get; } = code;
+    public string? File { get; } = file;
+}
+
 /// <summary>Sign-in error carrying the server error code (invalid_credentials / totp_required / totp_invalid / ...).</summary>
 public sealed class AuthException(string code) : Exception(code)
 {
@@ -547,16 +558,33 @@ public sealed class AdminApi : IDisposable
     }
 
     /// <summary>Builds an MSI for a group from a channel, optionally including the console client and Start menu shortcut. Returns file name and download URL.</summary>
-    public async Task<(string fileName, string url)> BuildMsiAsync(Guid? groupId, string channel, bool includeClient = true, bool shortcut = true, CancellationToken ct = default)
+    public async Task<MsiBuildResult> BuildMsiAsync(Guid? groupId, string channel, bool includeClient = true, bool shortcut = true, CancellationToken ct = default)
     {
         var q = $"/admin/msi?channel={channel}"
             + (groupId is { } g ? $"&group={g}" : "")
             + $"&client={includeClient.ToString().ToLowerInvariant()}&shortcut={shortcut.ToString().ToLowerInvariant()}";
         using var resp = await _http.PostAsync(q, content: null, ct);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+        {
+            // The server names its reason ("vnc_file_missing" plus the file): surface that, not a bare 404.
+            string? code = null, file = null;
+            try
+            {
+                using var err = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+                if (err.RootElement.TryGetProperty("error", out var e)) code = e.GetString();
+                if (err.RootElement.TryGetProperty("file", out var f)) file = f.GetString();
+            }
+            catch { /* not JSON: fall through to the generic failure */ }
+            if (code is not null) throw new MsiBuildException(code, file);
+            resp.EnsureSuccessStatusCode();
+        }
         using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         var root = doc.RootElement;
-        return (root.GetProperty("fileName").GetString() ?? "", root.GetProperty("url").GetString() ?? "");
+        bool Flag(string name, bool whenAbsent) => root.TryGetProperty(name, out var v) && v.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False ? v.GetBoolean() : whenAbsent;
+        return new MsiBuildResult(
+            root.GetProperty("fileName").GetString() ?? "", root.GetProperty("url").GetString() ?? "",
+            Flag("includesUpdater", true), Flag("includesClient", true),
+            Flag("includesVnc", true));   // a server that predates the flag cannot tell; do not cry wolf
     }
 
     /// <summary>Downloads a generated MSI to a local file.</summary>
