@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.2.0-2ea44f" alt="version 2.2.0">
+  <img src="https://img.shields.io/badge/version-2.2.2-2ea44f" alt="version 2.2.2">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
   <a href="https://ko-fi.com/v1k70rk4"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
@@ -40,7 +40,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
-- [What's New in 2.2.0](#whats-new-in-220)
+- [What's New in 2.2.2](#whats-new-in-222)
 - [Changelog](CHANGELOG.md)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -58,25 +58,25 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ---
 
-## What's New in 2.2.0
+## What's New in 2.2.2
 
-Seeing and running the server without a shell on the box. Every component is **2.2.0.0**; schema change:
-`upgrade-2.2.0-api-tokens.sql` (one table, idempotent).
+Hardening from a real fleet move: a restored server, and a batch of new devices on poor mobile links. Every
+component is **2.2.2.0**; no schema change. It also covers 2.2.1, which was never tagged.
 
-- **The server's own log in the console.** A daily-rolling file under `/var/lib/remoteserver/logs`, served over the
-  admin session: *Server settings → Diagnostics* filters it by level, time and text, with Copy and Save as. No root
-  needed on the box.
-- **Health snapshot.** Uptime, memory, load, disks, database latency and table sizes, fleet counts, public DNS versus
-  the box's own addresses, the certificate the public 443 serves, and the self-update state.
-- **Access tokens for tooling.** Minted by an admin for their own account, shown once, hash stored, attributed to the
-  admin in the audit log. Read-only by default and never a secret; a second scope adds exactly the server self-update
-  routes. Accepted only through the device tunnel.
-- **racctl.** A command-line client (`src/RemoteClient.Cli`): `logs`, `diag`, `status`, `devices`, `events`, `audit`,
-  `get`, and with an update token `update`, `apply`, `rollback`.
-- **A server stop takes a second, not thirty.** Agents get a close frame on stopping. Measured with 11 connected
-  agents: a self-update went from 37 s to 8 s, and every agent was back within two seconds.
-- **Upgrading:** upload the tar.gz, then the SQL, then *Update server*. Console 2.2.0 is needed for the new tab;
-  agent, updater, Lite and the Linux console only carry the aligned version.
+- **MSIs keep one ProductCode.** Every generated MSI used to get a fresh one, so Intune, GPO or SCCM saw each rebuilt
+  MSI as a different product and pushed it onto machines that already ran the agent, where the shared UpgradeCode
+  turned it into an uninstall and a re-enrollment. The code is now fixed (`Server:MsiProductCode` overrides it); only
+  the PackageCode changes per build. In Intune set *Ignore app version* to *Yes*: the agent updates itself.
+- **No silently smaller MSIs.** After a restore the package rows exist but the files may not, because the package
+  directory is not in the backup. A missing agent, updater, client or TightVNC file now refuses the build and names
+  the file, instead of producing an MSI without TightVNC. The console says what to upload again.
+- **Package files in the snapshot.** Diagnostics lists current packages whose file is missing, the server logs them at
+  startup, and `restore.sh` ends with the reminder.
+- **VNC provisions itself when TightVNC arrives.** First-time provisioning only ran at agent start, so a device that
+  got TightVNC through a later rollout had no VNC password until its service was restarted. The watchdog now does
+  it within 30 seconds, backing off on real failures.
+- **racctl:** `diag` and `status` print the server's JSON verbatim, `get` works from Git Bash, `devices` shows the
+  TightVNC version and the last hour's reconnects.
 
 Earlier releases: [CHANGELOG.md](CHANGELOG.md).
 

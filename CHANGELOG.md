@@ -3,6 +3,62 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
+## What's New in 2.2.2
+
+Hardening that came out of a real fleet move: a server restored onto a new box, and a batch of new devices enrolling
+over poor mobile links. Every component is **2.2.2.0**. There is **no schema change**. The release also covers
+2.2.1, which was merged but never tagged.
+
+**MSIs keep one ProductCode**
+- The generated MSI declared `Product Id="*"`, so every build got a fresh ProductCode. Deployment tools (Intune, GPO,
+  SCCM) detect an installation by its ProductCode: a rebuilt MSI looked like a different product, was pushed onto
+  machines that already ran the agent, and the shared UpgradeCode turned that into a major upgrade, which uninstalls
+  and re-enrolls the device.
+- The ProductCode is now constant (`Server:MsiProductCode` overrides it for an estate that already deployed another
+  code; an invalid value falls back to the default). The UpgradeCode is unchanged and wixl still mints a new
+  PackageCode per build. Running a rebuilt MSI on a machine that already has the product is refused by Windows
+  Installer (1638), which is the point: the MSI is the first installer, versions ship through the release channels.
+- In Intune, set *Ignore app version* to *Yes* for the app, because the agent updates itself and its version moves on
+  without the MSI.
+
+**No silently smaller MSIs**
+- The package directory is deliberately not part of the fleet backup (large, re-uploadable), so after a restore the
+  package rows exist and the files may not. The MSI endpoint treated a missing updater, client or TightVNC file as
+  "leave it out": it built an MSI without TightVNC, logged nothing, and the devices installed from it looked healthy
+  and had no VNC password.
+- A current package whose file is gone now refuses the build with `<component>_file_missing` plus the file name and
+  logs a warning. Building without TightVNC because the channel has no vnc package at all stays possible, is logged,
+  and the response carries `includesVnc`. The console's MSI panel names the file to upload again instead of showing
+  a bare 404, and says so when an MSI was built without TightVNC.
+- The diagnostics snapshot has a `packages` entry (current packages, missing files); the same check runs once at
+  startup and logs a warning per missing file. `restore.sh --db` ends with a reminder to upload the agent, updater,
+  client **and vnc** packages again.
+
+**VNC provisions itself when TightVNC arrives**
+- First-time VNC provisioning (per-device password, hardening, report to the server) ran once, at agent start. A
+  device installed without TightVNC stayed without a VNC password even after a `vnc` rollout had installed it, until
+  somebody restarted the service. On a flaky mobile link that means catching the device online twice.
+- The 30-second watchdog now retries whenever there is no password yet and TightVNC is installed or the bundled MSI
+  is present. A real failure (msiexec, registry) backs off, doubling up to half an hour; "waiting for a vnc rollout"
+  is logged once.
+
+**racctl**
+- `diag` and `status` print the server's JSON verbatim instead of round-tripping it through racctl's own types, so a
+  newer server's fields are never dropped by an older racctl.
+- `get /admin/...` works from Git Bash, which rewrites a leading `/` into a Windows path.
+- `devices` shows the TightVNC version and the reconnect count of the last hour.
+
+**Also**
+- The remaining unordered single-row settings queries are ordered; EF Core's *First without OrderBy* warning is gone.
+
+**Upgrading**
+- Server: upload `RemoteServer-linux-x64.tar.gz` and *Update server*. No SQL. Afterwards take a snapshot and check
+  that `packages` lists nothing as missing, especially on a server that was restored from a backup.
+- Agent: roll it out to get the VNC self-heal. Console: needed for the new MSI messages. Updater, Lite and the Linux
+  console carry the aligned version only.
+- Rebuild your MSIs after the server update so they carry the fixed ProductCode, and re-point deployment-tool
+  detection rules at it once.
+
 ## What's New in 2.2.0
 
 A release about **seeing and running the server without a shell on the box**. Every component is **2.2.0.0**.
