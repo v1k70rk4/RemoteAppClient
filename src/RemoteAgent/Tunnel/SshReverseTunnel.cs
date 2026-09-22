@@ -134,7 +134,10 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         AddOption(psi, "StrictHostKeyChecking=yes");           // fail on unknown keys
         AddOption(psi, $"UserKnownHostsFile=\"{_knownHostsPath}\"");
         AddOption(psi, "ExitOnForwardFailure=yes");            // exit if the remote forward is refused
-        AddOption(psi, "ConnectTimeout=8");                    // bound a dead port so fallback is quick
+        // No ConnectTimeout, on purpose: the OpenSSH 8.1 client that Windows 10 ships sleeps through the WHOLE
+        // timeout before it notices the connection is up (8 s of "connecting" on a 1 ms link, on every tunnel;
+        // measured on a Windows 10 box, Windows 11's newer client is fine). The deadline below bounds a
+        // black-holed port instead.
         AddOption(psi, "ServerAliveInterval=15");              // keepalive
         AddOption(psi, "ServerAliveCountMax=3");
         psi.ArgumentList.Add("-v");                            // verbose: lets us detect auth and fail over
@@ -180,7 +183,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         proc.BeginErrorReadLine();
         _process = proc;
 
-        // Wait for authentication or a quick failure (ConnectTimeout=8 bounds a dead/black-holed port).
+        // Wait for authentication or a quick failure; the deadline is what bounds a black-holed port.
         var deadline = DateTime.UtcNow.AddSeconds(12);
         while (DateTime.UtcNow < deadline && !authed && !Exited(proc))
         {
