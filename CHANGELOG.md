@@ -3,6 +3,66 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
+## What's New in 2.2.5
+
+Fixes from a week of running the fleet: two timing bugs that made a healthy device look slow or silent, a false
+clock alarm on sleeping laptops, and a small console convenience. Every component is **2.2.5.0**. There is **no
+schema change**. The release also covers 2.2.3 and 2.2.4, which ran on the maintainer's fleet but were never tagged.
+
+**Tunnels no longer wait out ssh's ConnectTimeout**
+- Both the device's reverse tunnel and the operator's local forward passed `ConnectTimeout=8` to `ssh.exe`, so that a
+  dead bastion port would fail fast. The OpenSSH 8.1 client that Windows 10 (and Server 2016/2019) ships sleeps
+  through the whole timeout before it notices that the connection is up: on a Windows 10 workstation the connect
+  phase took 8.0 s with the option and was immediate without it, on a link where a plain TCP connect takes 1 ms.
+  Windows 11's newer client does not have the bug, which is why only some devices were slow.
+- The option is gone. The reverse tunnel's 12-second authentication deadline and the local forward's 15-second
+  port deadline bound a black-holed port instead, and a forward that is still not accepting at its deadline is
+  given up so the next transport (WSS) gets its turn, where it used to be assumed ready.
+
+**A device that answers fast is no longer "not answering"**
+- The open-tunnel, message and power endpoints bound the requesting operator to the command's nonce only after the
+  command had been delivered and its status saved. An agent that answered before that bookkeeping finished (a
+  desktop on a fast link does so routinely) had its answer parked under a placeholder, which the binding then
+  overwrote. The console polled the empty result for 17 seconds and reported "the device did not answer" while the
+  tunnel was in fact open, and the audit row for the connect said "?" with no device.
+- The binding now merges into the parked answer instead of replacing it, and the audit row is written by whichever
+  side learns the full context last, so it always names the operator and the device.
+
+**A tunnel start is safe from the idle watchdog, and says where its seconds go**
+- The idle watchdog took a tunnel whose ssh had just been started for a running one, and with the activity stamp
+  still at the previous session's end it closed it mid-start. The start then failed with `No process is associated
+  with this object` until somebody restarted the agent's services. The stamp is now set before the start, and a
+  process disposed by another task counts as gone rather than as a fault.
+- The agent times a tunnel start from ssh's own `-v` milestones (launch, name resolution, connect, key exchange and
+  authentication) and logs the breakdown as a warning when it took 3 seconds or more, so a device's event log says
+  which phase to look at. The agent also no longer compares its clock to the server's from a reply that a sleep
+  interrupted (a round trip over 10 seconds is not read).
+- The console's status line after a connect shows two numbers: how long the device took to answer the command, and
+  how long its tunnel plus VNC took after that. A slow second number points at the device, not at the network.
+
+**A sleeping laptop is not a clock error**
+- Telemetry carries the time it was collected, and the server compared that with its own clock to spot devices
+  whose clock has drifted (past 60 seconds the agent discards every command). A laptop that dozed off between
+  collecting a report and the request reaching the server delivered an old stamp when it woke, which looks exactly
+  like a clock that is behind: laptops on Modern Standby got *clock 34 s behind* on every lid-close and stayed
+  marked *Error* until they stayed awake long enough to report again.
+- Delay can only make a stamp look older, never newer, so the server now reads a device's clock from the freshest
+  stamp among its reports of the last five minutes. A clock that is ahead is flagged from one report, since no delay
+  can fake that; a clock that is behind needs two reports that agree. *Problem since* restarts only when the kind of
+  problem changes, not when the offset jitters by a second.
+
+**Click a telemetry value to copy it**
+- On the device's Telemetry tab and in the session side panel, clicking a value (hostname, addresses, make and
+  model, serial number, device id, anything) copies it to the clipboard, with a short confirmation in place. Only
+  the value text is the target, so a click that merely brings the window forward does not replace what was on the
+  clipboard; a placeholder value is not copyable.
+- The panel now refreshes in place instead of rebuilding its rows every 30 seconds, and the public IP and its
+  reverse name are separate rows (in the Linux console too), so a click copies exactly what the row shows and a
+  narrow panel no longer truncates the address behind a long hostname.
+
+**Versions**
+- Every component carries 2.2.5.0. The updater and the CLI carry the aligned version only.
+
 ## What's New in 2.2.2
 
 Hardening that came out of a real fleet move: a server restored onto a new box, and a batch of new devices enrolling
