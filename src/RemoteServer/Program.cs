@@ -60,6 +60,7 @@ builder.Services.AddSingleton<CertificateAuthority>();
 builder.Services.AddSingleton<SshCertificateAuthority>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
+builder.Services.AddSingleton<ClockSkewTracker>();   // per-device clock readings live across requests
 builder.Services.AddScoped<ITelemetrySink, DbTelemetrySink>();
 builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<EnrollmentService>();
