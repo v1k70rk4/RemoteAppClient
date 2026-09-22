@@ -398,6 +398,7 @@ public static partial class Strings
     public static string DevicesView_TheConnectionWasNotEstablished => Get(nameof(DevicesView_TheConnectionWasNotEstablished));
     public static string DevicesView_ReachingBastionPortThroughThe => Get(nameof(DevicesView_ReachingBastionPortThroughThe));
     public static string DevicesView_VNCStarted => Get(nameof(DevicesView_VNCStarted));
+    public static string DevicesView_VNCStartedTimed => Get(nameof(DevicesView_VNCStartedTimed));
     public static string DevicesView_ConnectionError => Get(nameof(DevicesView_ConnectionError));
     public static string DevicesView_DeviceNotReachable => Get(nameof(DevicesView_DeviceNotReachable));
     public static string DevicesView_DeviceNotReachableText => Get(nameof(DevicesView_DeviceNotReachableText));

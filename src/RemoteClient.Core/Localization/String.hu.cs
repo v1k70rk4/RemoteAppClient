@@ -344,6 +344,7 @@ public static partial class Strings
         [nameof(DevicesView_TheConnectionWasNotEstablished)] = "A csatlakozás nem jött létre.",
         [nameof(DevicesView_ReachingBastionPortThroughThe)] = "Bástya-port elérése a helyi agenten át…",
         [nameof(DevicesView_VNCStarted)] = "VNC indítva: {0}",
+        [nameof(DevicesView_VNCStartedTimed)] = "VNC indítva: {0} · a gép {1:F1} mp alatt válaszolt, alagút + VNC {2:F1} mp",
         [nameof(DevicesView_ConnectionError)] = "Csatlakozási hiba: ",
         [nameof(DevicesView_DeviceNotReachable)] = "A gép nem érhető el",
         [nameof(DevicesView_DeviceNotReachableText)] = "A szerver nem tudta átadni a parancsot a gépnek — a kapcsolata épp megszakadt, még ha a listában online-nak látszott is. Próbáld újra, amint tényleg visszatért.",

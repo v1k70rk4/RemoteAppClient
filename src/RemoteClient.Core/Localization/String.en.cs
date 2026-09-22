@@ -344,6 +344,7 @@ public static partial class Strings
         [nameof(DevicesView_TheConnectionWasNotEstablished)] = "The connection was not established.",
         [nameof(DevicesView_ReachingBastionPortThroughThe)] = "Reaching bastion port through the local agent...",
         [nameof(DevicesView_VNCStarted)] = "VNC started: {0}",
+        [nameof(DevicesView_VNCStartedTimed)] = "VNC started: {0} · the device answered in {1:F1}s, tunnel + VNC took {2:F1}s",
         [nameof(DevicesView_ConnectionError)] = "Connection error: ",
         [nameof(DevicesView_DeviceNotReachable)] = "The device is not reachable",
         [nameof(DevicesView_DeviceNotReachableText)] = "The server could not hand the command to the device - its connection has just dropped, even if the list still showed it online. Try again once it is really back.",
