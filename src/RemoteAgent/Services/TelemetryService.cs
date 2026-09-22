@@ -52,13 +52,14 @@ public sealed class TelemetryService(
             {
                 http ??= BuildClient(); // may throw before the cert exists; caught so host keeps running
                 var payload = collector.Collect();
+                var sentAt = DateTimeOffset.UtcNow;
                 using var resp = await http.PostAsJsonAsync(
                     _opt.IngestUrl, payload, AgentJsonContext.Default.TelemetryPayload, stoppingToken);
 
                 if (resp.IsSuccessStatusCode)
                 {
                     status.MarkServerContact(); // status-pipe "last server contact"
-                    CheckClockAgainst(resp.Headers.Date);
+                    CheckClockAgainst(resp.Headers.Date, DateTimeOffset.UtcNow - sentAt);
                     try
                     {
                         // The server steers the bastion transport via the response body. Older servers
@@ -106,10 +107,16 @@ public sealed class TelemetryService(
     /// to the tens of seconds that actually break command delivery, so the threshold is deliberately coarse.
     /// The clock is never set from this value - it only asks the sync service to go consult a real time source.
     /// </para>
+    /// <para>
+    /// A laptop that dozed off between sending and reading the reply would compare the server's stamp from
+    /// before the nap with its own clock after it, and call the nap's length a clock error. A real round trip
+    /// is well under a second, so a reply that took long enough to matter is simply not read.
+    /// </para>
     /// </summary>
-    private void CheckClockAgainst(DateTimeOffset? serverTime)
+    private void CheckClockAgainst(DateTimeOffset? serverTime, TimeSpan roundTrip)
     {
         if (serverTime is not { } t) return;                      // no Date header; nothing to compare
+        if (roundTrip < TimeSpan.Zero || roundTrip > MaxTrustedRoundTrip) return;
         var skew = Math.Abs((DateTimeOffset.UtcNow - t).TotalSeconds);
         if (skew < ClockSkewTriggerSeconds) return;
 
@@ -119,6 +126,9 @@ public sealed class TelemetryService(
 
     /// <summary>Half the agent's 60s command window: react while commands still get through, not after.</summary>
     private const int ClockSkewTriggerSeconds = 30;
+
+    /// <summary>Longer than this and something other than the network happened in between.</summary>
+    private static readonly TimeSpan MaxTrustedRoundTrip = TimeSpan.FromSeconds(10);
 
     private HttpClient BuildClient()
     {

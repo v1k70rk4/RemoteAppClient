@@ -15,16 +15,24 @@ public sealed class AccessResultStore
     {
         public string? Outcome { get; set; }
         public DateTimeOffset Expires { get; set; } = DateTimeOffset.UtcNow + Ttl;
+        /// <summary>The answer arrived before the request was bound to the nonce; actor and device are not known yet.</summary>
+        public bool Placeholder { get; init; }
     }
 
     private readonly ConcurrentDictionary<string, Entry> _map = new();
 
-    /// <summary>At open time: which actor requested access to which deviceId/hostname, before outcome exists.</summary>
-    public void SetPending(string nonce, string actor, Guid? deviceId, string hostname)
+    /// <summary>At open time: which actor requested access to which deviceId/hostname. Returns the entry; when
+    /// the agent's answer got here first (a placeholder holds it), the returned entry already carries the outcome.</summary>
+    public Entry SetPending(string nonce, string actor, Guid? deviceId, string hostname)
     {
-        if (string.IsNullOrEmpty(nonce)) return;
-        _map[nonce] = new Entry(actor, deviceId, hostname);
+        var entry = new Entry(actor, deviceId, hostname);
+        if (string.IsNullOrEmpty(nonce)) return entry;
+        // Never overwrite an answer that beat us: merge the placeholder's outcome into the bound entry. Losing
+        // it left the console polling into a timeout for an access the device had in fact granted.
+        entry = _map.AddOrUpdate(nonce, entry,
+            (_, existing) => existing.Placeholder ? new Entry(actor, deviceId, hostname) { Outcome = existing.Outcome } : entry);
         Prune();
+        return entry;
     }
 
     /// <summary>Records outcome received from the agent and returns context for audit when known.</summary>
@@ -32,7 +40,9 @@ public sealed class AccessResultStore
     {
         if (string.IsNullOrEmpty(nonce)) return null;
         if (_map.TryGetValue(nonce, out var e)) { e.Outcome = outcome; e.Expires = DateTimeOffset.UtcNow + Ttl; return e; }
-        var fresh = new Entry("?", null, "") { Outcome = outcome };
+        // No request bound yet: a device on a fast link answers before the delivery's bookkeeping is done.
+        // Park the answer under a placeholder; SetPending merges it and the request side audits it.
+        var fresh = new Entry("?", null, "") { Outcome = outcome, Placeholder = true };
         _map[nonce] = fresh;
         return fresh;
     }

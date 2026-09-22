@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.2.2-2ea44f" alt="version 2.2.2">
+  <img src="https://img.shields.io/badge/version-2.2.5-2ea44f" alt="version 2.2.5">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
   <a href="https://ko-fi.com/v1k70rk4"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
@@ -40,7 +40,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
-- [What's New in 2.2.2](#whats-new-in-222)
+- [What's New in 2.2.5](#whats-new-in-225)
 - [Changelog](CHANGELOG.md)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -58,25 +58,30 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ---
 
-## What's New in 2.2.2
+## What's New in 2.2.5
 
-Hardening from a real fleet move: a restored server, and a batch of new devices on poor mobile links. Every
-component is **2.2.2.0**; no schema change. It also covers 2.2.1, which was never tagged.
+Fixes from a week of running the fleet: two timing bugs that made a healthy device look slow or silent, a false
+clock alarm on sleeping laptops, and a small console convenience. Every component is **2.2.5.0**; no schema change.
+It also covers 2.2.3 and 2.2.4, which ran on the maintainer's fleet but were never tagged.
 
-- **MSIs keep one ProductCode.** Every generated MSI used to get a fresh one, so Intune, GPO or SCCM saw each rebuilt
-  MSI as a different product and pushed it onto machines that already ran the agent, where the shared UpgradeCode
-  turned it into an uninstall and a re-enrollment. The code is now fixed (`Server:MsiProductCode` overrides it); only
-  the PackageCode changes per build. In Intune set *Ignore app version* to *Yes*: the agent updates itself.
-- **No silently smaller MSIs.** After a restore the package rows exist but the files may not, because the package
-  directory is not in the backup. A missing agent, updater, client or TightVNC file now refuses the build and names
-  the file, instead of producing an MSI without TightVNC. The console says what to upload again.
-- **Package files in the snapshot.** Diagnostics lists current packages whose file is missing, the server logs them at
-  startup, and `restore.sh` ends with the reminder.
-- **VNC provisions itself when TightVNC arrives.** First-time provisioning only ran at agent start, so a device that
-  got TightVNC through a later rollout had no VNC password until its service was restarted. The watchdog now does
-  it within 30 seconds, backing off on real failures.
-- **racctl:** `diag` and `status` print the server's JSON verbatim, `get` works from Git Bash, `devices` shows the
-  TightVNC version and the last hour's reconnects.
+- **Tunnels no longer wait out ssh's ConnectTimeout.** The OpenSSH 8.1 client that Windows 10 ships sleeps through
+  the whole `ConnectTimeout` before it notices the connection is up, so every tunnel from such a device took 8 seconds
+  to come up on a 1 ms link (measured: 8.0 s with the option, immediate without). The device's reverse tunnel and the
+  operator's local forward no longer set it; the agent's own deadlines bound a dead port.
+- **A device that answers fast is no longer "not answering".** The server bound the requester to the command only
+  after delivery, so an agent that answered before that bookkeeping finished had its answer overwritten: the console
+  polled into "the device did not answer" while the tunnel was open, and the audit row said "?". The answer is now
+  kept, and the audit names the real operator and device.
+- **A tunnel start is safe from the idle watchdog**, which used to close a tunnel that was only just coming up
+  (`No process is associated with this object`), and the agent logs where a slow start spends its time: launch,
+  resolve, connect, authentication. The console's status line shows how long the device took to answer and how long
+  the tunnel plus VNC took after that.
+- **A sleeping laptop is not a clock error.** A report that a dozing laptop delivered late looked exactly like a
+  clock that is behind, and the device stayed marked *Error* until it woke again. The server now reads the clock from
+  the freshest of a device's recent reports and needs two agreeing ones before it calls a clock slow.
+- **Click a telemetry value to copy it.** Hostname, addresses, make and model, serial number, device id: click the
+  value, it is on the clipboard. The panel refreshes in place, and the public IP and its reverse name are separate
+  rows.
 
 Earlier releases: [CHANGELOG.md](CHANGELOG.md).
 

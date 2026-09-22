@@ -707,12 +707,14 @@ public sealed class DevicesView : UserControl, IContentView
             if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
 
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
+            var sw = System.Diagnostics.Stopwatch.StartNew();   // what the operator waits for, split at the device's answer
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
             if (!CommandReachedDevice(result)) return;
 
             SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
             var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
+            var answered = sw.Elapsed;
             if (outcome is not ("auto" or "granted"))
             {
                 var (title, text) = outcome switch
@@ -753,9 +755,12 @@ public sealed class DevicesView : UserControl, IContentView
                 return;
             }
 
+            var ready = sw.Elapsed;
             ShowSleepWarning(d);
             LaunchViewer(localPort, d);
-            SetStatus(L.Format(L.DevicesView_VNCStarted, d.Hostname));
+            // Two numbers an operator can act on: how fast the device answered the command, and how long its
+            // tunnel plus VNC took after that. A slow second number points at the device, not at the network.
+            SetStatus(L.Format(L.DevicesView_VNCStartedTimed, d.Hostname, answered.TotalSeconds, (ready - answered).TotalSeconds));
         }
         catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
         finally { _connectBtn.Enabled = true; }

@@ -20,7 +20,15 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
     private int _fileRemotePort; // >0 = also reverse-forward the file service (additive to the VNC forward)
     private volatile bool _forwardConflict; // last attempt was refused because the bastion still holds the port
 
-    public bool IsRunning => _process is { HasExited: false };
+    public bool IsRunning => _process is { } p && !Exited(p);
+
+    /// <summary>HasExited without the InvalidOperationException a disposed Process throws: a tunnel that another
+    /// task is stopping meanwhile (the idle watchdog, a close command) counts as gone, not as a fault.</summary>
+    private static bool Exited(Process p)
+    {
+        try { return p.HasExited; }
+        catch (InvalidOperationException) { return true; }
+    }
 
     // A device that loses the network and comes straight back finds its own (deterministic) reverse port
     // still held by the bastion: sshd releases a dropped session's -R port only once its keepalive expires
@@ -126,7 +134,10 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         AddOption(psi, "StrictHostKeyChecking=yes");           // fail on unknown keys
         AddOption(psi, $"UserKnownHostsFile=\"{_knownHostsPath}\"");
         AddOption(psi, "ExitOnForwardFailure=yes");            // exit if the remote forward is refused
-        AddOption(psi, "ConnectTimeout=8");                    // bound a dead port so fallback is quick
+        // No ConnectTimeout, on purpose: the OpenSSH 8.1 client that Windows 10 ships sleeps through the WHOLE
+        // timeout before it notices the connection is up (8 s of "connecting" on a 1 ms link, on every tunnel;
+        // measured on a Windows 10 box, Windows 11's newer client is fine). The deadline below bounds a
+        // black-holed port instead.
         AddOption(psi, "ServerAliveInterval=15");              // keepalive
         AddOption(psi, "ServerAliveCountMax=3");
         psi.ArgumentList.Add("-v");                            // verbose: lets us detect auth and fail over
@@ -137,9 +148,28 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var authed = false;
+        // Where the seconds go, read off ssh's own -v milestones: process launch (its first line of output),
+        // name resolution ("Connecting to"), TCP + SSH handshake ("Connection established"), authentication.
+        // A slow start is logged as a warning, so the device's event log says WHICH phase to look at.
+        var sw = Stopwatch.StartNew();
+        long tFirst = -1, tResolved = -1, tConnected = -1, tAuthed = -1;
+        void Report(string outcome)
+        {
+            double total = sw.Elapsed.TotalSeconds;
+            static string Phase(long from, long to) => from < 0 || to < 0 ? "?" : $"{(to - from) / 1000.0:F1}s";
+            logger.Log(total >= SlowStartSeconds ? LogLevel.Warning : LogLevel.Information,
+                "Reverse tunnel {Outcome} on {Host}:{Port} after {Total:F1}s (ssh launch {Launch}, resolve {Resolve}, connect {Connect}, kex+auth {Auth}).",
+                outcome, host, port, total, Phase(0, tFirst), Phase(tFirst, tResolved), Phase(tResolved, tConnected), Phase(tConnected, tAuthed < 0 ? sw.ElapsedMilliseconds : tAuthed));
+        }
         proc.ErrorDataReceived += (_, e) =>
         {
             if (string.IsNullOrWhiteSpace(e.Data)) return;
+            long now = sw.ElapsedMilliseconds;
+            if (tFirst < 0) tFirst = now;
+            if (tResolved < 0 && e.Data.Contains("Connecting to", StringComparison.OrdinalIgnoreCase)) tResolved = now;
+            else if (tConnected < 0 && e.Data.Contains("Connection established", StringComparison.OrdinalIgnoreCase)) tConnected = now;
+            else if (tAuthed < 0 && (e.Data.Contains("Authentication succeeded", StringComparison.OrdinalIgnoreCase)
+                                  || e.Data.Contains("Authenticated to", StringComparison.OrdinalIgnoreCase))) tAuthed = now;
             if (e.Data.Contains("Authenticat", StringComparison.OrdinalIgnoreCase)) authed = true;
             // "Warning: remote port forwarding failed for listen port N" -> the bastion still holds this
             // device's port from a session that has not timed out yet; StartAsync waits that out.
@@ -153,20 +183,24 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         proc.BeginErrorReadLine();
         _process = proc;
 
-        // Wait for authentication or a quick failure (ConnectTimeout=8 bounds a dead/black-holed port).
+        // Wait for authentication or a quick failure; the deadline is what bounds a black-holed port.
         var deadline = DateTime.UtcNow.AddSeconds(12);
-        while (DateTime.UtcNow < deadline && !authed && !proc.HasExited)
+        while (DateTime.UtcNow < deadline && !authed && !Exited(proc))
         {
             try { await Task.Delay(150, ct); } catch { break; }
         }
-        if (!authed || proc.HasExited) { await KillQuietly(proc); return false; }
+        if (!authed || Exited(proc)) { Report("failed"); await KillQuietly(proc); return false; }
+        Report("authenticated");   // measured here, before the fixed grace below, so the number is real work
 
         // Authenticated. ExitOnForwardFailure makes ssh exit promptly if the -R forward was refused;
         // if it is still alive after a short grace, the forward is up.
         try { await Task.Delay(2000, ct); } catch { }
-        if (proc.HasExited) { await KillQuietly(proc); return false; }
+        if (Exited(proc)) { await KillQuietly(proc); return false; }
         return true;
     }
+
+    /// <summary>A start slower than this is worth a warning in the device's event log.</summary>
+    private const double SlowStartSeconds = 3;
 
     public async Task StopAsync()
     {

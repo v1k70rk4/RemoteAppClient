@@ -13,7 +13,7 @@ namespace RemoteServer.Services;
 /// Writes telemetry to MariaDB: updates the denormalized <see cref="Device"/> fields that the console
 /// lists, and appends a <see cref="DeviceEvent"/> only when an IP actually changed.
 /// </summary>
-public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : ITelemetrySink
+public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, ClockSkewTracker clocks) : ITelemetrySink
 {
     public async Task IngestAsync(string deviceId, TelemetryPayload payload, string? publicIp, CancellationToken ct)
     {
@@ -81,14 +81,17 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
 
         // Clock skew. Telemetry is NOT signed, so it still arrives from a device whose every command is
         // being discarded on receipt - which makes this the only channel that can report that fault at all.
-        // The agent refuses commands more than CommandVerifier's 60s window away from its own clock, so warn
-        // at half of it: while there is still time to fix it, not once control has already been lost.
-        // Stored as a language-neutral code; the console formats it.
-        var problem = ClockSkewProblem(payload.CollectedAtUtc, now);
+        // The tracker weighs this stamp against the device's recent ones, because a report that a sleeping
+        // laptop delivered late looks just like a clock that is behind. Stored as a language-neutral code;
+        // the console formats it.
+        var problem = clocks.Problem(deviceId, payload.CollectedAtUtc, now);
         if (problem != device.Problem)
         {
+            // The offset jitters by a second from report to report; only a new KIND of problem starts its
+            // own clock, otherwise "since" would restart on every telemetry.
+            bool sameKind = DeviceProblems.Parse(problem).Code == DeviceProblems.Parse(device.Problem).Code;
             device.Problem = problem;
-            device.ProblemSince = problem is null ? null : now;   // a NEW problem starts its own clock
+            if (!sameKind) device.ProblemSince = problem is null ? null : now;
         }
 
         // No per-minute snapshot any more: everything current is denormalised onto the device row above, and
@@ -100,18 +103,6 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands) : 
         // Best-effort: keep the device converging to its channel's target package (never fail telemetry).
         try { await AutoConvergeAsync(device, ct); } catch { /* convergence is best-effort */ }
     }
-
-    /// <summary>The device's clock offset as a problem code, or null when it is close enough to ours.</summary>
-    private static string? ClockSkewProblem(DateTimeOffset collectedAt, DateTimeOffset now)
-    {
-        if (collectedAt == default) return null;                    // old agent that does not send it
-        var skew = (collectedAt - now).TotalSeconds;                // + = device ahead of us
-        if (Math.Abs(skew) < ClockSkewWarnSeconds) return null;
-        return $"{DeviceProblems.ClockSkew}:{skew:+0;-0}";
-    }
-
-    /// <summary>Half of the agent's 60s command window: warn before commands start being discarded.</summary>
-    private const int ClockSkewWarnSeconds = 30;
 
     /// <summary>"host (1.2.3.4)" when a PTR is known, otherwise the bare address - the shape the console shows.</summary>
     private static string? IpLabel(string? ip, string? reverse) =>

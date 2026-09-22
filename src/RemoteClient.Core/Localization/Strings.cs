@@ -326,6 +326,9 @@ public static partial class Strings
     public static string DeviceTelemetryPanel_MakeModel => Get(nameof(DeviceTelemetryPanel_MakeModel));
     public static string DeviceTelemetryPanel_Serial => Get(nameof(DeviceTelemetryPanel_Serial));
     public static string DeviceTelemetryPanel_PublicIP => Get(nameof(DeviceTelemetryPanel_PublicIP));
+    public static string DeviceTelemetryPanel_PublicHost => Get(nameof(DeviceTelemetryPanel_PublicHost));
+    public static string KvRow_Copied => Get(nameof(KvRow_Copied));
+    public static string KvRow_CopyFailed => Get(nameof(KvRow_CopyFailed));
     public static string DeviceTelemetryPanel_DISABLED => Get(nameof(DeviceTelemetryPanel_DISABLED));
     public static string DeviceTelemetryPanel_AgentRestarts => Get(nameof(DeviceTelemetryPanel_AgentRestarts));
     public static string DevicesView_SearchHostnameOrNote => Get(nameof(DevicesView_SearchHostnameOrNote));
@@ -395,6 +398,7 @@ public static partial class Strings
     public static string DevicesView_TheConnectionWasNotEstablished => Get(nameof(DevicesView_TheConnectionWasNotEstablished));
     public static string DevicesView_ReachingBastionPortThroughThe => Get(nameof(DevicesView_ReachingBastionPortThroughThe));
     public static string DevicesView_VNCStarted => Get(nameof(DevicesView_VNCStarted));
+    public static string DevicesView_VNCStartedTimed => Get(nameof(DevicesView_VNCStartedTimed));
     public static string DevicesView_ConnectionError => Get(nameof(DevicesView_ConnectionError));
     public static string DevicesView_DeviceNotReachable => Get(nameof(DevicesView_DeviceNotReachable));
     public static string DevicesView_DeviceNotReachableText => Get(nameof(DevicesView_DeviceNotReachableText));

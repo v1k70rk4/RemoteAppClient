@@ -151,6 +151,9 @@ public sealed class TunnelOrchestratorService(
             await _tunnel.StopAsync();
 
         _tunnel = new SshReverseTunnel(_opt, transport, loggerFactory.CreateLogger<SshReverseTunnel>());
+        // Stamped BEFORE the start: the idle watchdog takes a tunnel whose ssh is up for running, and with the
+        // stamp still at the previous session's end it closed tunnels that were only just coming up.
+        _lastActivity = DateTimeOffset.UtcNow;
         await _tunnel.StartAsync(remotePort, serveFiles ? data!.FileRemotePort : 0, ct);
         _tunnelPort = remotePort;
         state.Set(_tunnel.IsRunning);

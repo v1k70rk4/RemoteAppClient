@@ -86,7 +86,8 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
         AddOption(psi, "StrictHostKeyChecking=yes");
         AddOption(psi, $"UserKnownHostsFile=\"{_knownHostsPath}\"");
         AddOption(psi, "ExitOnForwardFailure=yes");
-        AddOption(psi, "ConnectTimeout=8"); // bound a dead port so fallback is quick
+        // No ConnectTimeout: Windows 10's OpenSSH 8.1 client sleeps through the whole timeout before it sees the
+        // connection is up (see SshReverseTunnel). The poll deadline below bounds a dead port instead.
         AddOption(psi, "ServerAliveInterval=15");
         AddOption(psi, "ServerAliveCountMax=3");
 
@@ -100,8 +101,8 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
         proc.BeginErrorReadLine();
         _process = proc;
 
-        // Wait until ssh is up and has bound the local port, or it exits if the forward failed
-        // (ExitOnForwardFailure=yes / ConnectTimeout). Poll the local port and return as soon as it accepts.
+        // Wait until ssh is up and has bound the local port (it does so only once authenticated), or it exits
+        // because the forward was refused (ExitOnForwardFailure=yes). Poll the port and return as soon as it accepts.
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
         {
@@ -109,8 +110,10 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
             if (PortAccepts(LocalPort)) return true;
             try { await Task.Delay(150, ct); } catch { break; }
         }
-        if (proc.HasExited) { await KillQuietly(proc); return false; }
-        return true; // alive but slow; assume ready, the client will retry if needed
+        // Still not accepting at the deadline: a black-holed port keeps ssh inside connect() for Windows' ~21 s
+        // TCP timeout, well past this point. Give this transport up so the next one gets its turn.
+        await KillQuietly(proc);
+        return false;
     }
 
     private static bool PortAccepts(int port)
