@@ -1333,7 +1333,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     if (cmd is null) return Results.NotFound();
 
     // Bind context to nonce: who requested access to which device, so the agent outcome can be audited.
-    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+    await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct);
 
     return Results.Json(
         new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "", ConsentRequired = consentRequired },
@@ -1365,7 +1365,7 @@ app.MapPost("/admin/devices/{deviceId}/ask-availability", async (
     var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Message,
         new CommandData { MessageKind = "availability", MessageFrom = from }, createdBy: null, ct);
     if (cmd is null) return Results.NotFound();
-    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+    await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct);
     return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
 });
 
@@ -1382,7 +1382,7 @@ app.MapPost("/admin/devices/{deviceId}/send-message", async (
     var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Message,
         new CommandData { MessageKind = "text", MessageFrom = from, MessageText = text.Trim() }, createdBy: null, ct);
     if (cmd is null) return Results.NotFound();
-    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+    await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct);
     await AuditAsync(db, ctx, "device-message", device.Id, $"{from}: {text.Trim()}");
     return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
 });
@@ -1405,7 +1405,7 @@ app.MapPost("/admin/devices/{deviceId}/power", async (
     var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Power,
         new CommandData { PowerAction = act }, createdBy: null, ct);
     if (cmd is null) return Results.NotFound();
-    accessResults.SetPending(cmd.Nonce ?? "", me.Username, device.Id, device.Hostname);
+    await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct);
     await AuditAsync(db, ctx, "device-power", device.Id, act);
     return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
 });
@@ -2130,6 +2130,41 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
 }
 
 // Builds an audit entry without saving it, for writes that must commit together with the change they record.
+// The agent's answer to an access-type command (tunnel, message, power) as an audit row: who asked, which
+// device, what the device said. Normally the uplink writes it; see BindAccessAsync for the other case.
+static RemoteServer.Data.Entities.AuditLog AccessOutcomeAudit(AccessResultStore.Entry entry, string outcome) => new()
+{
+    Actor = entry.Actor,
+    Action = outcome switch
+    {
+        "granted" => "connect",        // user explicitly allowed it
+        "auto" => "connect-auto",       // without consent: consent disabled or no user present
+        "denied" => "access-denied",
+        "timeout" => "access-timeout",
+        "no-user" => "access-no-user",
+        "locked" => "access-locked",
+        _ => "access-" + outcome,
+    },
+    TargetDeviceId = entry.DeviceId,
+    // if Guid is unavailable, hostname falls back into Detail; otherwise Target carries it
+    DetailJson = entry.DeviceId is null && !string.IsNullOrEmpty(entry.Hostname) ? entry.Hostname : null,
+};
+
+// Binds the requester to a delivered command's nonce, so the agent's answer can be polled and audited.
+// The answer may already be in: a device on a fast link replies before the delivery's own bookkeeping is
+// done, and the store then holds it under a placeholder. Before this merge the binding overwrote that
+// answer, the console polled into "the device did not answer" and the audit said "?" - while the tunnel
+// was in fact open. The fastest device in the fleet lost that race on most of its connects.
+static async Task BindAccessAsync(AccessResultStore accessResults, AppDbContext db, string nonce, string actor, Guid deviceId, string hostname, CancellationToken ct)
+{
+    var entry = accessResults.SetPending(nonce, actor, deviceId, hostname);
+    if (entry.Outcome is { } early)
+    {
+        db.AuditLogs.Add(AccessOutcomeAudit(entry, early));
+        await db.SaveChangesAsync(ct);
+    }
+}
+
 static RemoteServer.Data.Entities.AuditLog AuditEntry(HttpContext ctx, string action, Guid? target = null, string? detail = null, string? actorOverride = null) => new()
 {
     Actor = actorOverride ?? (ctx.Items["user"] as RemoteServer.Data.Entities.User)?.Username ?? "system",
@@ -2478,32 +2513,20 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                 var entry = accessResults.RecordOutcome(msg.Nonce, msg.Outcome);
                 log.LogInformation(L.Program_AccessResultDeviceOutcomeNonce, deviceId, msg.Outcome, msg.Nonce);
 
-                // Audit: write the outcome as an audit row (who, which device, result).
-                var action = msg.Outcome switch
+                // Audit: write the outcome as an audit row (who, which device, result) - unless the answer beat
+                // the request's own bookkeeping and sits under a placeholder: then the request side files it,
+                // once it knows the actor (BindAccessAsync). It used to be written here as "?" with no device.
+                if (entry is { Placeholder: false })
                 {
-                    "granted" => "connect",        // user explicitly allowed it
-                    "auto" => "connect-auto",       // without consent: consent disabled or no user present
-                    "denied" => "access-denied",
-                    "timeout" => "access-timeout",
-                    "no-user" => "access-no-user",
-                    "locked" => "access-locked",
-                    _ => "access-" + msg.Outcome,
-                };
-                try
-                {
-                    using var scope = scopes.CreateScope();
-                    var adb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    adb.AuditLogs.Add(new AuditLog
+                    try
                     {
-                        Actor = entry?.Actor ?? "?",
-                        Action = action,
-                        TargetDeviceId = entry?.DeviceId,
-                        // if Guid is unavailable, hostname falls back into Detail; otherwise Target carries it
-                        DetailJson = entry?.DeviceId is null && !string.IsNullOrEmpty(entry?.Hostname) ? entry!.Hostname : null,
-                    });
-                    await adb.SaveChangesAsync(ct);
+                        using var scope = scopes.CreateScope();
+                        var adb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        adb.AuditLogs.Add(AccessOutcomeAudit(entry, msg.Outcome));
+                        await adb.SaveChangesAsync(ct);
+                    }
+                    catch (Exception ex) { log.LogWarning(ex, L.Program_AuditWriteAccessFailed); }
                 }
-                catch (Exception ex) { log.LogWarning(ex, L.Program_AuditWriteAccessFailed); }
             }
         }
         catch (JsonException) { log.LogDebug(L.Program_UnparseableAgentMessageDevice, deviceId); }
