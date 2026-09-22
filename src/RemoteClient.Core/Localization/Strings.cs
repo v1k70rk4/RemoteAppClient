@@ -326,6 +326,9 @@ public static partial class Strings
     public static string DeviceTelemetryPanel_MakeModel => Get(nameof(DeviceTelemetryPanel_MakeModel));
     public static string DeviceTelemetryPanel_Serial => Get(nameof(DeviceTelemetryPanel_Serial));
     public static string DeviceTelemetryPanel_PublicIP => Get(nameof(DeviceTelemetryPanel_PublicIP));
+    public static string DeviceTelemetryPanel_PublicHost => Get(nameof(DeviceTelemetryPanel_PublicHost));
+    public static string KvRow_Copied => Get(nameof(KvRow_Copied));
+    public static string KvRow_CopyFailed => Get(nameof(KvRow_CopyFailed));
     public static string DeviceTelemetryPanel_DISABLED => Get(nameof(DeviceTelemetryPanel_DISABLED));
     public static string DeviceTelemetryPanel_AgentRestarts => Get(nameof(DeviceTelemetryPanel_AgentRestarts));
     public static string DevicesView_SearchHostnameOrNote => Get(nameof(DevicesView_SearchHostnameOrNote));

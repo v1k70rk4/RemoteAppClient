@@ -55,14 +55,10 @@ public sealed class DeviceTelemetryPanel : UserControl
     private void Build(DeviceInfo d)
     {
         _last = d;
-        _flow.SuspendLayout();
-        _flow.Controls.Clear();
+        var rows = new List<(string Caption, string Value, Color Color, Font Font)>();
 
-        void Row(string caption, string? value, Color? color = null, Font? font = null)
-        {
-            int w = _flow.ClientSize.Width > 0 ? _flow.ClientSize.Width : 560;
-            _flow.Controls.Add(new KvRow(caption, string.IsNullOrWhiteSpace(value) ? "—" : value!, color ?? ThemeManager.Text, font ?? UiFont.Mono) { Width = w });
-        }
+        void Row(string caption, string? value, Color? color = null, Font? font = null) =>
+            rows.Add((caption, string.IsNullOrWhiteSpace(value) ? "—" : value!, color ?? ThemeManager.Text, font ?? UiFont.Mono));
 
         Row(L.DevicesView_Device, d.Hostname);
         var pill = DevicesView.StatusPill(d); // same wording and colour as the list badge - they used to disagree
@@ -75,7 +71,10 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.DeviceTelemetryPanel_Channel, string.Equals(d.Channel, "beta", StringComparison.OrdinalIgnoreCase) ? "BETA" : "rtm");
         Row(L.DeviceTelemetryPanel_SignedInUser, d.LoggedInUser ?? L.DeviceTelemetryPanel_No);
         Row(L.DeviceTelemetryPanel_IPAddressLocal, d.IpAddress);
-        Row(L.DeviceTelemetryPanel_PublicIP, PublicIp(d));
+        // The address and its PTR name get a row each: a click copies exactly what the row shows, and the
+        // narrow session panel no longer truncates the address away behind a long hostname.
+        Row(L.DeviceTelemetryPanel_PublicIP, d.PublicIpAddress);
+        if (!string.IsNullOrWhiteSpace(d.PublicIpReverse)) Row(L.DeviceTelemetryPanel_PublicHost, d.PublicIpReverse);
         Row("Wi-Fi", string.IsNullOrWhiteSpace(d.WifiSsid) ? L.DeviceTelemetryPanel_WiredNoWiFi : d.WifiSsid);
         Row("VPN", d.VpnActive ? L.DeviceTelemetryPanel_Active : L.DeviceTelemetryPanel_No);
 
@@ -105,6 +104,27 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row("deviceId", d.DeviceId);
         Row(L.AboutView_Connection, ConnectPath(d));
 
+        Apply(rows);
+    }
+
+    /// <summary>A refresh keeps the rows it has and only swaps their values. Re-creating them every 30 seconds
+    /// in the session panel took the hover and the "copied" feedback away from a row the operator was just
+    /// clicking, and left the detached rows undisposed. Only a changed set of captions (an error row
+    /// appearing, say) rebuilds.</summary>
+    private void Apply(List<(string Caption, string Value, Color Color, Font Font)> rows)
+    {
+        var current = _flow.Controls.OfType<KvRow>().ToList();
+        if (current.Count == rows.Count && current.Select(r => r.Label).SequenceEqual(rows.Select(r => r.Caption)))
+        {
+            for (int i = 0; i < rows.Count; i++) current[i].SetValue(rows[i].Value, rows[i].Color, rows[i].Font);
+            return;
+        }
+
+        _flow.SuspendLayout();   // suspended, so the scroll position survives the swap
+        _flow.Controls.Clear();
+        foreach (var old in current) old.Dispose();   // Clear only detaches them
+        int w = _flow.ClientSize.Width > 0 ? _flow.ClientSize.Width : 560;
+        foreach (var (caption, value, color, font) in rows) _flow.Controls.Add(new KvRow(caption, value, color, font) { Width = w });
         FitRows();
         _flow.ResumeLayout();
     }
@@ -136,7 +156,8 @@ public sealed class DeviceTelemetryPanel : UserControl
         try { BeginInvoke(() => { if (!IsDisposed && _last is not null) Build(_last); }); } catch { /* form gone */ }
     }
 
-    /// <summary>"reverse (ip)" when a PTR is cached, else just the IP, else "—". Shared with the device list.</summary>
+    /// <summary>"reverse (ip)" when a PTR is cached, else just the IP, else "—". The device list's column;
+    /// the panel itself shows the two on separate rows.</summary>
     public static string PublicIp(DeviceInfo d) =>
         string.IsNullOrWhiteSpace(d.PublicIpAddress) ? "—"
         : string.IsNullOrWhiteSpace(d.PublicIpReverse) ? d.PublicIpAddress
@@ -149,6 +170,6 @@ public sealed class DeviceTelemetryPanel : UserControl
         if (t < TimeSpan.Zero) return null;
         if (t.TotalDays >= 1) return L.Format(L.DeviceTelemetryPanel_DayHour, (int)t.TotalDays, t.Hours);
         if (t.TotalHours >= 1) return L.Format(L.DeviceTelemetryPanel_HourMinute, (int)t.TotalHours, t.Minutes);
-        return $"{t.Minutes} perc";
+        return L.Format(L.DeviceTelemetryPanel_Minutes, t.Minutes);
     }
 }
