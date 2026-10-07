@@ -29,25 +29,41 @@ ask_yn() {
 
 need_cmd()     { command -v "$1" >/dev/null 2>&1; }
 require_sudo() { sudo -n true 2>/dev/null || die "passwordless sudo required (run as a user with NOPASSWD sudo)"; }
-# Schema changes (the schema load, a restore) need rights the application's role no longer has.
-#   - RAC_DB_ADMIN_CONN set: an administrative connection string for an external database, same format as
-#     RAC_DB_CONN, with DDL rights; it is never written to the box.
-#   - a local MariaDB: root over the unix socket, as the update helper does.
-#   - otherwise: the application's own credentials ($h, $p, $u, $pw from db.env, set by the caller), which
-#     then have to carry DDL rights themselves - said once, so a DML-only account fails with a reason.
+# Schema changes (the schema load, a restore) need rights the application's role no longer has. In order:
+#   - RAC_DB_LOCAL=1 in db.env (written by 02-mariadb when it installed MariaDB on this box): root over the unix
+#     socket, as the update helper does;
+#   - RAC_DB_ADMIN_CONN: an administrative connection for an external database, same format as RAC_DB_CONN;
+#   - a loopback host while this box runs a mariadb service: an installation from before the marker existed;
+#   - otherwise the application's own credentials ($h, $p, $u, $pw from db.env, set by the caller), which then
+#     have to carry DDL rights themselves - said once, so a DML-only account fails with a reason.
 # shellcheck disable=SC2154
 db_admin() {
-  if [ -n "${RAC_DB_ADMIN_CONN:-}" ]; then
-    local ah ap au apw
-    ah="$(sed -n 's/.*Server=\([^;]*\).*/\1/p'   <<<"$RAC_DB_ADMIN_CONN")"
-    ap="$(sed -n 's/.*Port=\([^;]*\).*/\1/p'     <<<"$RAC_DB_ADMIN_CONN")"
-    au="$(sed -n 's/.*User Id=\([^;]*\).*/\1/p'  <<<"$RAC_DB_ADMIN_CONN")"
-    apw="$(sed -n 's/.*Password=\([^;]*\).*/\1/p' <<<"$RAC_DB_ADMIN_CONN")"
-    MYSQL_PWD="$apw" mariadb -h "${ah:-localhost}" -P "${ap:-3306}" -u "$au" "$@"
-  elif [ -z "${h:-}" ] || [ "$h" = localhost ] || [ "$h" = 127.0.0.1 ]; then
-    sudo mariadb "$@"
-  else
-    [ -n "${RAC_DB_ADMIN_WARNED:-}" ] || { warn "external database: schema changes run with the application's credentials ($u@$h); they need DDL rights, or set RAC_DB_ADMIN_CONN"; RAC_DB_ADMIN_WARNED=1; }
+  if sudo grep -qs '^RAC_DB_LOCAL=1' "${RAC_ENV_DIR:-/etc/remoteserver}/db.env"; then sudo mariadb "$@"; return; fi
+  if [ -n "${RAC_DB_ADMIN_CONN:-}" ]; then db_client_with "$RAC_DB_ADMIN_CONN" "$@"; return; fi
+  if { [ -z "${h:-}" ] || [ "$h" = localhost ] || [ "$h" = 127.0.0.1 ]; } && systemctl is-active --quiet mariadb 2>/dev/null; then
+    sudo mariadb "$@"; return
+  fi
+  [ -n "${RAC_DB_ADMIN_WARNED:-}" ] || { warn "external database: schema changes run with the application's credentials ($u@$h); they need DDL rights, or set RAC_DB_ADMIN_CONN"; RAC_DB_ADMIN_WARNED=1; }
+  db_client_with "Server=${h:-localhost};Port=${p:-3306};User Id=$u;Password=$pw" "$@"
+}
+
+# Runs the mariadb client with the credentials of a connection string. The password goes in a mode-0600 option
+# file that lives only for the call - not in the environment, which every child process would inherit and
+# which is readable through /proc while the client runs. (A password containing a double quote or a backslash
+# would need escaping in the option file; the ones setup generates are alphanumeric.)
+db_client_with() {
+  local conn="$1"; shift
+  local ch cp cu cpw opt rc
+  ch="$(sed -n 's/.*Server=\([^;]*\).*/\1/p'    <<<"$conn")"
+  cp="$(sed -n 's/.*Port=\([^;]*\).*/\1/p'      <<<"$conn")"
+  cu="$(sed -n 's/.*User Id=\([^;]*\).*/\1/p'   <<<"$conn")"
+  cpw="$(sed -n 's/.*Password=\([^;]*\).*/\1/p' <<<"$conn")"
+  opt="$(mktemp)"; chmod 600 "$opt"
+  printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "${ch:-localhost}" "${cp:-3306}" "$cu" "$cpw" > "$opt"
+  mariadb --defaults-extra-file="$opt" "$@" && rc=0 || rc=$?
+  rm -f "$opt"
+  return "$rc"
+}
     MYSQL_PWD="$pw" mariadb -h "$h" -P "${p:-3306}" -u "$u" "$@"
   fi
 }
