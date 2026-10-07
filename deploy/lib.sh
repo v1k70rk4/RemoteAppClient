@@ -64,9 +64,6 @@ db_client_with() {
   rm -f "$opt"
   return "$rc"
 }
-    MYSQL_PWD="$pw" mariadb -h "$h" -P "${p:-3306}" -u "$u" "$@"
-  fi
-}
 
 # Best-effort default DNS name: the box FQDN, else reverse-DNS of the primary IP (DNS only,
 # no external service), else a clearly-fake placeholder. The user can always override at the prompt.
