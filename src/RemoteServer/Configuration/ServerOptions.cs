@@ -45,6 +45,14 @@ public sealed class ServerOptions
     /// <summary>How many days of log files to keep.</summary>
     public int LogRetentionDays { get; set; } = 14;
 
+    /// <summary>How many days of audit rows to keep: operator actions with their source addresses, which is
+    /// personal data with no reason to live forever. 0 keeps everything.</summary>
+    public int AuditRetentionDays { get; set; } = 365;
+
+    /// <summary>The health alerts (see <see cref="Services.HealthAlertWatcher"/>): e-mail to the support address when a
+    /// check starts failing, and once more when it clears.</summary>
+    public AlertOptions Alerts { get; set; } = new();
+
     /// <summary>Public server base URL, for example https://c2.example.com, embedded in bootstrap blobs.</summary>
     public string PublicUrl { get; set; } = string.Empty;
 
@@ -76,6 +84,23 @@ public sealed class ServerOptions
 /// MSI Authenticode signing with osslsigncode on Linux. Empty CertPath means skipped
 /// (unsigned MSI; SmartScreen warns, but Intune push/silent install is unaffected).
 /// </summary>
+public sealed class AlertOptions
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>Minutes between two checks (5 .. 1440).</summary>
+    public int IntervalMinutes { get; set; } = 30;
+    /// <summary>Hours before a check that keeps failing is mailed again.</summary>
+    public int RepeatHours { get; set; } = 24;
+    /// <summary>A disk with less free space than this (percent, or under 1 GB) is an alert.</summary>
+    public int DiskFreePercent { get; set; } = 10;
+    /// <summary>A database round trip slower than this is an alert.</summary>
+    public int DbLatencyWarnMs { get; set; } = 2000;
+    /// <summary>Days left on the public TLS certificate below which it is an alert (certbot renews at 30).</summary>
+    public int TlsDaysWarn { get; set; } = 14;
+    /// <summary>Days ahead of a device certificate's end at which the device is named.</summary>
+    public int DeviceCertDaysWarn { get; set; } = 60;
+}
+
 public sealed class MsiSigningOptions
 {
     /// <summary>Path to the code-signing certificate (PFX). Empty = no signing.</summary>

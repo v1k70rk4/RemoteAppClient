@@ -152,4 +152,26 @@ internal static partial class Strings
     public static string SecretProtector_SecretEncryptionKeyLoaded => Get(nameof(SecretProtector_SecretEncryptionKeyLoaded));
     public static string SshCertificateAuthority_SSHCAKeyNotFound => Get(nameof(SshCertificateAuthority_SSHCAKeyNotFound));
     public static string SshCertificateAuthority_SshKeygenSigningFailedDevice => Get(nameof(SshCertificateAuthority_SshKeygenSigningFailedDevice));
+    public static string HealthAlert_CheckError => Get(nameof(HealthAlert_CheckError));
+    public static string HealthAlert_Failing => Get(nameof(HealthAlert_Failing));
+    public static string HealthAlert_Cleared => Get(nameof(HealthAlert_Cleared));
+    public static string HealthAlert_NoRecipient => Get(nameof(HealthAlert_NoRecipient));
+    public static string HealthAlert_Sent => Get(nameof(HealthAlert_Sent));
+    public static string HealthAlert_SendFailed => Get(nameof(HealthAlert_SendFailed));
+    public static string HealthAlert_Subject => Get(nameof(HealthAlert_Subject));
+    public static string HealthAlert_Intro => Get(nameof(HealthAlert_Intro));
+    public static string HealthAlert_SectionNew => Get(nameof(HealthAlert_SectionNew));
+    public static string HealthAlert_SectionStill => Get(nameof(HealthAlert_SectionStill));
+    public static string HealthAlert_SectionCleared => Get(nameof(HealthAlert_SectionCleared));
+    public static string HealthAlert_Footer => Get(nameof(HealthAlert_Footer));
+    public static string HealthAlert_Disk => Get(nameof(HealthAlert_Disk));
+    public static string HealthAlert_DbDown => Get(nameof(HealthAlert_DbDown));
+    public static string HealthAlert_DbSlow => Get(nameof(HealthAlert_DbSlow));
+    public static string HealthAlert_TlsFailed => Get(nameof(HealthAlert_TlsFailed));
+    public static string HealthAlert_TlsExpiring => Get(nameof(HealthAlert_TlsExpiring));
+    public static string HealthAlert_PackagesMissing => Get(nameof(HealthAlert_PackagesMissing));
+    public static string HealthAlert_LogDir => Get(nameof(HealthAlert_LogDir));
+    public static string HealthAlert_UpdateFailed => Get(nameof(HealthAlert_UpdateFailed));
+    public static string HealthAlert_DeviceCerts => Get(nameof(HealthAlert_DeviceCerts));
+    public static string HealthAlert_NoCommandChannel => Get(nameof(HealthAlert_NoCommandChannel));
 }

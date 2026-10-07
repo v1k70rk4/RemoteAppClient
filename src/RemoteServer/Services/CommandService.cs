@@ -68,13 +68,19 @@ public sealed class CommandService(
             : JsonSerializer.Deserialize(entity.PayloadJson, AgentJsonContext.Default.CommandData);
         var signed = signer.Create(entity.Type, data);
 
+        // The nonce goes on the row BEFORE the send: a device on a fast link answers within milliseconds, and
+        // when nothing else remembers who asked (a queued command delivered at a sleeping device's next wake),
+        // the answer is attributed through this row. A failed send leaves a nonce that the next delivery
+        // overwrites with its own fresh signature.
+        entity.Nonce = signed.Nonce;
+        entity.Signature = signed.Signature;
+        await db.SaveChangesAsync(ct);
+
         var sent = await registry.TrySendAsync(deviceId, signed, ct);
         if (sent)
         {
             entity.Status = CommandStatus.Sent;
             entity.SentAt = DateTimeOffset.UtcNow;
-            entity.Nonce = signed.Nonce;
-            entity.Signature = signed.Signature;
             await db.SaveChangesAsync(ct);
             logger.LogInformation(L.CommandService_CommandDeliveredToDeviceType, deviceId, entity.Type);
         }
