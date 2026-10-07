@@ -95,6 +95,10 @@ public sealed class CommandData
     // travels the wire): "restart" | "force-restart" | "cancel" | "logout".
     [JsonPropertyName("powerAction")] public string? PowerAction { get; set; }
 
+    // For "diag" commands: hours of verbose logging on the device (0 = switch it off now). Canonicalized only
+    // for the diag command type. An agent that predates the type cannot verify the signature and drops it.
+    [JsonPropertyName("diagHours")] public int? DiagHours { get; set; }
+
     // File-transfer session (open-tunnel). Auxiliary: intentionally NOT covered by the command
     // signature — adding them to the open-tunnel canonical form would break not-yet-updated agents.
     // They ride the mTLS-pinned WSS; a tampered token only mismatches the operator's copy → DoS,
@@ -118,6 +122,8 @@ public static class CommandTypes
     public const string Message = "message";
     /// <summary>Power action on the device: restart / force-restart / cancel / logout (see CommandData.PowerAction).</summary>
     public const string Power = "power";
+    /// <summary>Verbose logging on the device for a few hours: debug-level file log, TightVNC log (see CommandData.DiagHours).</summary>
+    public const string Diag = "diag";
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
