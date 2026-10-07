@@ -102,8 +102,9 @@ if [ -n "$ENCRYPT" ]; then
   # Same scheme as the archives the console downloads, so restore.sh needs no new code path.
   [ -n "${RAC_BACKUP_PASS:-}" ] || RAC_BACKUP_PASS="$(ask_secret 'Passphrase for the archive')"
   [ -n "$RAC_BACKUP_PASS" ] || die "empty passphrase"
-  export RAC_BACKUP_PASS
-  tar -C "$STAGE" -cz . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:RAC_BACKUP_PASS -out "$ARCHIVE"
+  # The passphrase reaches openssl over a private descriptor, not the environment: that would be inherited by
+  # every later child process and readable through /proc for as long as openssl runs.
+  tar -C "$STAGE" -cz . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass fd:3 -out "$ARCHIVE" 3< <(printf '%s\n' "$RAC_BACKUP_PASS")
 else
   tar -C "$STAGE" -czf "$ARCHIVE" .
 fi

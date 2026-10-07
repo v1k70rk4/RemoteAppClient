@@ -30,6 +30,8 @@ public sealed class HealthAlertWatcher(
 
     /// <summary>Checks failing right now, with the time their last e-mail went out (MinValue: not yet, retry).</summary>
     private readonly Dictionary<string, DateTimeOffset> _failing = [];
+    /// <summary>Checks that cleared but whose clearance has not been mailed yet.</summary>
+    private readonly HashSet<string> _pendingCleared = [];
     private bool _noRecipientLogged;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -96,13 +98,18 @@ public sealed class HealthAlertWatcher(
 
         // The helper writes result.status after every self-update; "failed" means it rolled back. The time is
         // part of the key, so a later failure alerts again and a later success clears this one.
-        var statusFile = Path.Combine(o.UpdatesDir, "result.status");
-        if (File.Exists(statusFile) && File.ReadAllText(statusFile).Trim() == "failed")
+        try
         {
-            var atFile = Path.Combine(o.UpdatesDir, "result.at");
-            var at = File.Exists(atFile) ? File.ReadAllText(atFile).Trim() : "?";
-            findings.Add(new("update:" + at, T("HealthAlert_UpdateFailed", at)));
+            var statusFile = Path.Combine(o.UpdatesDir, "result.status");
+            if (File.Exists(statusFile) && File.ReadAllText(statusFile).Trim() == "failed")
+            {
+                var atFile = Path.Combine(o.UpdatesDir, "result.at");
+                var at = File.Exists(atFile) ? File.ReadAllText(atFile).Trim() : "?";
+                findings.Add(new("update:" + at, T("HealthAlert_UpdateFailed", at)));
+            }
         }
+        catch (IOException) { /* the helper may be rewriting it this instant; the next pass reads it */ }
+        catch (UnauthorizedAccessException) { /* then it is not ours to read; the other checks still run */ }
 
         // Device certificates (and the SSH certificates issued alongside) live ClientCertValidityDays from
         // enrolment and nothing renews them yet: a device whose certificate expired cannot connect until it is
@@ -144,12 +151,16 @@ public sealed class HealthAlertWatcher(
             }
             else if (now - lastSent >= repeat) again.Add(f);
         }
-        var cleared = _failing.Keys.Except(findings.Select(f => f.Key)).ToList();
-        foreach (var key in cleared)
+        // A cleared check is reported once - but only when a mail actually goes out: it waits in _pendingCleared
+        // until then, and leaves it again if the check fails anew in the meantime.
+        foreach (var key in _failing.Keys.Except(findings.Select(f => f.Key)).ToList())
         {
             _failing.Remove(key);
+            _pendingCleared.Add(key);
             logger.LogInformation(L.HealthAlert_Cleared, key);
         }
+        foreach (var f in findings) _pendingCleared.Remove(f.Key);
+        var cleared = _pendingCleared.Order().ToList();
         if (fresh.Count == 0 && again.Count == 0 && cleared.Count == 0) return;
 
         // Mail. Without a recipient the log is all there is; the state is still kept so the log does not repeat.
@@ -158,6 +169,7 @@ public sealed class HealthAlertWatcher(
         {
             if (!_noRecipientLogged) { _noRecipientLogged = true; logger.LogInformation(L.HealthAlert_NoRecipient); }
             foreach (var f in fresh) _failing[f.Key] = now;
+            _pendingCleared.Clear();   // nothing will ever carry them; the log has them
             return;
         }
 
@@ -184,6 +196,7 @@ public sealed class HealthAlertWatcher(
         if (ok)
         {
             foreach (var f in fresh.Concat(again)) _failing[f.Key] = now;
+            _pendingCleared.Clear();
             logger.LogInformation(L.HealthAlert_Sent, to, findings.Count, cleared.Count);
         }
         else

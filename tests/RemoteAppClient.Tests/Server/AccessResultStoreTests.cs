@@ -40,14 +40,32 @@ public class AccessResultStoreTests
     }
 
     [Fact]
-    public void A_bound_request_is_not_replaced_by_a_second_binding()
+    public void A_second_binding_keeps_the_answer_and_who_filed_it()
+    {
+        // The uplink side binds a fast answer from the command row and files it; the request side's own binding
+        // arrives a moment later and must neither drop the outcome nor file it a second time.
+        var s = new AccessResultStore();
+        s.RecordOutcome("n1", "auto");                                 // the device answered first
+        var byUplink = s.SetPending("n1", "alice", null, "A");         // bound from the command row
+        byUplink.Audited = true;
+        var byRequest = s.SetPending("n1", "alice", Guid.NewGuid(), "A");
+        Assert.Equal("auto", byRequest.Outcome);
+        Assert.True(byRequest.Audited);
+        Assert.Equal("auto", s.Get("n1"));
+    }
+
+    [Fact]
+    public void A_binding_without_an_answer_yet_is_simply_replaced()
     {
         var s = new AccessResultStore();
         s.SetPending("n1", "alice", null, "A");
-        s.RecordOutcome("n1", "denied");
         var again = s.SetPending("n1", "bob", null, "B");
-        Assert.Equal("bob", again.Actor);               // the newest binding wins for a non-placeholder entry
+        Assert.Equal("bob", again.Actor);
         Assert.Null(again.Outcome);
+        s.RecordOutcome("n1", "denied");
+        var third = s.SetPending("n1", "carol", null, "C");
+        Assert.Equal("denied", third.Outcome);           // once answered, the answer survives any rebinding
+        Assert.False(third.Audited);
     }
 
     [Fact]

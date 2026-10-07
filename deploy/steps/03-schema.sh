@@ -29,9 +29,9 @@ else
     warn "RAC_SCHEMA_FORCE set - dropping $existing existing table(s) in '$db'"
     drops="$(MYSQL_PWD="$pw" mariadb -N -B -h "${h:-localhost}" -P "${p:-3306}" -u "$u" \
       -e "SELECT CONCAT('DROP TABLE IF EXISTS \`', table_name, '\`;') FROM information_schema.tables WHERE table_schema='$db';" 2>/dev/null)"
-    sudo mariadb "$db" \
+    db_admin "$db" \
       -e "SET FOREIGN_KEY_CHECKS=0; ${drops} SET FOREIGN_KEY_CHECKS=1;"
   fi
-  sudo mariadb "$db" < "$SCHEMA"
+  db_admin "$db" < "$SCHEMA"
   ok "schema loaded into '$db'"
 fi

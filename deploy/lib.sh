@@ -29,6 +29,13 @@ ask_yn() {
 
 need_cmd()     { command -v "$1" >/dev/null 2>&1; }
 require_sudo() { sudo -n true 2>/dev/null || die "passwordless sudo required (run as a user with NOPASSWD sudo)"; }
+# Schema changes need rights the application's role no longer has. A local MariaDB is reached as root over the
+# unix socket (the update helper does the same); an external one only with the configured credentials ($h, $p,
+# $u, $pw from db.env, set by the caller) - what those may do is the operator's business.
+db_admin() {
+  if [ -z "${h:-}" ] || [ "$h" = localhost ] || [ "$h" = 127.0.0.1 ]; then sudo mariadb "$@"
+  else MYSQL_PWD="$pw" mariadb -h "$h" -P "${p:-3306}" -u "$u" "$@"; fi
+}
 
 # Best-effort default DNS name: the box FQDN, else reverse-DNS of the primary IP (DNS only,
 # no external service), else a clearly-fake placeholder. The user can always override at the prompt.

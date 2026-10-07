@@ -132,6 +132,9 @@ public sealed class CommandChannelService(
 
     private async Task ConnectAndListenAsync(CancellationToken ct)
     {
+        // First thing: a failure before the connect (a missing certificate, say) must not inherit the previous
+        // connection's "established", or the backoff would reset after every such failure and never grow.
+        _established = false;
         using var ws = new ClientWebSocket();
 
         if (!string.IsNullOrWhiteSpace(_pfxPath) || !string.IsNullOrWhiteSpace(_opt.ClientCertThumbprint))
@@ -149,7 +152,6 @@ public sealed class CommandChannelService(
         ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(_opt.KeepAliveTimeoutSeconds);
 
         logger.LogInformation(L.CommandChannelService_ConnectingToCommandChannelUrl, _opt.Url);
-        _established = false;
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
         _established = true;
         logger.LogInformation(L.CommandChannelService_CommandChannelIsLive);

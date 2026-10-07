@@ -200,6 +200,8 @@ app.Use(async (ctx, next) =>
             (m == "GET" && p == "/admin/devices")
             || (m == "GET" && p.StartsWith("/admin/devices/access-result/", StringComparison.Ordinal))
             || (m == "POST" && p.StartsWith("/admin/devices/", StringComparison.Ordinal) && p.EndsWith("/open-tunnel", StringComparison.Ordinal))
+            // ...and withdraw a connection they queued at a sleeping device (the endpoint narrows them to their own).
+            || (m == "POST" && p.StartsWith("/admin/devices/", StringComparison.Ordinal) && p.EndsWith("/cancel-queued", StringComparison.Ordinal))
             // Operators set their own viewer scale; the pref roams with their account.
             || (m == "PUT" && p == "/admin/me/viewer-prefs");
         if (!operatorAllowed)
@@ -1364,6 +1366,12 @@ app.MapPost("/admin/devices/{deviceId}/cancel-queued", async (
     }
     var kind = (type ?? "").Trim();
     var queued = db.Commands.Where(c => c.DeviceId == device.Id && c.Status == RemoteServer.Data.CommandStatus.Queued);
+    if (!AuthService.IsAdmin(me))
+    {
+        // An operator withdraws only the connections they queued themselves; everything else is the admin's.
+        kind = CommandTypes.OpenTunnel;
+        queued = queued.Where(c => c.CreatedByUserId == me.Id);
+    }
     if (kind.Length > 0) queued = queued.Where(c => c.Type == kind);
     var n = await queued.ExecuteDeleteAsync(ct);
     if (n > 0) await AuditAsync(db, ctx, "queued-cancelled", device.Id, kind.Length > 0 ? $"{kind} x {n}" : n.ToString());
@@ -2213,8 +2221,10 @@ static RemoteServer.Data.Entities.AuditLog AccessOutcomeAudit(AccessResultStore.
 static async Task BindAccessAsync(AccessResultStore accessResults, AppDbContext db, string nonce, string actor, Guid deviceId, string hostname, CancellationToken ct)
 {
     var entry = accessResults.SetPending(nonce, actor, deviceId, hostname);
-    if (entry.Outcome is { } early)
+    // An answer that got here first is filed now - unless the uplink side already did, from the command row.
+    if (entry.Outcome is { } early && !entry.Audited)
     {
+        entry.Audited = true;
         db.AuditLogs.Add(AccessOutcomeAudit(entry, early));
         await db.SaveChangesAsync(ct);
     }
@@ -2587,8 +2597,9 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                         // Unknown here (the row is not written yet): the request side binds and audits it.
                         entry = dev is null || who is null ? null : accessResults.SetPending(msg.Nonce, who.Username, dev.Id, dev.Hostname);
                     }
-                    if (entry is not null)
+                    if (entry is not null && !entry.Audited)
                     {
+                        entry.Audited = true;   // before the write: a binding racing us copies the flag
                         adb.AuditLogs.Add(AccessOutcomeAudit(entry, msg.Outcome));
                         await adb.SaveChangesAsync(ct);
                     }
