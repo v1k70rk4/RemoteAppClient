@@ -49,8 +49,8 @@ db_admin() {
 
 # Runs the mariadb client with the credentials of a connection string. The password goes in a mode-0600 option
 # file that lives only for the call - not in the environment, which every child process would inherit and
-# which is readable through /proc while the client runs. (A password containing a double quote or a backslash
-# would need escaping in the option file; the ones setup generates are alphanumeric.)
+# which is readable through /proc while the client runs. Inside the quoted option-file value a backslash and a
+# double quote are escape characters, so they are doubled and escaped first; everything else is read verbatim.
 db_client_with() {
   local conn="$1"; shift
   local ch cp cu cpw opt rc
@@ -58,6 +58,7 @@ db_client_with() {
   cp="$(sed -n 's/.*Port=\([^;]*\).*/\1/p'      <<<"$conn")"
   cu="$(sed -n 's/.*User Id=\([^;]*\).*/\1/p'   <<<"$conn")"
   cpw="$(sed -n 's/.*Password=\([^;]*\).*/\1/p' <<<"$conn")"
+  cpw="${cpw//\\/\\\\}"; cpw="${cpw//\"/\\\"}"
   opt="$(mktemp)"; chmod 600 "$opt"
   printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "${ch:-localhost}" "${cp:-3306}" "$cu" "$cpw" > "$opt"
   mariadb --defaults-extra-file="$opt" "$@" && rc=0 || rc=$?
