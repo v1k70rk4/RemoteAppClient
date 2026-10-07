@@ -74,7 +74,7 @@ if [ "$MODE" = "db" ]; then
   ask_yn "Load the dump into '$db'?" "y" || die "aborted"
 
   sudo systemctl stop remoteserver.service 2>/dev/null || true
-  gunzip -c "$STAGE/db.sql.gz" | MYSQL_PWD="$pw" mariadb -h "${h:-localhost}" -P "${p:-3306}" -u "$u" "$db"
+  gunzip -c "$STAGE/db.sql.gz" | db_admin "$db"
   ok "database loaded"
 
   sudo systemctl start remoteserver.service

@@ -25,6 +25,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_client_certificate /etc/nginx/client-ca.crt;
     ssl_verify_client optional;
+    # The agents and consoles pin the certificate anyway; HSTS is for a browser that opens this host.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     # Agent command channel (WSS) + SSH-over-WebSocket: client certificate REQUIRED.
     location ~ ^/(agent|ssh)\$ {

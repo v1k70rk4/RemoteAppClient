@@ -3,6 +3,97 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
+## What's New in 2.2.7
+
+A release about seeing: what a device is doing when something is wrong, and what the server is doing when nobody
+is looking. Verbose logging on demand, a file log on every agent, a server that mails when its own checks fail,
+and the first automated tests. Every component is **2.2.7.0**. There is **no schema change**. The release also
+covers 2.2.6, which ran on the maintainer's fleet but was never tagged.
+
+**Verbose logging on demand**
+- *Commands → Verbose log for 24 hours* (and *off*) in the device menu. The agent raises its live log level to
+  Debug without a restart: the switch is a small file next to the enrollment (`diag.json`) that the logging
+  configuration watches, with the expiry inside it, so it reverts by itself when the time is up, a service restart
+  included. TightVNC's own log turns detailed for the same period (its log level is part of the VNC hardening, so
+  the watchdog applies it within half a minute, restarting tvnserver once) and goes back afterwards.
+- The command is queued for an offline device like any other and answered with `diag-on` / `diag-off`; the audit
+  log records who switched it and for how long. Its hours are a signed field that older agents do not know, so
+  the server refuses the command for an agent below 2.2.7 instead of letting it fail the signature check.
+
+**A file log on every agent**
+- The agent now writes a daily file under `C:\ProgramData\RemoteAgent\logs` (14 days kept), in the same format as
+  the server's log, next to the Windows event log it always wrote. The event log stays at Information; only the
+  file receives the Debug detail while verbose logging is on. An operator downloads it with the file transfer and
+  reads it whole, instead of exporting an .evtx.
+- TightVNC logs to a fixed place, `C:\ProgramData\TightVNC`, at level 2 (errors and warnings) normally; the agent
+  rotates a file past 5 MB when it restarts the service, since TightVNC never rotates its own.
+- A failure of the VNC self-heal used to be logged at Debug, which the event log never shows: a device whose VNC
+  was broken for hours left no trace. It is a warning now, once per kind of failure, not every 30 seconds.
+
+**The server mails when its own checks fail**
+- Every 30 minutes the server evaluates the snapshot the console's Diagnostics tab shows: a disk under 10 % (or
+  1 GB) free, a database that is unreachable or slow, the public TLS certificate failing or within 14 days of
+  its end, a package file missing, an unusable log directory, a self-update that rolled back, device
+  certificates within 60 days of their end, and devices that send telemetry while none holds a command channel
+  (the symptom of a stuck 443 multiplexer). A check that starts failing is mailed to the support address at once,
+  again every 24 hours while it keeps failing, and once more when it clears; every transition is also a line in
+  the server log. `Server:Alerts` holds the thresholds and the switch.
+- What the server cannot report is its own absence: an outside probe of `/health` is still the way to know that.
+
+**Audit log retention**
+- Audit rows are operator actions with their source addresses, and they lived forever. `Server:AuditRetentionDays`
+  (365 by default, 0 keeps everything) bounds them; the sweep runs every six hours together with the device history.
+
+**A sign-in lock that could be stepped around**
+- A sign-in request naming a device id the server did not know - a console on a device that had been deleted, or a
+  made-up one - was tracked by neither the device lock nor the source-address lock, so its failures were never
+  counted. Such requests now count against the source address, like a keyless sign-in.
+
+**From 2.2.6: sleeping and roaming devices**
+- An agent whose command channel dropped reset its reconnect delay only after a clean close, so a device roaming
+  between networks sat silent for up to two minutes after each move. The delay now resets after any established
+  connection, and a change of the device's addresses triggers a reconnect at once.
+- The agent keeps the device awake for the duration of a remote session (a Windows power request) and releases
+  it when the session ends, so a laptop no longer dozes off under the operator.
+- *Connect when it wakes*: connecting to a sleeping device queues the connection, the console waits up to 30
+  minutes and starts the session the moment the device reports in; withdrawing cancels the queued command. A second
+  click while the first is queued no longer stacks a second tunnel.
+- TightVNC is hidden from the device's users: no tray icon or control interface, no Start menu group or desktop
+  shortcuts, and the logon entry that brought the tray icon back is removed. Only processes running as the
+  signed-in user are ended; TightVNC's own screen-reading helper, which the service starts in the user's session
+  under its own account, is left alone.
+- Server-side, queued commands gained a cancel endpoint, and a queued connection is attributed to the operator who
+  asked for it.
+
+**Deployment hardening**
+- The database role the server runs with gets `SELECT, INSERT, UPDATE, DELETE` only; the schema load and a restore
+  go through the root socket, as the update helper already did. Existing installations keep their role until the
+  grants are changed by hand (see *Upgrading*).
+- The nginx template sends HSTS; `deploy/backup.sh --encrypt` seals the fleet-identity archive with a passphrase
+  (`restore.sh` recognises it); the CI token is read-only except for the release job; the deployment scripts are
+  pinned to LF so a Windows checkout cannot break them on the box.
+- `deploy/KEYS.md` lists every key and certificate the server and the devices hold, what each protects, how it is
+  rotated - and that device certificates expire 825 days after enrolment with no renewal yet, which the alerts
+  now warn about 60 days ahead.
+
+**First automated tests**
+- `tests/RemoteAppClient.Tests` (xUnit, 95 tests) covers the command signature's canonical forms, the liveness
+  decision, the clock-skew tracker, the access-result store, the token gate, the log store, the password hasher,
+  the secret protector, the verbose-logging switch and file log, and that every localized string exists in both
+  languages with matching placeholders. CI runs them on every push, and a release waits for them.
+
+**Upgrading**
+- Server first: upload `RemoteServer-linux-x64.tar.gz` and *Update server*. No SQL. Set *Support e-mail* in
+  *Server settings* if it is empty, or the alerts go to the log only.
+- Then the agents: the first watchdog tick after the update restarts tvnserver once, for the new log settings.
+  The console needs 2.2.7 for the verbose-log menu; the updater, Lite and the Linux console carry the aligned
+  version only.
+- Existing installations, by hand on the box: narrow the database role
+  (`REVOKE ALL PRIVILEGES ON remoteserver.* FROM 'remoteserver'@'localhost'; GRANT SELECT, INSERT, UPDATE, DELETE ON
+  remoteserver.* TO 'remoteserver'@'localhost'; FLUSH PRIVILEGES;`) and add
+  `add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;` to the nginx server block.
+  The deployment scripts only shape new installations.
+
 ## What's New in 2.2.5
 
 Fixes from a week of running the fleet: two timing bugs that made a healthy device look slow or silent, a false

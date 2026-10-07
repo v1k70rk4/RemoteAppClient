@@ -31,6 +31,10 @@ public static class CommandSignature
         // Likewise, power fields are appended only for power commands.
         if (cmd.Type == CommandTypes.Power)
             s += $"|{cmd.Data?.PowerAction}";
+
+        // And the diag hours only for diag commands.
+        if (cmd.Type == CommandTypes.Diag)
+            s += $"|{cmd.Data?.DiagHours ?? 0}";
         return s;
     }
 

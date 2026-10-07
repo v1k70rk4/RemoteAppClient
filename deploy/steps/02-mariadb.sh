@@ -32,14 +32,16 @@ else
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_pass}';
 ALTER USER '${db_user}'@'localhost' IDENTIFIED BY '${db_pass}';
-GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${db_user}'@'localhost';
+GRANT SELECT, INSERT, UPDATE, DELETE ON \`${DB_NAME}\`.* TO '${db_user}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
   CONN="Server=localhost;Port=3306;Database=${DB_NAME};User Id=${db_user};Password=${db_pass}"
+  DB_LOCAL=1   # remembered in db.env: schema work on this database goes through the root socket (lib.sh db_admin)
   ok "MariaDB installed; database '${DB_NAME}' + user '${db_user}' created"
 fi
 
 printf 'ConnectionStrings__MariaDb=%s\n' "$CONN" | sudo tee "$ENV_FILE" >/dev/null
+[ -z "${DB_LOCAL:-}" ] || printf 'RAC_DB_LOCAL=1\n' | sudo tee -a "$ENV_FILE" >/dev/null
 sudo chmod 600 "$ENV_FILE"; sudo chown root:root "$ENV_FILE"
 export RAC_DB_NAME="$DB_NAME"
 ok "db.env written ($ENV_FILE, root-only)"

@@ -17,6 +17,8 @@ public sealed class AccessResultStore
         public DateTimeOffset Expires { get; set; } = DateTimeOffset.UtcNow + Ttl;
         /// <summary>The answer arrived before the request was bound to the nonce; actor and device are not known yet.</summary>
         public bool Placeholder { get; init; }
+        /// <summary>The outcome is in the audit log already; whoever binds or records next must not file it again.</summary>
+        public bool Audited { get; set; }
     }
 
     private readonly ConcurrentDictionary<string, Entry> _map = new();
@@ -27,10 +29,15 @@ public sealed class AccessResultStore
     {
         var entry = new Entry(actor, deviceId, hostname);
         if (string.IsNullOrEmpty(nonce)) return entry;
-        // Never overwrite an answer that beat us: merge the placeholder's outcome into the bound entry. Losing
-        // it left the console polling into a timeout for an access the device had in fact granted.
+        // Never overwrite an answer that beat us. The first version of this merged only a placeholder's outcome,
+        // but the uplink side may already have bound the nonce from the command row (a fast device, or a queued
+        // command answered at the next wake), and the request side's own binding then replaced that entry -
+        // outcome and all - so the console polled into a timeout for an access the device had in fact granted.
+        // Whatever is already known about the answer stays, whoever binds.
         entry = _map.AddOrUpdate(nonce, entry,
-            (_, existing) => existing.Placeholder ? new Entry(actor, deviceId, hostname) { Outcome = existing.Outcome } : entry);
+            (_, existing) => existing.Outcome is not null
+                ? new Entry(actor, deviceId, hostname) { Outcome = existing.Outcome, Audited = existing.Audited }
+                : entry);
         Prune();
         return entry;
     }

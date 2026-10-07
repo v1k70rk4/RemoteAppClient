@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using RemoteServer.Configuration;
 using RemoteServer.Data;
 using RemoteServer.Data.Entities;
 using RemoteServer.Hub;
@@ -96,6 +98,16 @@ public sealed class DeviceHistoryWatcher(
             var cutoff = now - Retention;
             var pruned = await db.DeviceEvents.Where(e => e.At < cutoff).ExecuteDeleteAsync(ct);
             if (pruned > 0) logger.LogInformation("Pruned {Count} device history entries older than {Days} days.", pruned, Retention.TotalDays);
+
+            // The audit log is operator actions with their source addresses: personal data that used to live
+            // forever. Server:AuditRetentionDays bounds it (a year by default; 0 keeps everything).
+            var keepDays = scope.ServiceProvider.GetRequiredService<IOptions<ServerOptions>>().Value.AuditRetentionDays;
+            if (keepDays > 0)
+            {
+                var auditCutoff = now.AddDays(-keepDays);
+                var prunedAudit = await db.AuditLogs.Where(a => a.CreatedAt < auditCutoff).ExecuteDeleteAsync(ct);
+                if (prunedAudit > 0) logger.LogInformation("Pruned {Count} audit entries older than {Days} days.", prunedAudit, keepDays);
+            }
         }
     }
 }

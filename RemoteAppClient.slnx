@@ -11,4 +11,7 @@
     <Project Path="src/RemoteClient.Lite/RemoteClient.Lite.csproj" />
     <Project Path="src/RemoteServer/RemoteServer.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RemoteAppClient.Tests/RemoteAppClient.Tests.csproj" />
+  </Folder>
 </Solution>

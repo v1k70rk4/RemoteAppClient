@@ -286,9 +286,20 @@ public sealed partial class LogStore : IDisposable
 
     public void Dispose()
     {
+        // Completing the channel lets the writer drain what is queued and stop by itself; cancelling right
+        // away could drop the last lines, which are the ones that explain a stop. Cancel only if it hangs.
         _queue.Writer.TryComplete();
-        _cts.Cancel();
-        try { _writer?.Wait(TimeSpan.FromSeconds(2)); } catch { }
+        try
+        {
+            if (_writer is not null && !_writer.Wait(TimeSpan.FromSeconds(2)))
+            {
+                // Still busy (a stuck disk): cancel it, and let the token source go only when it has exited.
+                _cts.Cancel();
+                _ = _writer.ContinueWith(_ => _cts.Dispose(), TaskScheduler.Default);
+                return;
+            }
+        }
+        catch { /* a faulted writer has nothing left to drain */ }
         _cts.Dispose();
     }
 }

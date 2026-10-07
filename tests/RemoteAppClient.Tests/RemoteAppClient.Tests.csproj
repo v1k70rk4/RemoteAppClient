@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Unit tests for the pure parts: the shared command contract, the consoles' liveness decision, the server's
+       clock-skew / access-result / token-gate / log-store / crypto pieces, and the agent's verbose-logging switch.
+       Nothing here needs a database, a network or Windows: it runs on the Linux CI runner.
+       The agent is a self-contained win-x64 executable and cannot be referenced, so its two dependency-free
+       diagnostics files are compiled in by link. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>RemoteAppClient.Tests</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- The server compiles against this EF Core; without naming it here the test host would pick the older one Pomelo asks for. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.20" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The server is an ASP.NET Core app; its types (PathString in the token gate) need the shared framework here too,
+         and the framework brings Microsoft.Extensions.* (configuration, logging, DI) with it. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RemoteAgent.Contracts\RemoteAgent.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\RemoteClient.Core\RemoteClient.Core.csproj" />
+    <ProjectReference Include="..\..\src\RemoteServer\RemoteServer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\RemoteAgent\Diagnostics\DiagMode.cs" Link="Agent\DiagMode.cs" />
+    <Compile Include="..\..\src\RemoteAgent\Diagnostics\FileLog.cs" Link="Agent\FileLog.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
