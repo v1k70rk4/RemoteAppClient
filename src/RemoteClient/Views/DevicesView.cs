@@ -155,6 +155,9 @@ public sealed class DevicesView : UserControl, IContentView
             power.DropDownItems.Add(L.DeviceCommandsPanel_ForceRestart, null, async (_, _) => await RunPowerAsync("force-restart", confirm: true));
             power.DropDownItems.Add(L.DeviceCommandsPanel_CancelRestart, null, async (_, _) => await RunPowerAsync("cancel", confirm: false));
             power.DropDownItems.Add(L.DeviceCommandsPanel_Logout, null, async (_, _) => await RunPowerAsync("logout", confirm: true));
+            power.DropDownItems.Add(new ToolStripSeparator());
+            power.DropDownItems.Add(L.DevicesView_DiagOn24, null, async (_, _) => await RunDiagAsync(24));
+            power.DropDownItems.Add(L.DevicesView_DiagOff, null, async (_, _) => await RunDiagAsync(0));
             menu.Items.Add(power);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(L.DevicesView_Delete, null, async (_, _) => await DeleteSelectedAsync());
@@ -230,6 +233,9 @@ public sealed class DevicesView : UserControl, IContentView
         menu.Items.Add(L.DeviceCommandsPanel_ForceRestart, null, async (_, _) => await RunPowerAsync("force-restart", confirm: true));
         menu.Items.Add(L.DeviceCommandsPanel_CancelRestart, null, async (_, _) => await RunPowerAsync("cancel", confirm: false));
         menu.Items.Add(L.DeviceCommandsPanel_Logout, null, async (_, _) => await RunPowerAsync("logout", confirm: true));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L.DevicesView_DiagOn24, null, async (_, _) => await RunDiagAsync(24));
+        menu.Items.Add(L.DevicesView_DiagOff, null, async (_, _) => await RunDiagAsync(0));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(L.DevicesView_Delete, null, async (_, _) => await DeleteSelectedAsync());
         menu.Show(_header.More, new Point(0, _header.More.Height));
@@ -703,17 +709,47 @@ public sealed class DevicesView : UserControl, IContentView
             var devices = await _api.GetDevicesAsync();
             var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
 
-            if (!d.Online) { var st = DeviceLiveness.Label(d); MessageBox.Show(L.Format(L.DevicesView_CannotConnectState, st), st, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            // A sleeping device cannot be reached now, but the server keeps the command and delivers it the moment
+            // the device reports in; the agent then opens the tunnel in the first second of that wake, which is
+            // the only way to catch a laptop that dozes off again within a minute. The operator chooses to wait.
+            bool waitForWake = false;
+            if (!d.Online)
+            {
+                var st = DeviceLiveness.Label(d);
+                if (MessageBox.Show(this, L.Format(L.DevicesView_WakeWaitAsk, st), L.DevicesView_WakeWaitTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                waitForWake = true;
+            }
 
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
             var sw = System.Diagnostics.Stopwatch.StartNew();   // what the operator waits for, split at the device's answer
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
-            if (!CommandReachedDevice(result)) return;
-
-            SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
-            var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
+            string outcome;
+            if (waitForWake)
+            {
+                // Queued (or already Sent, if it woke meanwhile): wait for the device to come up and answer.
+                SetStatus(L.DevicesView_WakeWaiting);
+                using (var w = new WakeWaitForm(_api, result.Nonce, d.Hostname))
+                {
+                    w.ShowDialog(this);
+                    outcome = w.Outcome;
+                }
+                if (outcome is "cancelled" or "timeout")
+                {
+                    // Withdraw it, or the device's next wake would open a tunnel to nobody.
+                    try { await _api.CancelQueuedAsync(d.DeviceId, "open-tunnel"); } catch { /* best effort */ }
+                    SetStatus(outcome == "cancelled" ? L.DevicesView_Cancelled : L.DevicesView_WakeWaitTimedOut);
+                    return;
+                }
+                sw.Restart();   // the timing line measures the session, not the nap
+            }
+            else
+            {
+                if (!CommandReachedDevice(result)) return;
+                SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
+                outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
+            }
             var answered = sw.Elapsed;
             if (outcome is not ("auto" or "granted"))
             {
@@ -832,6 +868,31 @@ public sealed class DevicesView : UserControl, IContentView
         catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
     }
 
+    /// <summary>
+    /// Verbose logging on the selected device for a day, or off now. No confirmation: it changes nothing but
+    /// log levels (and restarts tvnserver once). The status line tells where the file log is, since that is
+    /// what the operator downloads with the file transfer afterwards.
+    /// </summary>
+    private async Task RunDiagAsync(int hours)
+    {
+        if (SelectedDevice() is not { } d) { SetStatus(L.DevicesView_SelectADevice); return; }
+        try
+        {
+            SetStatus(L.DeviceCommandsPanel_Sending);
+            var nonce = await _api.DiagAsync(d.DeviceId, hours);
+            if (nonce is null) { SetStatus(L.Format(L.DevicesView_DiagAgentTooOld, d.AgentVersion ?? "?")); return; }
+            var outcome = await WaitPowerAsync(nonce);
+            SetStatus(outcome switch
+            {
+                "diag-on" => L.Format(L.DevicesView_DiagEnabled, hours),
+                "diag-off" => L.DevicesView_DiagDisabled,
+                "failed" => L.DeviceCommandsPanel_Failed,
+                _ => L.DeviceCommandsPanel_NoAnswer,
+            });
+        }
+        catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
+    }
+
     private async Task<string> WaitPowerAsync(string? nonce)
     {
         if (string.IsNullOrEmpty(nonce)) return "";
@@ -925,9 +986,12 @@ public sealed class DevicesView : UserControl, IContentView
     {
         if (d.BatteryPercent is null && d.SleepAcMinutes is null && d.SleepDcMinutes is null) return; // no power telemetry yet
         string Sleep(int? m) => m switch { null => "?", 0 => L.DeviceTelemetryPanel_Never, _ => L.Format(L.DeviceTelemetryPanel_Minutes, m.Value) };
+        // Agents from 2.2.6.0 hold a power request for the session, so idle sleep on the charger is no longer a
+        // risk; a battery running down still is.
+        bool keepsAwake = Version.TryParse(d.AgentVersion, out var av) && av >= new Version(2, 2, 6, 0);
         string? msg = !d.AcOnline
             ? L.Format(L.DevicesView_SleepWarnBattery, d.BatteryPercent?.ToString() ?? "?", Sleep(d.SleepDcMinutes))
-            : d.SleepAcMinutes is int ac && ac > 0 ? L.Format(L.DevicesView_SleepWarnCharger, ac) : null;
+            : !keepsAwake && d.SleepAcMinutes is int ac && ac > 0 ? L.Format(L.DevicesView_SleepWarnCharger, ac) : null;
         if (msg is not null)
             MessageBox.Show(this, msg, L.DevicesView_SleepWarnTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }

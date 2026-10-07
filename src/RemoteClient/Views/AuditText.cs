@@ -30,6 +30,9 @@ internal static class AuditText
         "access-cancelled" => L.DeviceCommandsPanel_Cancelled,
         "access-logged-out" => L.DeviceCommandsPanel_LoggedOut,
         "access-failed" => L.DeviceCommandsPanel_Failed,
+        "device-diag" => L.AuditText_VerboseLog,
+        "access-diag-on" => L.AuditText_VerboseLogOn,
+        "access-diag-off" => L.AuditText_VerboseLogOff,
         "access-delivered" => L.AuditText_MessageDelivered,
         "device-message" => L.AuditText_MessageSent,
         "device-unlock" => L.AuditText_SignInLockCleared,
@@ -105,8 +108,9 @@ internal static class AuditText
     {
         "connect" or "connect-auto" or "access-denied" or "access-timeout" or "access-no-user"
             or "access-no-answer" or "access-busy" or "access-available" or "access-scheduled"
-            or "access-cancelled" or "access-logged-out" or "access-failed" or "access-locked" => L.AuditText_TagAccess,
-        "device-power" => L.AuditText_TagCommand,
+            or "access-cancelled" or "access-logged-out" or "access-failed" or "access-locked"
+            or "access-diag-on" or "access-diag-off" => L.AuditText_TagAccess,
+        "device-power" or "device-diag" => L.AuditText_TagCommand,
         "device-message" or "access-delivered" => L.AuditText_TagMessage,
         "device.enrolled" or "device-update" or "device-note-import" or "device-delete" or "device-unlock" or "device-locked"
             or "bootstrap-create" => L.AuditText_TagDevice,

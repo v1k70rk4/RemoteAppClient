@@ -234,6 +234,13 @@ public sealed class AdminApi : IDisposable
         return await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct);
     }
 
+    /// <summary>Withdraws the commands still queued for a device, e.g. a connect the operator stopped waiting for.</summary>
+    public async Task CancelQueuedAsync(string deviceId, string type, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/cancel-queued?type={Uri.EscapeDataString(type)}", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Messages tab: asks the device user "is it free now?". Returns the nonce to poll the outcome.</summary>
     public async Task<string?> AskAvailabilityAsync(string deviceId, CancellationToken ct = default)
     {
@@ -254,6 +261,19 @@ public sealed class AdminApi : IDisposable
     public async Task<string?> PowerAsync(string deviceId, string action, CancellationToken ct = default)
     {
         using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/power?action={Uri.EscapeDataString(action)}", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
+    }
+
+    /// <summary>
+    /// Verbose logging on the device for <paramref name="hours"/> hours (0 = off now). Returns the nonce to poll
+    /// the outcome ("diag-on" / "diag-off" / "failed"), or null when the device's agent predates the command
+    /// (the server answers 409 for those).
+    /// </summary>
+    public async Task<string?> DiagAsync(string deviceId, int hours, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/diag?hours={hours}", content: null, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Conflict) return null;
         resp.EnsureSuccessStatusCode();
         return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
     }
