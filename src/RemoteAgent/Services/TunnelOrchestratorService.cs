@@ -19,6 +19,7 @@ public sealed class TunnelOrchestratorService(
     TransportState transport,
     RemoteAgent.Update.UpdateInstaller updateInstaller,
     AgentUplink uplink,
+    RemoteAgent.Power.SessionKeepAwake keepAwake,
     ILoggerFactory loggerFactory,
     ILogger<TunnelOrchestratorService> logger) : BackgroundService
 {
@@ -71,6 +72,9 @@ public sealed class TunnelOrchestratorService(
                 break;
             case CommandTypes.Power:
                 await PowerCommandAsync(cmd, ct);
+                break;
+            case CommandTypes.Diag:
+                await DiagCommandAsync(cmd, ct);
                 break;
             default:
                 logger.LogWarning(L.TunnelOrchestratorService_UnknownCommandType, cmd.Type);
@@ -132,6 +136,11 @@ public sealed class TunnelOrchestratorService(
         if (outcome is not ("auto" or "granted"))
             return; // denied / timeout / no user; tunnel stays closed
 
+        // From here the device is in a session: keep it awake until the tunnel closes, or a laptop that sleeps
+        // after five idle minutes falls asleep under the operator (nobody is at the keyboard, so nothing else
+        // counts as activity). Released in CloseTunnelAsync, and below if the start fails.
+        keepAwake.Hold();
+
         // Start the loopback file service unless file transfer is locally disabled (token + port are auxiliary).
         bool serveFiles = data?.FileRemotePort is > 0 && !string.IsNullOrEmpty(data.FileToken) && !fileLocked;
         if (serveFiles)
@@ -154,9 +163,11 @@ public sealed class TunnelOrchestratorService(
         // Stamped BEFORE the start: the idle watchdog takes a tunnel whose ssh is up for running, and with the
         // stamp still at the previous session's end it closed tunnels that were only just coming up.
         _lastActivity = DateTimeOffset.UtcNow;
-        await _tunnel.StartAsync(remotePort, serveFiles ? data!.FileRemotePort : 0, ct);
+        try { await _tunnel.StartAsync(remotePort, serveFiles ? data!.FileRemotePort : 0, ct); }
+        catch { keepAwake.Release(); throw; }
         _tunnelPort = remotePort;
         state.Set(_tunnel.IsRunning);
+        if (!_tunnel.IsRunning) keepAwake.Release();   // nothing came up, nothing to stay awake for
         _lastActivity = DateTimeOffset.UtcNow;
     }
 
@@ -273,8 +284,41 @@ public sealed class TunnelOrchestratorService(
         static string Cancelled() { RemoteAgent.Power.PowerControl.Cancel(); return "cancelled"; }
     }
 
+    /// <summary>
+    /// "diag" command: verbose logging for a few hours ("diag-on"), or off now ("diag-off"). The switch is a
+    /// file the logging configuration watches, so the level changes without a restart; TightVNC's log level
+    /// follows through the VNC watchdog's hardening check within half a minute (restarting tvnserver).
+    /// </summary>
+    private async Task DiagCommandAsync(AgentCommand cmd, CancellationToken ct)
+    {
+        var hours = Math.Clamp(cmd.Data?.DiagHours ?? 0, 0, RemoteAgent.Diagnostics.DiagMode.MaxHours);
+        string outcome;
+        try
+        {
+            if (hours > 0)
+            {
+                var until = RemoteAgent.Diagnostics.DiagMode.Enable(hours);
+                logger.LogInformation(L.DiagMode_Enabled, until, RemoteAgent.Diagnostics.DiagMode.LogDirectory);
+                outcome = "diag-on";
+            }
+            else
+            {
+                RemoteAgent.Diagnostics.DiagMode.Disable();
+                logger.LogInformation(L.DiagMode_Disabled);
+                outcome = "diag-off";
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, L.DiagMode_Failed);
+            outcome = "failed";
+        }
+        await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
+    }
+
     private async Task CloseTunnelAsync()
     {
+        keepAwake.Release();   // with or without a tunnel: nothing is left to keep the device awake for
         if (_tunnel is null) return;
         await _tunnel.StopAsync();
         _tunnelPort = 0;

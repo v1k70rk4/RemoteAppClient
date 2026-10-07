@@ -1,3 +1,4 @@
+using System.Net.NetworkInformation;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -28,6 +29,13 @@ public sealed class CommandChannelService(
     private readonly string _pfxPath = options.Value.ClientCertPfxPath;
 
     private bool _noUrlLogged;
+    private bool _established;                          // the current attempt got past ConnectAsync
+    private readonly SemaphoreSlim _kick = new(0, 1);   // pulsed when the machine's network address changes
+
+    private void OnAddressChanged(object? sender, EventArgs e)
+    {
+        try { if (_kick.CurrentCount == 0) _kick.Release(); } catch { /* a reconnect is already due */ }
+    }
 
     /// <summary>
     /// Outer guard around the reconnect loop. The host ignores background-service failures so one faulty
@@ -78,33 +86,48 @@ public sealed class CommandChannelService(
             return;
         }
 
-        var delay = TimeSpan.FromSeconds(_opt.ReconnectBaseDelaySeconds);
+        var baseDelay = TimeSpan.FromSeconds(_opt.ReconnectBaseDelaySeconds);
         var maxDelay = TimeSpan.FromSeconds(_opt.ReconnectMaxDelaySeconds);
+        var delay = baseDelay;
 
-        while (!stoppingToken.IsCancellationRequested)
+        NetworkChange.NetworkAddressChanged += OnAddressChanged;
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await ConnectAndListenAsync(stoppingToken);
-                delay = TimeSpan.FromSeconds(_opt.ReconnectBaseDelaySeconds); // success resets backoff
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                // Guarded: a throwing log write here used to escape the loop and leave the agent deaf.
-                try { logger.LogWarning(ex, L.CommandChannelService_CommandChannelErrorReconnectingIn, delay.TotalSeconds); }
-                catch { /* keep reconnecting regardless */ }
-            }
-            finally { status.SetC2Connected(false); } // disconnected; status pipe reflects this
+                try
+                {
+                    await ConnectAndListenAsync(stoppingToken);
+                    delay = baseDelay; // a clean close resets the backoff
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    // The backoff is for consecutive FAILED attempts (server unreachable). A connection that was
+                    // established and then dropped - the machine slept, roamed, lost its link - is not a failed
+                    // attempt, yet only a clean close ever reset the delay, and a dropped link never closes cleanly:
+                    // a laptop that dozes off and wakes a few times a day was soon waiting two minutes after every
+                    // wake, for the rest of the process's life, often longer than the wake itself.
+                    if (_established) delay = baseDelay;
+                    // Guarded: a throwing log write here used to escape the loop and leave the agent deaf.
+                    try { logger.LogWarning(ex, L.CommandChannelService_CommandChannelErrorReconnectingIn, delay.TotalSeconds); }
+                    catch { /* keep reconnecting regardless */ }
+                }
+                finally { status.SetC2Connected(false); } // disconnected; status pipe reflects this
 
-            try { await Task.Delay(delay, stoppingToken); }
-            catch (OperationCanceledException) { break; }
+                // Wait out the backoff, unless the network changed underneath us (a new address after a roam or
+                // a wake): the old socket is gone for good then, and the fresh path is worth trying at once.
+                bool kicked;
+                try { kicked = await _kick.WaitAsync(delay, stoppingToken); }
+                catch (OperationCanceledException) { break; }
 
-            delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, maxDelay.TotalSeconds));
+                delay = kicked ? baseDelay : TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, maxDelay.TotalSeconds));
+            }
         }
+        finally { NetworkChange.NetworkAddressChanged -= OnAddressChanged; }
     }
 
     private async Task ConnectAndListenAsync(CancellationToken ct)
@@ -126,7 +149,9 @@ public sealed class CommandChannelService(
         ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(_opt.KeepAliveTimeoutSeconds);
 
         logger.LogInformation(L.CommandChannelService_ConnectingToCommandChannelUrl, _opt.Url);
+        _established = false;
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
+        _established = true;
         logger.LogInformation(L.CommandChannelService_CommandChannelIsLive);
         status.SetC2Connected(true); // the status pipe reports this to the client
         uplink.SetSocket(ws);        // from here we can send result messages back

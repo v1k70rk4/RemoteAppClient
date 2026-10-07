@@ -52,7 +52,7 @@ public sealed class VncProvisioningService(
                 {
                     // Already provisioned: self-heal at startup (reinstall/re-harden/restart only if needed).
                     try { await VncProvisioner.EnsureHealthyAsync(password, msi); }
-                    catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM); }
+                    catch (Exception ex) { WarnSelfHeal(ex); }
                 }
 
                 if (!string.IsNullOrEmpty(password))
@@ -85,6 +85,7 @@ public sealed class VncProvisioningService(
                 if (!string.IsNullOrEmpty(pw))
                 {
                     await VncProvisioner.EnsureHealthyAsync(pw, msiPath);
+                    _selfHealWarned = null;   // healthy again: the next failure deserves its own warning
                     // The one-shot startup report can be lost on a flaky/slow link (fresh installs on mobile /
                     // CG-NAT). Keep retrying until the server confirms receipt (2xx), so a dropped first report
                     // self-heals within ~30s of the link recovering instead of waiting for the next restart.
@@ -92,8 +93,21 @@ public sealed class VncProvisioningService(
                         _reported = await ReportSecretAsync(pw, stoppingToken);
                 }
             }
-            catch (Exception ex) { logger.LogDebug(ex, L.VncProvisioningService_VncReportFailed); }
+            catch (Exception ex) { WarnSelfHeal(ex); }
         }
+    }
+
+    // A TightVNC that cannot be put right used to fail at Debug, which never reaches the event log - a device
+    // whose VNC was broken for hours showed nothing. Now the first failure (and every new kind of failure) is a
+    // warning; the identical repeat every 30 seconds stays at Debug so the log is not flooded.
+    private string? _selfHealWarned;
+
+    private void WarnSelfHeal(Exception ex)
+    {
+        var key = ex.GetType().Name + ": " + ex.Message;
+        if (key == _selfHealWarned) { logger.LogDebug(ex, L.VncProvisioningService_SelfHealFailed); return; }
+        _selfHealWarned = key;
+        logger.LogWarning(ex, L.VncProvisioningService_SelfHealFailed);
     }
 
     // First provisioning can only happen once TightVNC is there: either the MSI this device was installed from

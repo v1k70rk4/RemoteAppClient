@@ -65,8 +65,17 @@ builder.Services.AddWindowsService(o => o.ServiceName = "RemoteAgent");
 builder.Services.Configure<HostOptions>(o =>
     o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 
-// Logging: console plus Windows EventLog, which is the visible log for the SYSTEM service.
+// Logging: console plus Windows EventLog, which is the visible log for the SYSTEM service, plus a daily file
+// under ProgramData that an operator can download whole. diag.json next to the enrollment is a reloadable
+// configuration source: the "diag" command writes it to raise the live log level for a few hours, and
+// deletes it to lower it again - no restart either way (see Diagnostics.DiagMode).
+var dataDir = builder.Configuration["Agent:EnrollmentDir"] is { Length: > 0 } configuredDir ? configuredDir : @"C:\ProgramData\RemoteAgent";
+RemoteAgent.Diagnostics.DiagMode.Configure(dataDir);
+try { Directory.CreateDirectory(dataDir); } catch { /* unenrolled console run without rights: the override stays unavailable */ }
+builder.Configuration.AddJsonFile(RemoteAgent.Diagnostics.DiagMode.FilePath, optional: true, reloadOnChange: true);
 builder.Logging.AddEventLog(o => o.SourceName = "RemoteAgent");
+builder.Logging.Services.AddSingleton(new RemoteAgent.Diagnostics.FileLogProvider(RemoteAgent.Diagnostics.DiagMode.LogDirectory, retentionDays: 14));
+builder.Logging.Services.AddSingleton<ILoggerProvider>(sp => sp.GetRequiredService<RemoteAgent.Diagnostics.FileLogProvider>());
 
 // Bind configuration.
 builder.Services.Configure<AgentOptions>(
@@ -116,6 +125,7 @@ builder.Services.AddSingleton<TransportState>(sp =>
 });
 builder.Services.AddSingleton<AgentStatusState>();
 builder.Services.AddSingleton<AgentUplink>();
+builder.Services.AddSingleton<RemoteAgent.Power.SessionKeepAwake>();
 builder.Services.AddSingleton<CommandVerifier>();
 builder.Services.AddSingleton<SystemInfoCollector>();
 builder.Services.AddSingleton<RemoteAgent.Update.UpdateInstaller>();
@@ -131,6 +141,7 @@ builder.Services.AddHostedService<HeartbeatService>();
 builder.Services.AddHostedService<HelperUpdateWatcher>();
 builder.Services.AddHostedService<BrokerService>();
 builder.Services.AddHostedService<StatusPipeService>();
+builder.Services.AddHostedService<RemoteAgent.Diagnostics.DiagModeService>();
 
 // Tokenless self-install: when there is no enrollment but bootstrap.dat exists, enroll now,
 // before the host is built and before PostConfigure reads enrollment.json.

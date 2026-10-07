@@ -185,4 +185,16 @@ internal static partial class Strings
     public static string VncProvisioningService_VNCIsLocallyDisabledProvisioning => Get(nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning));
     public static string VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM => Get(nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM));
     public static string VncProvisioningService_WaitingForTightVnc => Get(nameof(VncProvisioningService_WaitingForTightVnc));
+    public static string SessionKeepAwake_Reason => Get(nameof(SessionKeepAwake_Reason));
+    public static string SessionKeepAwake_Held => Get(nameof(SessionKeepAwake_Held));
+    public static string SessionKeepAwake_Released => Get(nameof(SessionKeepAwake_Released));
+    public static string SessionKeepAwake_Failed => Get(nameof(SessionKeepAwake_Failed));
+    public static string VncProvisioningService_SelfHealFailed => Get(nameof(VncProvisioningService_SelfHealFailed));
+    public static string FileLog_Started => Get(nameof(FileLog_Started));
+    public static string FileLog_Unavailable => Get(nameof(FileLog_Unavailable));
+    public static string DiagMode_Enabled => Get(nameof(DiagMode_Enabled));
+    public static string DiagMode_Disabled => Get(nameof(DiagMode_Disabled));
+    public static string DiagMode_Expired => Get(nameof(DiagMode_Expired));
+    public static string DiagMode_ActiveAtStart => Get(nameof(DiagMode_ActiveAtStart));
+    public static string DiagMode_Failed => Get(nameof(DiagMode_Failed));
 }

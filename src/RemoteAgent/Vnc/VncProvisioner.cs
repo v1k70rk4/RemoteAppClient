@@ -99,7 +99,82 @@ public static class VncProvisioner
             if (EnsureViewer())
                 ApplyHardening(password);
         }
+
+        HideFromUsers();
     }
+
+    /// <summary>
+    /// The MSI drops a Start menu group (server, viewer, application mode, web site, license) and the service
+    /// puts a tray icon into every user session. On a managed device both are noise at best, and an invitation
+    /// to start an unmanaged application-mode server at worst; the console launches the viewer by path, so
+    /// nothing depends on the shortcuts. Idempotent and best effort, repeated by the watchdog because an MSI
+    /// maintenance run (the viewer self-heal) recreates the shortcuts.
+    /// </summary>
+    public static void HideFromUsers()
+    {
+        foreach (var dir in new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "TightVNC"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "TightVNC"),
+        })
+        {
+            try { if (dir.Length > "TightVNC".Length && Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+            catch { /* in use or locked; the next tick tries again */ }
+        }
+        try
+        {
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+            if (desktop.Length > 0 && Directory.Exists(desktop))
+                foreach (var lnk in Directory.EnumerateFiles(desktop, "TightVNC*.lnk")) File.Delete(lnk);
+        }
+        catch { /* next tick */ }
+
+        // The MSI also registers the control interface to start at every logon (Run\tvncontrol); without that
+        // entry the tray icon has no way back once the current one is gone.
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            try
+            {
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using var run = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", writable: true);
+                run?.DeleteValue("tvncontrol", throwOnMissingValue: false);
+            }
+            catch { /* next tick */ }
+        }
+
+        // The service runs in session 0, but it is not alone in the user's session: it starts its own helper there
+        // (tvnserver.exe -desktopserver) to read the screen and inject input, under its own SYSTEM token. The tray /
+        // control interface and an application-mode server somebody started from a shortcut run as the signed-in
+        // user. So only a tvnserver.exe that is NOT SYSTEM is the user's and goes; one whose owner cannot be read
+        // stays, since ending the wrong one blinds every remote session on the device.
+        foreach (var p in Process.GetProcessesByName("tvnserver"))
+        {
+            try { if (p.SessionId != 0 && RunsAsLocalSystem(p) == false) p.Kill(); }
+            catch { /* already gone, or not ours to touch */ }
+            finally { p.Dispose(); }
+        }
+    }
+
+    /// <summary>Whether the process runs under the LocalSystem account; null when its token cannot be read.</summary>
+    internal static bool? RunsAsLocalSystem(Process p)
+    {
+        if (!OpenProcessToken(p.Handle, TOKEN_QUERY, out var token)) return null;
+        try
+        {
+            using var identity = new System.Security.Principal.WindowsIdentity(token);
+            return identity.User?.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid);
+        }
+        catch { return null; }
+        finally { CloseHandle(token); }
+    }
+
+    private const uint TOKEN_QUERY = 0x0008;
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
 
     /// <summary>Whether the TightVNC viewer (tvnviewer.exe) is present in any known TightVNC install dir.</summary>
     public static bool IsViewerInstalled()
@@ -166,7 +241,9 @@ public static class VncProvisioner
             bool Dword(string n, int v) => key.GetValue(n) is int x && x == v;
             if (!(Dword("RfbPort", 5900) && Dword("LoopbackOnly", 1)
                   && Dword("AcceptHttpConnections", 0) && Dword("UseVncAuthentication", 1)
-                  && Dword("AlwaysShared", 1) && Dword("DisconnectClients", 0)))
+                  && Dword("AlwaysShared", 1) && Dword("DisconnectClients", 0)
+                  && Dword("RunControlInterface", 0)
+                  && Dword("LogLevel", RemoteAgent.Diagnostics.DiagMode.TightVncLogLevel) && Dword("SaveLogToAllUsersPath", 1)))
                 return false;
             return key.GetValue("Password") is byte[] p && p.AsSpan().SequenceEqual(enc);
         }
@@ -198,14 +275,36 @@ public static class VncProvisioner
         key.SetValue("UseVncAuthentication", 1, RegistryValueKind.DWord);
         key.SetValue("AlwaysShared", 1, RegistryValueKind.DWord);          // több néző egyszerre (megosztott)
         key.SetValue("DisconnectClients", 0, RegistryValueKind.DWord);     // új kapcsolat ne bontsa a meglévőt
+        key.SetValue("RunControlInterface", 0, RegistryValueKind.DWord);   // nincs tálcaikon/vezérlőfelület a munkamenetekben
+        // TightVNC's own log: errors and warnings always, detailed while the "diag" switch is on (the level is
+        // part of the hardening, so flipping the switch re-hardens and restarts tvnserver within a tick), and
+        // in the all-users folder so it is one known path on every device: C:\ProgramData\TightVNC\.
+        key.SetValue("LogLevel", RemoteAgent.Diagnostics.DiagMode.TightVncLogLevel, RegistryValueKind.DWord);
+        key.SetValue("SaveLogToAllUsersPath", 1, RegistryValueKind.DWord);
         key.SetValue("Password", encryptedPassword, RegistryValueKind.Binary);
     }
+
+    /// <summary>Where TightVNC writes its log with SaveLogToAllUsersPath on.</summary>
+    public static string LogDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "TightVNC");
 
     // 'net' is synchronous and waits for stop/start; 'sc stop; sc start' can race.
     private static void RestartService(string service)
     {
         RunNet("stop", service);   // non-running service returns an error; ignore it
+        RotateLogs();              // while the files are closed; TightVNC never rotates them itself
         RunNet("start", service);
+    }
+
+    /// <summary>Keeps TightVNC's log files from growing without bound: a file past 5 MB becomes ".1", replacing the previous one.</summary>
+    private static void RotateLogs()
+    {
+        try
+        {
+            if (!Directory.Exists(LogDirectory)) return;
+            foreach (var f in Directory.EnumerateFiles(LogDirectory, "*.log"))
+                if (new FileInfo(f).Length > 5L * 1024 * 1024) File.Move(f, f + ".1", overwrite: true);
+        }
+        catch { /* still open or missing; the next restart tries again */ }
     }
 
     private static void RunNet(string verb, string service)

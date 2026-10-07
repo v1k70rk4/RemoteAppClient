@@ -131,5 +131,17 @@ internal static partial class Strings
         [nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning)] = "VNC is locally disabled; provisioning skipped.",
         [nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM)] = "VNC provisioning skipped (admin/SYSTEM rights required).",
         [nameof(VncProvisioningService_WaitingForTightVnc)] = "TightVNC is not installed and this installer did not bundle it; VNC will be provisioned as soon as a 'vnc' rollout installs it.",
+        [nameof(SessionKeepAwake_Reason)] = "Remote session in progress (RemoteAppClient)",
+        [nameof(SessionKeepAwake_Held)] = "Keeping the device awake for the remote session.",
+        [nameof(SessionKeepAwake_Released)] = "Remote session ended; the device may sleep again.",
+        [nameof(SessionKeepAwake_Failed)] = "Could not keep the device awake for the session; it may sleep as its power plan says.",
+        [nameof(VncProvisioningService_SelfHealFailed)] = "TightVNC self-heal failed; the next check retries in 30 s.",
+        [nameof(FileLog_Started)] = "File log: {Dir} (one file per day, kept for {Days} days).",
+        [nameof(FileLog_Unavailable)] = "File log unavailable: {Reason}. Writing to the event log only.",
+        [nameof(DiagMode_Enabled)] = "Verbose logging on until {Until} (UTC). The agent writes at Debug level to {Dir}; TightVNC's log turns detailed within half a minute (tvnserver restarts).",
+        [nameof(DiagMode_Disabled)] = "Verbose logging switched off.",
+        [nameof(DiagMode_Expired)] = "Verbose logging ran out; back to the normal level.",
+        [nameof(DiagMode_ActiveAtStart)] = "Verbose logging is on until {Until} (UTC).",
+        [nameof(DiagMode_Failed)] = "Could not change the verbose logging switch.",
     };
 }

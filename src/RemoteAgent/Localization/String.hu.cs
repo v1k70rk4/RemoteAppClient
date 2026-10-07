@@ -131,5 +131,17 @@ internal static partial class Strings
         [nameof(VncProvisioningService_VNCIsLocallyDisabledProvisioning)] = "A VNC helyileg le van tiltva — a provisioning kihagyva.",
         [nameof(VncProvisioningService_VNCProvisioningSkippedAdminSYSTEM)] = "VNC provisioning kihagyva (admin/SYSTEM jog kell).",
         [nameof(VncProvisioningService_WaitingForTightVnc)] = "A TightVNC nincs telepítve, és a telepítő sem tartalmazta; a VNC provisioning lefut, amint egy „vnc” kiterítés feltelepíti.",
+        [nameof(SessionKeepAwake_Reason)] = "Távoli munkamenet folyamatban (RemoteAppClient)",
+        [nameof(SessionKeepAwake_Held)] = "A gép ébren marad a távoli munkamenet idejére.",
+        [nameof(SessionKeepAwake_Released)] = "A távoli munkamenet véget ért; a gép újra elalhat.",
+        [nameof(SessionKeepAwake_Failed)] = "Nem sikerült ébren tartani a gépet a munkamenethez; az energiaséma szerint elalhat.",
+        [nameof(VncProvisioningService_SelfHealFailed)] = "A TightVNC önjavítása nem sikerült; a következő ellenőrzés 30 mp múlva újrapróbálja.",
+        [nameof(FileLog_Started)] = "Fájl-napló: {Dir} (naponta új fájl, {Days} napig megőrizve).",
+        [nameof(FileLog_Unavailable)] = "A fájl-napló nem érhető el: {Reason}. Csak az eseménynaplóba írunk.",
+        [nameof(DiagMode_Enabled)] = "Részletes naplózás bekapcsolva eddig: {Until} (UTC). Az agent Debug-szinten ír ide: {Dir}; a TightVNC naplója fél percen belül részletesre vált (tvnserver újraindul).",
+        [nameof(DiagMode_Disabled)] = "Részletes naplózás kikapcsolva.",
+        [nameof(DiagMode_Expired)] = "A részletes naplózás ideje lejárt; visszaállt a normál szint.",
+        [nameof(DiagMode_ActiveAtStart)] = "Részletes naplózás aktív eddig: {Until} (UTC).",
+        [nameof(DiagMode_Failed)] = "A részletes naplózás kapcsolóját nem sikerült átírni.",
     };
 }
