@@ -29,12 +29,27 @@ ask_yn() {
 
 need_cmd()     { command -v "$1" >/dev/null 2>&1; }
 require_sudo() { sudo -n true 2>/dev/null || die "passwordless sudo required (run as a user with NOPASSWD sudo)"; }
-# Schema changes need rights the application's role no longer has. A local MariaDB is reached as root over the
-# unix socket (the update helper does the same); an external one only with the configured credentials ($h, $p,
-# $u, $pw from db.env, set by the caller) - what those may do is the operator's business.
+# Schema changes (the schema load, a restore) need rights the application's role no longer has.
+#   - RAC_DB_ADMIN_CONN set: an administrative connection string for an external database, same format as
+#     RAC_DB_CONN, with DDL rights; it is never written to the box.
+#   - a local MariaDB: root over the unix socket, as the update helper does.
+#   - otherwise: the application's own credentials ($h, $p, $u, $pw from db.env, set by the caller), which
+#     then have to carry DDL rights themselves - said once, so a DML-only account fails with a reason.
+# shellcheck disable=SC2154
 db_admin() {
-  if [ -z "${h:-}" ] || [ "$h" = localhost ] || [ "$h" = 127.0.0.1 ]; then sudo mariadb "$@"
-  else MYSQL_PWD="$pw" mariadb -h "$h" -P "${p:-3306}" -u "$u" "$@"; fi
+  if [ -n "${RAC_DB_ADMIN_CONN:-}" ]; then
+    local ah ap au apw
+    ah="$(sed -n 's/.*Server=\([^;]*\).*/\1/p'   <<<"$RAC_DB_ADMIN_CONN")"
+    ap="$(sed -n 's/.*Port=\([^;]*\).*/\1/p'     <<<"$RAC_DB_ADMIN_CONN")"
+    au="$(sed -n 's/.*User Id=\([^;]*\).*/\1/p'  <<<"$RAC_DB_ADMIN_CONN")"
+    apw="$(sed -n 's/.*Password=\([^;]*\).*/\1/p' <<<"$RAC_DB_ADMIN_CONN")"
+    MYSQL_PWD="$apw" mariadb -h "${ah:-localhost}" -P "${ap:-3306}" -u "$au" "$@"
+  elif [ -z "${h:-}" ] || [ "$h" = localhost ] || [ "$h" = 127.0.0.1 ]; then
+    sudo mariadb "$@"
+  else
+    [ -n "${RAC_DB_ADMIN_WARNED:-}" ] || { warn "external database: schema changes run with the application's credentials ($u@$h); they need DDL rights, or set RAC_DB_ADMIN_CONN"; RAC_DB_ADMIN_WARNED=1; }
+    MYSQL_PWD="$pw" mariadb -h "$h" -P "${p:-3306}" -u "$u" "$@"
+  fi
 }
 
 # Best-effort default DNS name: the box FQDN, else reverse-DNS of the primary IP (DNS only,
