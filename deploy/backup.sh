@@ -18,7 +18,9 @@
 #   packages/   - re-uploadable, and large (gigabytes).
 # Both env files are still archived as *.reference, for eyeballing only.
 #
-# Usage:  ./deploy/backup.sh [output-dir]      # default: current directory
+# Usage:  ./deploy/backup.sh [output-dir] [--encrypt]   # default: current directory
+#         --encrypt (or RAC_BACKUP_PASS in the environment) seals the archive with a passphrase
+#         (AES-256-CBC, PBKDF2); restore.sh recognises and decrypts it. Keep the passphrase elsewhere.
 # Restore: see deploy/restore.sh
 
 set -euo pipefail
@@ -28,10 +30,11 @@ source "$HERE/lib.sh"
 [ -f "$HERE/config.env" ] && source "$HERE/config.env"
 require_sudo
 
-OUT_DIR="${1:-$PWD}"
+OUT_DIR="$PWD"; ENCRYPT="${RAC_BACKUP_PASS:+1}"
+for a in "$@"; do case "$a" in --encrypt) ENCRYPT=1 ;; *) OUT_DIR="$a" ;; esac; done
 [ -d "$OUT_DIR" ] || die "output directory not found: $OUT_DIR"
 TS="$(date +%Y%m%d-%H%M%S)"
-ARCHIVE="$OUT_DIR/racd-identity-${TS}.tar.gz"
+ARCHIVE="$OUT_DIR/racd-identity-${TS}.tar.gz${ENCRYPT:+.enc}"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -95,8 +98,20 @@ EOF
 # the caller's umask (world-readable), so tighten them first: extracting this anywhere - not just through
 # restore.sh - must never drop world-readable private keys on disk.
 chmod -R go-rwx "$STAGE"
-tar -C "$STAGE" -czf "$ARCHIVE" .
+if [ -n "$ENCRYPT" ]; then
+  # Same scheme as the archives the console downloads, so restore.sh needs no new code path.
+  [ -n "${RAC_BACKUP_PASS:-}" ] || RAC_BACKUP_PASS="$(ask_secret 'Passphrase for the archive')"
+  [ -n "$RAC_BACKUP_PASS" ] || die "empty passphrase"
+  export RAC_BACKUP_PASS
+  tar -C "$STAGE" -cz . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:RAC_BACKUP_PASS -out "$ARCHIVE"
+else
+  tar -C "$STAGE" -czf "$ARCHIVE" .
+fi
 chmod 600 "$ARCHIVE"
 ok "archive: $ARCHIVE ($(du -h "$ARCHIVE" | cut -f1))"
-warn "This file contains the private keys of the whole fleet. Store it encrypted and off this box."
+if [ -n "$ENCRYPT" ]; then
+  warn "Encrypted with your passphrase; without it the archive is useless, so keep the passphrase somewhere else."
+else
+  warn "This file contains the private keys of the whole fleet, in the clear. Re-run with --encrypt, or store it encrypted and off this box."
+fi
 info "Restore on a fresh box: ./deploy/restore.sh $(basename "$ARCHIVE")"

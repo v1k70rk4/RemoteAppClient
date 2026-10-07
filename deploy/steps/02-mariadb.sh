@@ -32,7 +32,7 @@ else
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_pass}';
 ALTER USER '${db_user}'@'localhost' IDENTIFIED BY '${db_pass}';
-GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${db_user}'@'localhost';
+GRANT SELECT, INSERT, UPDATE, DELETE ON \`${DB_NAME}\`.* TO '${db_user}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
   CONN="Server=localhost;Port=3306;Database=${DB_NAME};User Id=${db_user};Password=${db_pass}"

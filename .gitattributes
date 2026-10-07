@@ -3,3 +3,9 @@
 ops/server-update/*.sh      text eol=lf
 ops/server-update/*.path    text eol=lf
 ops/server-update/*.service text eol=lf
+
+# The deployment scripts run on the Linux box too (setup, backup, restore, nginx template): a Windows
+# checkout with autocrlf must not hand them CRLF, or bash stops at the first line with a stray CR.
+deploy/*.sh                 text eol=lf
+deploy/steps/*.sh           text eol=lf
+deploy/*.example            text eol=lf

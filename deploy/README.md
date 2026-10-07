@@ -13,6 +13,9 @@ Run it **on the server**, as a user with **passwordless sudo** (no SSH driving f
 
 Unattended: `cp deploy/config.env.example deploy/config.env`, fill it in, then run.
 
+Every key and certificate the server and the devices hold, what each protects, which of them can be
+rotated and which expire: [`deploy/KEYS.md`](KEYS.md).
+
 The full guide — prerequisites, the MariaDB choice, the step-by-step table, Cloudflare DNS-01,
 first device enrollment, and troubleshooting — lives in the main
 [README → Deployment Flow](../README.md#deployment-flow).
