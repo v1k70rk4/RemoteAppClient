@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.2.5-2ea44f" alt="version 2.2.5">
+  <img src="https://img.shields.io/badge/version-2.2.7-2ea44f" alt="version 2.2.7">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
   <a href="https://ko-fi.com/v1k70rk4"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
@@ -40,7 +40,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
-- [What's New in 2.2.5](#whats-new-in-225)
+- [What's New in 2.2.7](#whats-new-in-227)
 - [Changelog](CHANGELOG.md)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -58,30 +58,27 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ---
 
-## What's New in 2.2.5
+## What's New in 2.2.7
 
-Fixes from a week of running the fleet: two timing bugs that made a healthy device look slow or silent, a false
-clock alarm on sleeping laptops, and a small console convenience. Every component is **2.2.5.0**; no schema change.
-It also covers 2.2.3 and 2.2.4, which ran on the maintainer's fleet but were never tagged.
+A release about seeing: what a device is doing when something is wrong, and what the server is doing when nobody is
+looking. Every component is **2.2.7.0**; no schema change. It also covers 2.2.6, which ran on the maintainer's fleet
+but was never tagged.
 
-- **Tunnels no longer wait out ssh's ConnectTimeout.** The OpenSSH 8.1 client that Windows 10 ships sleeps through
-  the whole `ConnectTimeout` before it notices the connection is up, so every tunnel from such a device took 8 seconds
-  to come up on a 1 ms link (measured: 8.0 s with the option, immediate without). The device's reverse tunnel and the
-  operator's local forward no longer set it; the agent's own deadlines bound a dead port.
-- **A device that answers fast is no longer "not answering".** The server bound the requester to the command only
-  after delivery, so an agent that answered before that bookkeeping finished had its answer overwritten: the console
-  polled into "the device did not answer" while the tunnel was open, and the audit row said "?". The answer is now
-  kept, and the audit names the real operator and device.
-- **A tunnel start is safe from the idle watchdog**, which used to close a tunnel that was only just coming up
-  (`No process is associated with this object`), and the agent logs where a slow start spends its time: launch,
-  resolve, connect, authentication. The console's status line shows how long the device took to answer and how long
-  the tunnel plus VNC took after that.
-- **A sleeping laptop is not a clock error.** A report that a dozing laptop delivered late looked exactly like a
-  clock that is behind, and the device stayed marked *Error* until it woke again. The server now reads the clock from
-  the freshest of a device's recent reports and needs two agreeing ones before it calls a clock slow.
-- **Click a telemetry value to copy it.** Hostname, addresses, make and model, serial number, device id: click the
-  value, it is on the clipboard. The panel refreshes in place, and the public IP and its reverse name are separate
-  rows.
+- **Verbose logging on demand.** *Commands → Verbose log for 24 hours* raises a device's live log level to Debug
+  without a restart and turns TightVNC's log detailed for the same period; it reverts by itself when the time is up.
+  Every agent now also keeps a daily file log under `C:\ProgramData\RemoteAgent\logs`, which the file transfer
+  downloads whole.
+- **The server mails when its own checks fail**: disk, database, the public TLS certificate, package files, a
+  rolled-back update, device certificates nearing their end, a fleet that reports while nothing is connected. On
+  change, to the support address, with a daily repeat while it lasts.
+- **Audit rows live a year** by default (`Server:AuditRetentionDays`), and a sign-in naming an unknown device id no
+  longer escapes the brute-force lock.
+- **Sleeping and roaming devices** (from 2.2.6): the agent reconnects at once when its addresses change and no longer
+  waits out a two-minute backoff; it keeps the device awake during a session; the console connects to a sleeping
+  device when it wakes; TightVNC leaves no tray icon or shortcuts behind.
+- **Deployment hardening**: a database role without schema rights, HSTS, `backup.sh --encrypt`, a read-only CI token,
+  and `deploy/KEYS.md` on every key, its lifetime and what can be rotated.
+- **First automated tests**: 95 of them, run by CI on every push.
 
 Earlier releases: [CHANGELOG.md](CHANGELOG.md).
 
@@ -450,7 +447,8 @@ It asks a few things up front — public DNS name, ACME email, and **whether you
 MariaDB** (otherwise it installs one) — then runs to the end. It is idempotent, and each step
 under `deploy/steps/` can run on its own, e.g. `./deploy/setup.sh 06-tls 07-nginx`. For an
 unattended run, copy `deploy/config.env.example` to `deploy/config.env` and fill it in. Details:
-[`deploy/README.md`](deploy/README.md).
+[`deploy/README.md`](deploy/README.md). The keys and certificates involved, their lifetimes and what can be
+rotated: [`deploy/KEYS.md`](deploy/KEYS.md).
 
 TLS uses Let's Encrypt with Cloudflare DNS-01 — the script prompts for a Cloudflare API token
 (Zone → DNS → Edit), or place it at `/etc/letsencrypt/cloudflare.ini` first. No Cloudflare? Issue
