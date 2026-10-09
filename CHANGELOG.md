@@ -36,16 +36,13 @@ the time of that release; the GitHub release pages carry the same text together 
 - Agent 2.3.0.1: on Windows 10 the Platform Crypto Provider reports a machine key as not being one, which made the
   framework's certificate-to-key binding fail with "keyset does not exist" (the key was fine); the binding is now
   written by hand where the framework's fails, and every binding is proven by a test signature before it counts.
-- Schema: six nullable `Devices` columns and the `RekeyRequests` table (`upgrade-2.3.0-rekey.sql`, idempotent).
 - Not in this round: TPM-backed SSH keys.
 
-## What's New in 2.2.7
-
-A release about seeing: what a device is doing when something is wrong, and what the server is doing when nobody
-is looking. Verbose logging on demand, a file log on every agent, a server that mails when its own checks fail,
-and the first automated tests - then a security review and its fixes. Every component is **2.2.7.1**. The
-schema gains the six TPM columns (`upgrade-2.2.7-tpm.sql`). The release also covers 2.2.6, which ran on the
-maintainer's fleet but was never tagged.
+**The rest of the release is about seeing**: what a device is doing when something is wrong, and what the
+server is doing when nobody is looking. Verbose logging on demand, a file log on every agent, a server that
+mails when its own checks fail, and the first automated tests - then a security review and its fixes. Server,
+consoles and updater are **2.3.0.0**, the agent **2.3.0.1**. One schema change for all of it: `upgrade-2.3.0.sql`
+(idempotent) adds the six TPM telemetry columns, the six re-key columns and the `RekeyRequests` table.
 
 **Verbose logging on demand**
 - *Commands → Verbose log for 24 hours* (and *off*) in the device menu. The agent raises its live log level to
@@ -55,7 +52,7 @@ maintainer's fleet but was never tagged.
   the watchdog applies it within half a minute, restarting tvnserver once) and goes back afterwards.
 - The command is queued for an offline device like any other and answered with `diag-on` / `diag-off`; the audit
   log records who switched it and for how long. Its hours are a signed field that older agents do not know, so
-  the server refuses the command for an agent below 2.2.7 instead of letting it fail the signature check.
+  the server refuses the command for an older agent instead of letting it fail the signature check.
 
 **A file log on every agent**
 - The agent now writes a daily file under `C:\ProgramData\RemoteAgent\logs` (14 days kept), in the same format as
@@ -109,8 +106,8 @@ maintainer's fleet but was never tagged.
 **Accounts and passwords**
 - Changing a password asks for the current one. A session on its own - a console left open, a token that leaked -
   can no longer take an account over by setting a new password. The forced change after a temporary password is
-  exempt, since that password was typed moments earlier and consoles before 2.2.7 do not send it along; the
-  2.2.7 console sends it. After any change, the account's other sessions and its remembered devices are signed
+  exempt, since that password was typed moments earlier and older consoles do not send it along; this
+  one does. After any change, the account's other sessions and its remembered devices are signed
   out; the console that made the change stays in. Both outcomes are in the audit log.
 - An authenticator code is accepted once. The verifier tolerates a step of clock drift, which kept a code valid
   for up to 90 seconds; a code seen once could sign in again inside that window. The server now remembers the
@@ -150,7 +147,7 @@ maintainer's fleet but was never tagged.
 **Commands bound to their device**
 - A command's signature now covers every field and the device it was issued for (signature version 2): the
   file-session token and the tunnel's purpose used to ride unsigned, and a command signed for one device would
-  have verified on another. The server signs version 2 for agents from 2.2.7.1 and the original form for older
+  have verified on another. The server signs version 2 for agents from this release and the original form for older
   ones; a new agent accepts both, so a mixed fleet keeps working.
 
 **Only HTTPS**
@@ -169,8 +166,8 @@ maintainer's fleet but was never tagged.
   vulnerable. It is read once and then every six hours. The console's device details show it on a TPM row:
   a warning for no TPM or one not ready for keys, an error for vulnerable firmware. The device key is meant to
   move into the TPM, and this shows beforehand which devices could hold it.
-- Schema: six nullable `Devices` columns. On an existing database apply `upgrade-2.2.7-tpm.sql` (idempotent).
-  NULL means unknown (an older agent), never "no TPM".
+- Schema: six nullable `Devices` columns, part of `upgrade-2.3.0.sql`. NULL means unknown (an older agent),
+  never "no TPM".
 
 **The server believes nginx's identity headers only from nginx**
 - New setting `Server:ProxySecret`. nginx sends it in `X-RAC-Proxy`, and the device identity
@@ -205,7 +202,7 @@ maintainer's fleet but was never tagged.
 - The agent's ssh runs with `-F none`: the tunnel's options are all on its command line, and no `ssh_config` on the
   machine can add to them.
 
-**From 2.2.6: sleeping and roaming devices**
+**Sleeping and roaming devices**
 - An agent whose command channel dropped reset its reconnect delay only after a clean close, so a device roaming
   between networks sat silent for up to two minutes after each move. The delay now resets after any established
   connection, and a change of the device's addresses triggers a reconnect at once.
@@ -254,13 +251,14 @@ maintainer's fleet but was never tagged.
   languages with matching placeholders. CI runs them on every push, and a release waits for them.
 
 **Upgrading**
-- Server first: upload `RemoteServer-linux-x64.tar.gz` with `upgrade-2.2.7-tpm.sql` and *Update server* (or
+- Server first: upload `RemoteServer-linux-x64.tar.gz` with `upgrade-2.3.0.sql` and *Update server* (or
   apply the SQL by hand; it is idempotent). Set *Support e-mail* in *Server settings* if it is empty, or the
   alerts go to the log only.
-- Then the agents: the first watchdog tick after the update restarts tvnserver once, for the new log settings.
-  Agents from 2.2.7.1 get device-bound (version 2) command signatures; older ones keep the original form.
-  The console needs 2.2.7 for the verbose-log menu and the TPM row, and it sends the current password with a
-  password change; the updater, Lite and the Linux console carry the aligned version and the pipe check.
+- Then the agents (2.3.0.1): each device re-keys into its TPM by itself 5–30 minutes after start; the first
+  watchdog tick restarts tvnserver once, for the new log settings; command signatures become device-bound
+  (version 2), older agents keep the original form. The console needs 2.3.0 for the key row, lost-key approval
+  and the verbose-log menu, and it sends the current password with a password change; the updater, Lite and the
+  Linux console carry the aligned version and the pipe check.
 - Existing installations: `./deploy/setup.sh 10-selfupdate 12-backup` rewrites the root helpers and their units
   (nothing else). The ownership and unit changes are by hand: `chown -R root:remotesrv /opt/remoteserver
   /etc/remoteserver; chmod -R u=rwX,g=rX,o= /opt/remoteserver; chmod 750 /etc/remoteserver; chmod 640

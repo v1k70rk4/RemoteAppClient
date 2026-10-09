@@ -61,8 +61,8 @@ Use this only on systems you own or are explicitly authorized to administer.
 ## What's New in 2.3.0
 
 The device key moves into the TPM, and certificates look after themselves ([ADR-0003](docs/adr/0003-tpm-device-key.md)).
-Server, consoles and updater are **2.3.0.0**, the agent **2.3.0.1**; one schema change (`upgrade-2.3.0-rekey.sql`,
-idempotent). The release also carries 2.2.7, which ran on the maintainer's fleet but was never tagged.
+Server, consoles and updater are **2.3.0.0**, the agent **2.3.0.1**; one schema change (`upgrade-2.3.0.sql`,
+idempotent).
 
 - **The device key is a non-exportable TPM key** (Microsoft Platform Crypto Provider; software key storage where
   the TPM is missing, not ready or flagged for vulnerable firmware). The certificate sits in `LocalMachine\My`
@@ -77,7 +77,7 @@ idempotent). The release also carries 2.2.7, which ran on the maintainer's fleet
   issues the certificate for the same device id, with its group and notes intact. Nothing is issued by itself.
 - **The console shows where the key is** (*kulcs: TPM / szoftver / fájl*) and when the certificate ends;
   *Commands → Új eszközkulcs (TPM)* re-keys a device on demand.
-- **2.2.7, in the same release**: verbose logging on demand (24-hour device log level, TightVNC detail, a daily
+- **Also in this release**: verbose logging on demand (24-hour device log level, TightVNC detail, a daily
   file log), the server mails when its own checks fail, audit rows live a year, sleeping and roaming devices
   reconnect at once, deployment hardening, and the first automated tests (180 by now, run by CI on every push).
 
