@@ -168,6 +168,10 @@ public sealed class DeviceInfo
     [JsonPropertyName("keyProvider")] public string? KeyProvider { get; set; }
     /// <summary>Device certificate expiry.</summary>
     [JsonPropertyName("certNotAfter")] public DateTimeOffset? CertNotAfter { get; set; }
+    /// <summary>A pending lost-key request from the device (its TPM lost the key): when, from where. Null = none.</summary>
+    [JsonPropertyName("rekeyRequestedAt")] public DateTimeOffset? RekeyRequestedAt { get; set; }
+    [JsonPropertyName("rekeyRequestHostname")] public string? RekeyRequestHostname { get; set; }
+    [JsonPropertyName("rekeyRequestIp")] public string? RekeyRequestIp { get; set; }
 
     /// <summary>Login lockout after 5 failed attempts from the device. Only an admin can unlock it.</summary>
     [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }

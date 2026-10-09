@@ -100,6 +100,23 @@ public static class DeviceKeyStore
         }
     }
 
+    /// <summary>Opens a named key that already exists (a recovery request's key across restarts).</summary>
+    public static ECDsa? Open(string? keyName)
+    {
+        if (string.IsNullOrWhiteSpace(keyName)) return null;
+        foreach (var provider in new[] { TpmProviderName, SoftwareProviderName })
+        {
+            try
+            {
+                var p = new CngProvider(provider);
+                if (CngKey.Exists(keyName, p, CngKeyOpenOptions.MachineKey))
+                    return new ECDsaCng(CngKey.Open(keyName, p, CngKeyOpenOptions.MachineKey));
+            }
+            catch { /* provider missing or key unusable: try the next */ }
+        }
+        return null;
+    }
+
     /// <summary>Whether the named key is still there (a cleared TPM takes its keys with it).</summary>
     public static bool KeyExists(string? keyName)
     {

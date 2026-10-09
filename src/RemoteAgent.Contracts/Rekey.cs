@@ -36,3 +36,31 @@ public sealed class RekeyError
 {
     [JsonPropertyName("code")] public string Code { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// A device whose key is gone (a cleared TPM) has no certificate to authenticate with. It asks for a new one
+/// without a certificate (<c>POST /enroll/rekey</c>); nothing is issued until an administrator approves the
+/// request in the console. The device then polls <c>GET /enroll/rekey/{id}?token=</c> for the answer.
+/// </summary>
+public sealed class RekeyRequestOpen
+{
+    [JsonPropertyName("deviceId")] public string DeviceId { get; set; } = string.Empty;
+    [JsonPropertyName("hostname")] public string Hostname { get; set; } = string.Empty;
+    [JsonPropertyName("csr")] public string Csr { get; set; } = string.Empty;
+    [JsonPropertyName("keyProvider")] public string KeyProvider { get; set; } = string.Empty;
+}
+
+public sealed class RekeyRequestOpened
+{
+    [JsonPropertyName("requestId")] public Guid RequestId { get; set; }
+    /// <summary>One-time secret for polling this request; known only to the device that opened it.</summary>
+    [JsonPropertyName("token")] public string Token { get; set; } = string.Empty;
+}
+
+public sealed class RekeyRequestStatus
+{
+    /// <summary>"pending" | "approved" | "rejected" | "expired".</summary>
+    [JsonPropertyName("state")] public string State { get; set; } = string.Empty;
+    [JsonPropertyName("certificate")] public string? Certificate { get; set; }
+    [JsonPropertyName("notAfter")] public DateTimeOffset? NotAfter { get; set; }
+}

@@ -58,4 +58,5 @@ public sealed class EnrollmentRecord
 /// <summary>Source-generated JSON for agent-local, non-wire types without reflection.</summary>
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(EnrollmentRecord))]
+[JsonSerializable(typeof(RemoteAgent.Services.RekeyService.RecoveryState))]
 public sealed partial class AgentLocalJsonContext : JsonSerializerContext;

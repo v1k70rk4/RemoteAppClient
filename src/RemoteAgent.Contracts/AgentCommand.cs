@@ -129,6 +129,8 @@ public static class CommandTypes
     public const string Power = "power";
     /// <summary>Verbose logging on the device for a few hours: debug-level file log, TightVNC log (see CommandData.DiagHours).</summary>
     public const string Diag = "diag";
+    /// <summary>New key (in the TPM when possible) and certificate for the device, now; answered "rekeyed" / "failed".</summary>
+    public const string Rekey = "rekey";
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
@@ -141,6 +143,9 @@ public static class CommandTypes
 [JsonSerializable(typeof(Enrollment.RekeyRequest))]
 [JsonSerializable(typeof(Enrollment.RekeyResponse))]
 [JsonSerializable(typeof(Enrollment.RekeyError))]
+[JsonSerializable(typeof(Enrollment.RekeyRequestOpen))]
+[JsonSerializable(typeof(Enrollment.RekeyRequestOpened))]
+[JsonSerializable(typeof(Enrollment.RekeyRequestStatus))]
 [JsonSerializable(typeof(Enrollment.VncSecretReport))]
 [JsonSerializable(typeof(Enrollment.BootstrapBlob))]
 [JsonSerializable(typeof(Admin.DeviceInfo))]

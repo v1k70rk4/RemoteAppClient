@@ -49,6 +49,8 @@ internal static partial class Strings
         [nameof(Program_RekeyCsrFailed)] = "Re-key: the CSR of device {Device} could not be signed",
         [nameof(Program_RekeyIssued)] = "Re-key: new certificate issued to device {Device} ({Reason}, key in {Provider}); awaiting its confirmation",
         [nameof(Program_RekeyConfirmed)] = "Re-key: device {Device} confirmed its new certificate; the old one retires in a few minutes",
+        [nameof(Program_RekeyRequestOpened)] = "Lost-key request from device {Device} (reports itself as {Hostname}, from {Ip}): waiting for an administrator's decision in the console",
+        [nameof(Program_RekeyRequestApproved)] = "Lost-key request of device {Device} approved by {User}: new certificate issued, the old one is out",
         [nameof(Program_BOOTSTRAPAdminCreatedPasswordFile)] = "BOOTSTRAP admin created - username: admin, the TEMPORARY password is in {Path} (must be changed at first sign-in)",
         [nameof(FirstAdminHandover_CouldNotWrite)] = "Could not write the first admin password file {Path}",
         [nameof(FirstAdminHandover_CouldNotRemove)] = "Could not remove the first admin password file {Path}",

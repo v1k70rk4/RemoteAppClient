@@ -128,8 +128,20 @@ public sealed class DeviceTelemetryPanel : UserControl
         else parts.Add(L.DeviceTelemetryPanel_TpmAttestationUnknown);
         if (d.TpmVulnerableFirmware == true) parts.Add(L.DeviceTelemetryPanel_TpmVulnerable);
 
+        // Where the device key is, and the certificate's end. A key outside a ready TPM is the yellow case:
+        // the agent moves it in by itself (2.3.0), so this points at devices that have not yet, or could not.
+        var keyElsewhere = false;
+        switch (d.KeyProvider)
+        {
+            case "tpm": parts.Add(L.DeviceTelemetryPanel_KeyTpm); break;
+            case "software": parts.Add(L.DeviceTelemetryPanel_KeySoftware); keyElsewhere = d.TpmReady == true; break;
+            case "file": parts.Add(L.DeviceTelemetryPanel_KeyFile); keyElsewhere = d.TpmReady == true; break;
+            default: parts.Add(L.DeviceTelemetryPanel_KeyUnknown); break;
+        }
+        if (d.CertNotAfter is { } end) parts.Add(L.Format(L.DeviceTelemetryPanel_CertUntil, end.ToLocalTime().ToString("yyyy-MM-dd")));
+
         var color = d.TpmVulnerableFirmware == true ? ThemeManager.DangerFg
-                  : d.TpmReady == false ? ThemeManager.WarnFg
+                  : d.TpmReady == false || keyElsewhere ? ThemeManager.WarnFg
                   : ThemeManager.Text;
         return (string.Join(" · ", parts), color);
     }

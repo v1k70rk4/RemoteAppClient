@@ -331,3 +331,23 @@ VALUES ('20260616122112_Add_PublicIpReverse', '9.0.0');
 
 COMMIT;
 
+
+CREATE TABLE `RekeyRequests` (
+    `Id` char(36) COLLATE ascii_general_ci NOT NULL,
+    `DeviceKey` char(36) COLLATE ascii_general_ci NOT NULL,
+    `Hostname` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `SourceIp` longtext CHARACTER SET utf8mb4 NULL,
+    `Csr` longtext CHARACTER SET utf8mb4 NOT NULL,
+    `KeyProvider` varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+    `TokenHash` varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    `ExpiresAt` datetime(6) NOT NULL,
+    `State` varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+    `DecidedAt` datetime(6) NULL,
+    `DecidedBy` longtext CHARACTER SET utf8mb4 NULL,
+    `CertificatePem` longtext CHARACTER SET utf8mb4 NULL,
+    `CertNotAfter` datetime(6) NULL,
+    CONSTRAINT `PK_RekeyRequests` PRIMARY KEY (`Id`)
+) CHARACTER SET=utf8mb4;
+
+CREATE INDEX `IX_RekeyRequests_DeviceKey_State` ON `RekeyRequests` (`DeviceKey`, `State`);

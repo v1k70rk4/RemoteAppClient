@@ -10,6 +10,8 @@ public enum DeviceState
     Error,
     /// <summary>Enrolled but not yet approved — liveness does not apply.</summary>
     Pending,
+    /// <summary>Its key is gone (a cleared TPM) and it asks for a new certificate: an administrator must decide.</summary>
+    RekeyRequested,
     /// <summary>Connected and reporting: it can be commanded.</summary>
     Online,
     /// <summary>Up, but the link keeps dropping (see <see cref="DeviceInfo.RecentReconnects"/>).</summary>
@@ -40,6 +42,7 @@ public static class DeviceLiveness
         // discarding everything we send it; "online" would then be the least useful thing we could say.
         if (!string.IsNullOrWhiteSpace(device.Problem)) return DeviceState.Error;
         if (string.Equals(device.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return DeviceState.Pending;
+        if (device.RekeyRequestedAt is not null) return DeviceState.RekeyRequested;
         if (device.Online) return DeviceState.Online;
         // A machine that has stopped reporting is offline, whatever its link did before it went quiet. With the
         // flaky test first, a device that was simply shut down - reconnecting a few times on its way out - stayed
@@ -57,6 +60,7 @@ public static class DeviceLiveness
     {
         DeviceState.Error => L.DevicesView_StateError,
         DeviceState.Pending => L.DevicesView_StatusPending,
+        DeviceState.RekeyRequested => L.DevicesView_StatusRekeyRequested,
         DeviceState.Online => L.DevicesView_Online,
         DeviceState.Flaky => L.DevicesView_LinkFlaky,
         DeviceState.Reporting => L.DevicesView_ReportingOnly,

@@ -23,9 +23,18 @@ the time of that release; the GitHub release pages carry the same text together 
   in 2028 instead of expiring.
 - Telemetry reports where the key is (`tpm` / `software` / `file`) and when the certificate expires; the server
   records the expiry at issue as well.
-- Schema: six nullable `Devices` columns (`upgrade-2.3.0-rekey.sql`, idempotent).
-- Not in this round (planned): the console's key-location display and *Kulcscsere* action, the approve/reject
-  flow for a device whose TPM lost its key, TPM-backed SSH keys.
+- The console's TPM row says where the key is (*kulcs: TPM / szoftver / fájl*, yellow when a ready TPM is not
+  used yet) and when the certificate ends. *Commands → Új eszközkulcs (TPM)* makes a device re-key now, for
+  example after a TPM firmware update; answered like a power action.
+- **A device whose TPM lost its key** (a BIOS update that cleared the Intel PTT, a deliberate TPM clear) has no
+  certificate to authenticate with. The agent notices, creates a new key and sends a lost-key request without a
+  certificate (`/enroll/rekey`, rate-limited, one pending per device, seven days). Nothing is issued by itself:
+  the device turns yellow in the console (*KULCSKÉRÉS*, with the name and address it reports and when), and
+  *Approve* issues the certificate for the same device id - the old one is out at once - while a context-menu
+  item rejects it. The device polls every minute and comes back with its id, group and notes. Every step is an
+  audit row (`device-rekey-request`, `-approved`, `-rejected`).
+- Schema: six nullable `Devices` columns and the `RekeyRequests` table (`upgrade-2.3.0-rekey.sql`, idempotent).
+- Not in this round: TPM-backed SSH keys.
 
 ## What's New in 2.2.7
 

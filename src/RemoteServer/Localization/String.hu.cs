@@ -49,6 +49,8 @@ internal static partial class Strings
         [nameof(Program_RekeyCsrFailed)] = "Kulcscsere: a(z) {Device} eszköz CSR-jét nem sikerült aláírni",
         [nameof(Program_RekeyIssued)] = "Kulcscsere: új tanúsítvány kiadva a(z) {Device} eszköznek ({Reason}, kulcs: {Provider}); megerősítésre vár",
         [nameof(Program_RekeyConfirmed)] = "Kulcscsere: a(z) {Device} eszköz megerősítette az új tanúsítványt; a régi néhány perc múlva lejár",
+        [nameof(Program_RekeyRequestOpened)] = "Elveszett kulcs: a(z) {Device} eszköz kulcscserét kér ({Hostname} néven, innen: {Ip}); rendszergazdai döntésre vár a konzolban",
+        [nameof(Program_RekeyRequestApproved)] = "A(z) {Device} eszköz kulcscsere-kérését {User} jóváhagyta: új tanúsítvány kiadva, a régi érvénytelen",
         [nameof(Program_BOOTSTRAPAdminCreatedPasswordFile)] = "BOOTSTRAP admin létrehozva — felhasználónév: admin, az IDEIGLENES jelszó itt: {Path} (első belépéskor cserélni kell)",
         [nameof(FirstAdminHandover_CouldNotWrite)] = "Nem sikerült kiírni az első admin jelszófájlját: {Path}",
         [nameof(FirstAdminHandover_CouldNotRemove)] = "Nem sikerült törölni az első admin jelszófájlját: {Path}",

@@ -30,6 +30,15 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ILogger<RekeySe
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (DeviceIdentity.Current is null || string.IsNullOrWhiteSpace(_opt.Telemetry.IngestUrl)) return;
+
+        // No usable key (the TPM was cleared, the store entry is gone): nothing else in this agent can talk to
+        // the server. Ask for a new certificate and wait for an administrator; this takes over until it is done.
+        if (!IdentityUsable(DeviceIdentity.Current))
+        {
+            try { await RecoverAsync(stoppingToken); }
+            catch (OperationCanceledException) { return; }
+        }
+
         try { await Task.Delay(TimeSpan.FromMinutes(5 + Random.Shared.Next(0, 26)), stoppingToken); }
         catch (OperationCanceledException) { return; }
 
@@ -105,6 +114,112 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ILogger<RekeySe
             DeviceKeyStore.DeleteKey(fresh.KeyName);
             throw;
         }
+    }
+
+    // ---- lost key -------------------------------------------------------------------------------------
+
+    private static bool IdentityUsable(DeviceIdentity.Snapshot id)
+    {
+        if (!id.InStore) return true; // a PFX file: present or not, the old path handles it
+        if (!DeviceKeyStore.KeyExists(id.KeyName)) return false;
+        try { using var c = CertHelper.ResolveClientCertificate(null, id.Thumbprint); return c.HasPrivateKey; }
+        catch { return false; }
+    }
+
+    public sealed class RecoveryState
+    {
+        public Guid RequestId { get; set; }
+        public string Token { get; set; } = "";
+        public string KeyName { get; set; } = "";
+        public string Provider { get; set; } = "";
+        public DateTimeOffset OpenedUtc { get; set; }
+    }
+
+    private string RecoveryPath => Path.Combine(_opt.EnrollmentDir, "rekey-request.json");
+
+    /// <summary>Opens (or resumes) a lost-key request and polls it until the administrator decides. On approval the
+    /// device switches to the new certificate and returns; on rejection or expiry it waits a day and asks again.</summary>
+    private async Task RecoverAsync(CancellationToken ct)
+    {
+        var id = DeviceIdentity.Current!;
+        var baseUrl = _opt.Telemetry.IngestUrl.Replace("/api/telemetry", "", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
+        var rec = JsonSerializer.Deserialize(System.IO.File.ReadAllText(Path.Combine(_opt.EnrollmentDir, "enrollment.json")), AgentLocalJsonContext.Default.EnrollmentRecord)!;
+        logger.LogError(L.RekeyService_KeyLost, id.Provider);
+
+        while (!ct.IsCancellationRequested)
+        {
+            RecoveryState? state = null;
+            try { if (System.IO.File.Exists(RecoveryPath)) state = JsonSerializer.Deserialize(System.IO.File.ReadAllText(RecoveryPath), AgentLocalJsonContext.Default.RecoveryState); }
+            catch { state = null; }
+            ECDsa? key = state is null ? null : DeviceKeyStore.Open(state.KeyName);
+            if (state is null || key is null)
+            {
+                // A fresh key and a fresh request. The key is persisted under its name, so a restart resumes
+                // with the same request rather than opening a new one every time.
+                var fresh = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
+                key = fresh.Key;
+                var csr = new CertificateRequest("CN=rekey", key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
+                using var http = PlainClient();
+                using var r = await http.PostAsJsonAsync($"{baseUrl}/enroll/rekey",
+                    new RekeyRequestOpen { DeviceId = rec.DeviceId, Hostname = Environment.MachineName, Csr = csr, KeyProvider = fresh.Provider },
+                    AgentJsonContext.Default.RekeyRequestOpen, ct);
+                if (!r.IsSuccessStatusCode)
+                {
+                    logger.LogWarning(L.RekeyService_RequestFailed, (int)r.StatusCode);
+                    DeviceKeyStore.DeleteKey(fresh.KeyName);
+                    await Task.Delay(TimeSpan.FromMinutes(15), ct);
+                    continue;
+                }
+                var opened = (await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyRequestOpened, ct))!;
+                state = new RecoveryState { RequestId = opened.RequestId, Token = opened.Token, KeyName = fresh.KeyName, Provider = fresh.Provider, OpenedUtc = DateTimeOffset.UtcNow };
+                System.IO.File.WriteAllText(RecoveryPath, JsonSerializer.Serialize(state, AgentLocalJsonContext.Default.RecoveryState));
+                logger.LogWarning(L.RekeyService_RequestOpened, opened.RequestId);
+            }
+
+            // Poll until decided.
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMinutes(1), ct);
+                RekeyRequestStatus? status; int code;
+                try
+                {
+                    using var http = PlainClient();
+                    using var r = await http.GetAsync($"{baseUrl}/enroll/rekey/{state.RequestId}?token={Uri.EscapeDataString(state.Token)}", ct);
+                    code = (int)r.StatusCode;
+                    status = code is 200 or 202 or 410 ? await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyRequestStatus, ct) : null;
+                }
+                catch (HttpRequestException) { continue; } // network: keep polling
+                if (code == 202) continue;
+                if (code == 200 && status?.Certificate is { } pem)
+                {
+                    var thumb = DeviceKeyStore.InstallCertificate(pem, key);
+                    var snapshot = new DeviceIdentity.Snapshot(state.Provider, thumb, state.KeyName, null, status.NotAfter);
+                    DeviceIdentity.Set(snapshot);
+                    RewriteEnrollment(snapshot);
+                    try { System.IO.File.Delete(RecoveryPath); } catch { /* best effort */ }
+                    DeviceKeyStore.RemoveCertificate(id.Thumbprint);
+                    logger.LogWarning(L.RekeyService_Recovered, state.Provider, status.NotAfter);
+                    key.Dispose();
+                    return;
+                }
+                // Rejected, expired, or the server no longer knows the request: start over tomorrow.
+                logger.LogError(L.RekeyService_RequestRejected, status?.State ?? code.ToString());
+                try { System.IO.File.Delete(RecoveryPath); } catch { /* best effort */ }
+                DeviceKeyStore.DeleteKey(state.KeyName);
+                key.Dispose();
+                await Task.Delay(TimeSpan.FromHours(24), ct);
+                break;
+            }
+        }
+    }
+
+    /// <summary>A client with no certificate (the device has none to offer), still pinned when a pin is set.</summary>
+    private HttpClient PlainClient()
+    {
+        var handler = new SocketsHttpHandler();
+        if (!string.IsNullOrWhiteSpace(_opt.Telemetry.ServerCertPinSha256))
+            handler.SslOptions.RemoteCertificateValidationCallback = CertHelper.PinnedServerValidator(_opt.Telemetry.ServerCertPinSha256);
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
     }
 
     private void RewriteEnrollment(DeviceIdentity.Snapshot s)

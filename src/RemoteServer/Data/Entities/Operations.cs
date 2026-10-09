@@ -105,3 +105,38 @@ public sealed class RemoteSession
 
     public ConsentState ConsentState { get; set; } = ConsentState.NotRequired;
 }
+
+/// <summary>
+/// A device's request for a new certificate when it has no key left to authenticate with (its TPM was cleared).
+/// Opened without a certificate, decided by an administrator in the console; the device polls with the one-time
+/// token. At most one pending per device; expires after seven days.
+/// </summary>
+public sealed class RekeyRecoveryRequest
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>The device's row key (<see cref="Device.Id"/>).</summary>
+    public Guid DeviceKey { get; set; }
+
+    public string Hostname { get; set; } = string.Empty;
+    public string? SourceIp { get; set; }
+
+    /// <summary>PKCS#10 (PEM) for the device's new key; signed only on approval.</summary>
+    public string Csr { get; set; } = string.Empty;
+    public string KeyProvider { get; set; } = string.Empty;
+
+    /// <summary>SHA-256 of the polling token; the raw token goes to the device once.</summary>
+    public string TokenHash { get; set; } = string.Empty;
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    /// <summary>"pending" | "approved" | "rejected".</summary>
+    public string State { get; set; } = "pending";
+    public DateTimeOffset? DecidedAt { get; set; }
+    public string? DecidedBy { get; set; }
+
+    /// <summary>The issued certificate (PEM), for the device to fetch, once approved.</summary>
+    public string? CertificatePem { get; set; }
+    public DateTimeOffset? CertNotAfter { get; set; }
+}
