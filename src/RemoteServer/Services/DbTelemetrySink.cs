@@ -13,7 +13,7 @@ namespace RemoteServer.Services;
 /// Writes telemetry to MariaDB: updates the denormalized <see cref="Device"/> fields that the console
 /// lists, and appends a <see cref="DeviceEvent"/> only when an IP actually changed.
 /// </summary>
-public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, ClockSkewTracker clocks) : ITelemetrySink
+public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, ClockSkewTracker clocks, UpdatePauseState pauses) : ITelemetrySink
 {
     public async Task IngestAsync(string deviceId, TelemetryPayload payload, string? publicIp, CancellationToken ct)
     {
@@ -38,7 +38,10 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
         device.VncVersion = payload.VncVersion;
         device.ClientVersion = payload.ClientVersion;
         device.AgentRestarts = payload.AgentRestarts;
-        device.LastIncident = payload.LastIncident;
+        // The device's own incident wins; when it has none, a note the server put there (an update that does
+        // not take effect) stays visible instead of being blanked on the next pass.
+        if (payload.LastIncident is not null || device.LastIncident?.StartsWith(PauseNotePrefix, StringComparison.Ordinal) != true)
+            device.LastIncident = payload.LastIncident;
         device.VncLocked = payload.VncLocked;
         device.BootTimeUtc = payload.BootTimeUtc == default ? null : payload.BootTimeUtc;
         // History: note IP moves BEFORE overwriting, so the console can answer "when did it change?".
@@ -141,6 +144,8 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
     /// out one at a time instead of racing. Upgrade-only; respects UpdateAllowed + approval. Self-heals a
     /// racy multi-rollout because each pass simply sends whatever is still behind.
     /// </summary>
+    private const string PauseNotePrefix = "auto-converge paused: ";
+
     private async Task AutoConvergeAsync(Device device, CancellationToken ct)
     {
         if (!device.UpdateAllowed || device.Status != DeviceStatus.Approved) return;
@@ -153,7 +158,7 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
             c => c.DeviceId == device.Id && c.Type == CommandTypes.Update && c.CreatedAt > hourAgo, ct);
         if (recentUpdates >= 8)
         {
-            const string note = "auto-converge paused: too many update attempts";
+            const string note = PauseNotePrefix + "too many update attempts";
             if (device.LastIncident != note) { device.LastIncident = note; await db.SaveChangesAsync(ct); }
             return;
         }
@@ -181,8 +186,12 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
 
             // An update that "succeeds" without changing what the device reports (a TightVNC whose service
             // points at a stray copy, a locked file) would otherwise be re-sent every ten minutes forever,
-            // under the hourly breaker above. Three sends of the same package in six hours with the device
-            // still behind means it will not take; stop, and say which one on the device.
+            // under the hourly breaker above. A device paused for this very package, still reporting what it
+            // reported when it was paused, gets nothing more - however long ago that was. Once its report
+            // changes (repaired, or another package got in) it is no longer paused and gets one attempt;
+            // three sends of the same package in six hours with the device still behind pause it again.
+            var reported = Reported(device, comp) ?? "nothing";
+            if (pauses.IsPaused(device.Id, comp, pkg.Version, reported)) return;
             var sixHoursAgo = DateTimeOffset.UtcNow.AddHours(-6);
             var same = 0;
             foreach (var c in await db.Commands
@@ -194,19 +203,10 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
             }
             if (same >= 3)
             {
-                // The note records what the device reported when it was paused. While that is still what it
-                // reports, nothing is sent; once the device says something else (someone fixed it, a different
-                // package got in), one more attempt goes out and the note moves to the new value, so a repair
-                // is picked up without waiting the window out and a stuck device still gets no storm.
-                // The note is the memory: while it names the current report, the device is still stuck and
-                // nothing is sent. Anything else (no note yet, a different report, or another incident that
-                // overwrote the note) earns exactly one send, after which the note again names what was seen.
-                var reported = Reported(device, comp) ?? "nothing";
-                var prefix = $"auto-converge paused: {comp} {pkg.Version} does not take effect (reported ";
-                if (device.LastIncident is { } li && li.StartsWith(prefix, StringComparison.Ordinal) && li.Contains($"(reported {reported} ", StringComparison.Ordinal))
-                    return;
-                device.LastIncident = $"{prefix}{reported} after {same} attempts)";
+                pauses.Set(device.Id, comp, pkg.Version, reported);
+                device.LastIncident = $"{PauseNotePrefix}{comp} {pkg.Version} does not take effect (reported {reported} after {same} attempts)";
                 await db.SaveChangesAsync(ct);
+                return;
             }
 
             var data = new CommandData

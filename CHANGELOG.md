@@ -50,8 +50,10 @@ maintainer's fleet but was never tagged.
   a stray copy of tvnserver, say) was sent the same update every ten minutes, forever: the hourly breaker
   needed eight attempts and the ten-minute wait allowed six. After three sends of the same package in six
   hours with the device still behind, the server stops and records on the device which update does not take
-  and what the device reports instead. When that report changes (the device was repaired, another package got
-  in), one more attempt goes out; a device that keeps reporting the same thing gets no further sends.
+  and what the device reports instead. A device that keeps reporting the same thing gets no further sends,
+  however long ago it was paused; when its report changes (the device was repaired, another package got in),
+  one more attempt goes out. The pause is kept in memory on the server - a restart costs a stuck device one
+  more attempt - and the note on the device survives telemetry passes that carry no incident of their own.
 
 **A sign-in lock that could be stepped around**
 - A sign-in request naming a device id the server did not know - a console on a device that had been deleted, or a
