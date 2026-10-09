@@ -2,10 +2,16 @@
 require_sudo
 SCHEMA="${RAC_SCHEMA:-$REPO_ROOT/src/RemoteServer/Data/Migrations/schema.sql}"
 if [ ! -f "$SCHEMA" ]; then
-  info "schema.sql not found locally - downloading from GitHub"
-  SCHEMA="/tmp/rac-schema.sql"
-  curl -fsSL "https://raw.githubusercontent.com/${RAC_GH_REPO}/master/src/RemoteServer/Data/Migrations/schema.sql" -o "$SCHEMA" \
-    || die "could not obtain schema.sql"
+  # Fetched at the release's tag, so the schema matches the package 04-server installs (master moves on),
+  # into a private directory rather than a fixed name in /tmp that anyone could have pre-created.
+  if [ -n "${RAC_GH_RELEASE:-}" ] && [ "$RAC_GH_RELEASE" != latest ]; then tag="${RAC_GH_RELEASE#tags/}"
+  else tag="$(curl -fsSL "https://api.github.com/repos/${RAC_GH_REPO}/releases/latest" | jq -r .tag_name)"; fi
+  [ -n "$tag" ] && [ "$tag" != "null" ] || die "could not resolve the release tag for schema.sql"
+  info "schema.sql not found locally - downloading it at $tag"
+  SCHEMADIR="$(mktemp -d)"; chmod 700 "$SCHEMADIR"
+  SCHEMA="$SCHEMADIR/schema.sql"
+  curl -fsSL "https://raw.githubusercontent.com/${RAC_GH_REPO}/${tag}/src/RemoteServer/Data/Migrations/schema.sql" -o "$SCHEMA" \
+    || die "could not obtain schema.sql at $tag"
 fi
 need_cmd mariadb || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mariadb-client
 

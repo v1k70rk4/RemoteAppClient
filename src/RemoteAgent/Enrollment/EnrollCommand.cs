@@ -33,6 +33,11 @@ public static class EnrollCommand
             Console.Error.WriteLine(Strings.EnrollUsage);
             return 2;
         }
+        if (!string.IsNullOrWhiteSpace(server) && !RemoteAgent.Admin.ServerUrlPolicy.IsAllowed(server))
+        {
+            Console.Error.WriteLine(L.EnrollCommand_InsecureServerUrl);
+            return 2;
+        }
         if (string.IsNullOrWhiteSpace(server))
         {
             Console.Error.WriteLine(Strings.EnrollUsage);
@@ -64,6 +69,9 @@ public static class EnrollCommand
     /// </summary>
     public static async Task<EnrollResult> EnrollCoreAsync(string token, string server, string hostname, string outDir)
     {
+        // Secured before the key material is written, and again at the end so enrollment.json carries its
+        // read grant for the console. A non-default output folder is left as it is.
+        DataDirectorySecurity.Secure(outDir);
         Directory.CreateDirectory(outDir);
 
         // mTLS key and CSR.
@@ -137,6 +145,7 @@ public static class EnrollCommand
         File.WriteAllText(
             Path.Combine(outDir, "enrollment.json"),
             JsonSerializer.Serialize(record, AgentLocalJsonContext.Default.EnrollmentRecord));
+        DataDirectorySecurity.Secure(outDir);
 
         return new EnrollResult(true, resp.DeviceId, withKey.Thumbprint, null);
     }

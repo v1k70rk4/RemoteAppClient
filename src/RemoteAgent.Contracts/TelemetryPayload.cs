@@ -75,6 +75,33 @@ public sealed class TelemetryPayload
     [JsonPropertyName("sleepDcMinutes")]
     public int? SleepDcMinutes { get; set; }
 
+    // TPM, as tpmtool reports it. Null = unknown: no tpmtool on this Windows, or not read yet. The device key is
+    // meant to move into the TPM; these show beforehand which devices could hold it.
+
+    /// <summary>A TPM is present.</summary>
+    [JsonPropertyName("tpmPresent")]
+    public bool? TpmPresent { get; set; }
+
+    /// <summary>TPM version, e.g. "2.0".</summary>
+    [JsonPropertyName("tpmVersion")]
+    public string? TpmVersion { get; set; }
+
+    /// <summary>TPM manufacturer id, e.g. "INTC" (Intel PTT), "AMD", "IFX".</summary>
+    [JsonPropertyName("tpmManufacturer")]
+    public string? TpmManufacturer { get; set; }
+
+    /// <summary>Ready for storage: keys can be created in it.</summary>
+    [JsonPropertyName("tpmReady")]
+    public bool? TpmReady { get; set; }
+
+    /// <summary>Ready for attestation.</summary>
+    [JsonPropertyName("tpmAttestation")]
+    public bool? TpmAttestation { get; set; }
+
+    /// <summary>Windows flags the TPM's firmware as vulnerable.</summary>
+    [JsonPropertyName("tpmVulnerableFirmware")]
+    public bool? TpmVulnerableFirmware { get; set; }
+
     [JsonPropertyName("collectedAtUtc")]
     public DateTimeOffset CollectedAtUtc { get; set; }
 

@@ -44,9 +44,8 @@ public class DiagModeTests : IDisposable
         Assert.True(DiagMode.IsActive);
         Assert.Equal(DiagMode.TightVncVerboseLevel, DiagMode.TightVncLogLevel);
 
-        var text = File.ReadAllText(DiagMode.FilePath);
-        Assert.Contains("\"Default\": \"Debug\"", text);
-        Assert.Contains("\"Microsoft\": \"Information\"", text);
+        Assert.Equal("Debug", DiagMode.LogLevelOverrides["Logging:LogLevel:Default"]);
+        Assert.Equal("Information", DiagMode.LogLevelOverrides["Logging:LogLevel:Microsoft"]);
 
         DiagMode.Disable();
         Assert.False(File.Exists(DiagMode.FilePath));
@@ -81,7 +80,7 @@ public class DiagModeTests : IDisposable
         File.WriteAllText(baseSettings, "{ \"Logging\": { \"LogLevel\": { \"Default\": \"Information\" }, \"EventLog\": { \"LogLevel\": { \"Default\": \"Information\" } } } }");
         var config = new ConfigurationBuilder()
             .AddJsonFile(baseSettings, optional: false, reloadOnChange: false)
-            .AddJsonFile(DiagMode.FilePath, optional: true, reloadOnChange: true)
+            .Add(new DiagConfigurationSource())
             .Build();
 
         using var fileLog = new FileLogProvider(DiagMode.LogDirectory, retentionDays: 14);
@@ -113,6 +112,43 @@ public class DiagModeTests : IDisposable
         DiagMode.Disable();
         await WaitUntil(() => !logger.IsEnabled(LogLevel.Debug));
         Assert.False(logger.IsEnabled(LogLevel.Debug), "Debug did not switch off after Disable");
+    }
+
+    [Fact]
+    public void A_planted_file_reaches_nothing_but_the_fixed_log_levels()
+    {
+        // The folder is shared with the machine's users: whatever they write into diag.json besides the expiry
+        // must not reach the agent's settings (an ssh path would run as SYSTEM) or the event-log provider's.
+        File.WriteAllText(DiagMode.FilePath,
+            "{ \"Diag\": { \"Until\": \"" + DateTimeOffset.UtcNow.AddHours(1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") + "\" }," +
+            "  \"Agent\": { \"Tunnel\": { \"SshExecutablePath\": \"C:\\\\Users\\\\Public\\\\ssh.exe\" }, \"EnrollmentDir\": \"C:\\\\Users\\\\Public\" }," +
+            "  \"Logging\": { \"LogLevel\": { \"Default\": \"Trace\" }, \"EventLog\": { \"MachineName\": \"elsewhere\", \"LogName\": \"Other\" } } }");
+        var config = new ConfigurationBuilder().Add(new DiagConfigurationSource()).Build();
+
+        Assert.Null(config["Agent:Tunnel:SshExecutablePath"]);
+        Assert.Null(config["Agent:EnrollmentDir"]);
+        Assert.Null(config["Logging:EventLog:MachineName"]);
+        Assert.Null(config["Logging:EventLog:LogName"]);
+        Assert.Equal("Debug", config["Logging:LogLevel:Default"]);   // the fixed level, not the file's "Trace"
+        Assert.Equal(
+            DiagMode.LogLevelOverrides.Keys.OrderBy(k => k),
+            config.AsEnumerable().Where(kv => kv.Value is not null).Select(kv => kv.Key).OrderBy(k => k),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Expired or absent: nothing at all.
+        File.WriteAllText(DiagMode.FilePath, "{ \"Diag\": { \"Until\": \"2020-01-01T00:00:00Z\" }, \"Agent\": { \"EnrollmentDir\": \"x\" } }");
+        Assert.DoesNotContain(new ConfigurationBuilder().Add(new DiagConfigurationSource()).Build().AsEnumerable(), kv => kv.Value is not null);
+    }
+
+    [Fact]
+    public void Enable_never_reuses_a_temporary_file_that_was_already_there()
+    {
+        var tmp = DiagMode.FilePath + ".tmp";
+        File.WriteAllText(tmp, "left behind by someone else");
+        DiagMode.Enable(1);
+        Assert.False(File.Exists(tmp));
+        Assert.DoesNotContain("left behind", File.ReadAllText(DiagMode.FilePath));
+        Assert.True(DiagMode.IsActive);
     }
 
     [Fact]

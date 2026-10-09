@@ -95,6 +95,8 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.DeviceTelemetryPanel_Uptime, Uptime(d.BootTimeUtc));
         Row(L.DeviceTelemetryPanel_MakeModel, $"{(string.IsNullOrWhiteSpace(d.Manufacturer) ? "OEM" : d.Manufacturer)} / {S(d.Model)}");
         Row(L.DeviceTelemetryPanel_Serial, d.SerialNumber);
+        var (tpm, tpmColor) = TpmText(d);
+        Row("TPM", tpm, tpmColor, UiFont.Body);
         Row(L.DeviceTelemetryPanel_LocalLock, d.VncLocked ? L.DeviceTelemetryPanel_DISABLED : "—");
         Row(L.DeviceTelemetryPanel_SignInLock, d.LoginLocked ? L.Format(L.DeviceTelemetryPanel_LOCKEDFailed, d.LoginFailCount) : (d.LoginFailCount > 0 ? L.Format(L.DeviceTelemetryPanel_FailedAttempt, d.LoginFailCount) : "—"));
         Row("Agent / Helper / VNC", $"{S(d.AgentVersion)} / {S(d.HelperVersion)} / {S(d.VncVersion)}");
@@ -105,6 +107,31 @@ public sealed class DeviceTelemetryPanel : UserControl
         Row(L.AboutView_Connection, ConnectPath(d));
 
         Apply(rows);
+    }
+
+    /// <summary>
+    /// The TPM row: version, manufacturer, ready for keys, ready for attestation - the device key is to move into
+    /// the TPM, so this says which devices could take it. Unknown (an agent that does not report it) shows "—";
+    /// no TPM or one not ready for keys is a warning; vulnerable firmware is an error.
+    /// </summary>
+    private static (string? Text, Color Color) TpmText(DeviceInfo d)
+    {
+        if (d.TpmPresent is null) return (null, ThemeManager.Text);
+        if (d.TpmPresent == false) return (L.DeviceTelemetryPanel_TpmNone, ThemeManager.WarnFg);
+
+        var parts = new List<string> { d.TpmVersion ?? "?" };
+        if (!string.IsNullOrWhiteSpace(d.TpmManufacturer)) parts.Add(d.TpmManufacturer!);
+        // null = the agent could not tell (tpmtool failed): shown as unknown, not as a confirmed "no".
+        if (d.TpmReady is { } ready) parts.Add(ready ? L.DeviceTelemetryPanel_TpmReady : L.DeviceTelemetryPanel_TpmNotReady);
+        else parts.Add(L.DeviceTelemetryPanel_TpmReadyUnknown);
+        if (d.TpmAttestation is { } att) parts.Add(att ? L.DeviceTelemetryPanel_TpmAttestation : L.DeviceTelemetryPanel_TpmNoAttestation);
+        else parts.Add(L.DeviceTelemetryPanel_TpmAttestationUnknown);
+        if (d.TpmVulnerableFirmware == true) parts.Add(L.DeviceTelemetryPanel_TpmVulnerable);
+
+        var color = d.TpmVulnerableFirmware == true ? ThemeManager.DangerFg
+                  : d.TpmReady == false ? ThemeManager.WarnFg
+                  : ThemeManager.Text;
+        return (string.Join(" · ", parts), color);
     }
 
     /// <summary>A refresh keeps the rows it has and only swaps their values. Re-creating them every 30 seconds

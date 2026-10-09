@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RemoteAgent.Contracts\RemoteAgent.Contracts.csproj" />
+    <!-- DPAPI for the stored trust token; used only behind OperatingSystem.IsWindows(), builds and runs anywhere. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
   </ItemGroup>
 
 </Project>

@@ -30,6 +30,9 @@ public sealed class BrokerClient : IDisposable
             {
                 var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
                 pipe.Connect(timeoutMs); // synchronous but on background thread; handles ERROR_PIPE_BUSY and timeout
+                // Only the agent service gets the console's traffic (see PipePeer): a pipe of the same name that a
+                // signed-in user put up while the service was down is treated as no broker at all.
+                if (!PipePeer.IsAgentService(pipe, out _)) { pipe.Dispose(); return null; }
                 return new BrokerClient(pipe);
             }
             catch { return null; }

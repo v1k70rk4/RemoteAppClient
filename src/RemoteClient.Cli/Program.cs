@@ -169,7 +169,7 @@ static int Usage(int code)
         racctl - read-only access to the RemoteServer admin API (log, health, fleet)
 
         usage:
-          racctl token <token>            store the access token (DPAPI, current user)
+          racctl token                    store the access token, read from standard input (DPAPI, current user)
           racctl token --clear            forget the stored token
           racctl logs [-n N] [--level info|warn|error|debug] [--since 30m|2h|1d|<iso>] [--grep TEXT] [--day YYYY-MM-DD]
           racctl diag                     health snapshot (JSON)
@@ -230,12 +230,32 @@ static int Token(List<string> a)
         Console.WriteLine("token cleared");
         return 0;
     }
-    if (a.Count != 1 || !a[0].StartsWith("rac_", StringComparison.Ordinal) || a[0].Length < 20)
-        throw new UsageException("token needs the value from the console (starts with rac_), or --clear");
+    // The token is read from standard input, never from an argument: an argument lands in the shell history and in
+    // the process table. Piped (`echo rac_... | racctl token`) or typed at the prompt, without echo.
+    if (a.Count != 0) throw new UsageException("token takes no argument: it reads the value from standard input (or --clear)");
+    string? raw;
+    if (Console.IsInputRedirected) raw = Console.In.ReadLine();
+    else { Console.Error.Write("paste the token from the console (not shown): "); raw = ReadHidden(); Console.Error.WriteLine(); }
+    raw = raw?.Trim();
+    if (string.IsNullOrEmpty(raw) || !raw.StartsWith("rac_", StringComparison.Ordinal) || raw.Length < 20)
+        throw new UsageException("that is not a token from the console (it starts with rac_)");
     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-    File.WriteAllBytes(path, ProtectedData.Protect(Encoding.UTF8.GetBytes(a[0]), null, DataProtectionScope.CurrentUser));
-    Console.WriteLine($"token {a[0][..12]}… stored in {path}");
+    File.WriteAllBytes(path, ProtectedData.Protect(Encoding.UTF8.GetBytes(raw), null, DataProtectionScope.CurrentUser));
+    Console.WriteLine($"token {raw[..12]}… stored in {path}");
     return 0;
+}
+
+/// <summary>Reads one line from the console without echoing it.</summary>
+static string ReadHidden()
+{
+    var sb = new StringBuilder();
+    while (true)
+    {
+        var k = Console.ReadKey(intercept: true);
+        if (k.Key == ConsoleKey.Enter) return sb.ToString();
+        if (k.Key == ConsoleKey.Backspace) { if (sb.Length > 0) sb.Length--; continue; }
+        if (!char.IsControl(k.KeyChar)) sb.Append(k.KeyChar);
+    }
 }
 
 static string? LoadToken()

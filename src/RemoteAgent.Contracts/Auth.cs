@@ -81,6 +81,10 @@ public sealed class AuthError
 public sealed class ChangePasswordRequest
 {
     [JsonPropertyName("newPassword")] public string NewPassword { get; set; } = string.Empty;
+
+    /// <summary>The password in use now. Required for a voluntary change; the forced change after a temporary
+    /// password (MustChangePassword) accepts its absence, since consoles before 2.2.7 never send it.</summary>
+    [JsonPropertyName("currentPassword")] public string? CurrentPassword { get; set; }
 }
 
 public sealed class TotpConfirmRequest

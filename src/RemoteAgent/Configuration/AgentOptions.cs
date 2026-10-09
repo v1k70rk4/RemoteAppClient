@@ -6,6 +6,10 @@ namespace RemoteAgent.Configuration;
 /// </summary>
 public sealed class AgentOptions
 {
+    /// <summary>Set when the enrollment names a plain-HTTP server off this machine: nothing is connected to, and
+    /// the host logs the refusal at start. Not a configuration value.</summary>
+    public string? InsecureServerUrl { get; set; }
+
     public const string SectionName = "Agent";
 
     /// <summary>Stable device identifier. When empty, it is derived from the device SID/MachineGuid.</summary>

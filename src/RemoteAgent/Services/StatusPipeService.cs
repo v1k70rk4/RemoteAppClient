@@ -32,16 +32,21 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
     {
         logger.LogInformation(L.StatusPipeService_StatusPipeStartingPipePipe, PipeName);
 
+        // The first instance must be the first (see BrokerService): a pipe of this name created by someone else
+        // while the service was down would feed the console and the Helper a made-up status.
+        bool first = true;
         while (!stoppingToken.IsCancellationRequested)
         {
             NamedPipeServerStream pipe;
-            try { pipe = CreatePipe(); }
+            try { pipe = CreatePipe(first); }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, L.StatusPipeService_StatusPipeCreationFailedRetrying);
-                try { await Task.Delay(2000, stoppingToken); } catch { break; }
+                if (first) logger.LogError(L.BrokerService_PipeNameHeldByAnotherProcess, PipeName, ex.Message);
+                else logger.LogDebug(ex, L.StatusPipeService_StatusPipeCreationFailedRetrying);
+                try { await Task.Delay(first ? 5000 : 2000, stoppingToken); } catch { break; }
                 continue;
             }
+            first = false;
 
             try
             {
@@ -83,7 +88,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
         finally { try { await pipe.DisposeAsync(); } catch { /* best effort */ } }
     }
 
-    private static NamedPipeServerStream CreatePipe()
+    private static NamedPipeServerStream CreatePipe(bool first)
     {
         var sec = new PipeSecurity();
         sec.AddAccessRule(new PipeAccessRule(
@@ -95,6 +100,7 @@ public sealed class StatusPipeService(AgentStatusState state, TunnelState tunnel
 
         return NamedPipeServerStreamAcl.Create(
             PipeName, PipeDirection.InOut, maxNumberOfServerInstances: 4,
-            PipeTransmissionMode.Byte, PipeOptions.Asynchronous, inBufferSize: 0, outBufferSize: 0, sec);
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : PipeOptions.None),
+            inBufferSize: 0, outBufferSize: 0, sec);
     }
 }

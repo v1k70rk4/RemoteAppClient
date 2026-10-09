@@ -12,7 +12,25 @@ namespace RemoteServer.Hub;
 /// </summary>
 public sealed class AgentConnectionRegistry
 {
-    private readonly ConcurrentDictionary<string, WebSocket> _connections = new();
+    private readonly ConcurrentDictionary<string, Connection> _connections = new();
+
+    /// <summary>A live socket with its send gate: a WebSocket allows one outstanding send at a time, and two
+    /// operators acting on the same device at once (or a command racing a close frame) used to throw.</summary>
+    private sealed record Connection(WebSocket Socket)
+    {
+        public SemaphoreSlim SendGate { get; } = new(1, 1);
+    }
+
+    private static readonly TimeSpan SendWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>Runs one send on the socket while holding its gate. False when the gate could not be taken in
+    /// time (a peer that stopped reading): the caller treats that like an offline device.</summary>
+    private static async Task<bool> SendLockedAsync(Connection c, Func<WebSocket, Task> send, CancellationToken ct)
+    {
+        if (!await c.SendGate.WaitAsync(SendWait, ct)) return false;
+        try { await send(c.Socket); return true; }
+        finally { c.SendGate.Release(); }
+    }
 
     /// <summary>Per-device rolling C2 (re)connect history, in-memory only. Frequent reconnects = flaky link:
     /// the agent is likely alive but on a poor network, as opposed to a genuinely offline/dead device.</summary>
@@ -40,13 +58,16 @@ public sealed class AgentConnectionRegistry
     {
         var sockets = _connections.Values.ToArray();
         using var cts = new CancellationTokenSource(grace);
-        await Task.WhenAll(sockets.Select(async s =>
+        await Task.WhenAll(sockets.Select(async c =>
         {
             try
             {
                 // Output only: the handler's pending ReceiveAsync picks up the agent's reply and ends the loop.
-                if (s.State == WebSocketState.Open)
-                    await s.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, "server restarting", cts.Token);
+                await SendLockedAsync(c, async s =>
+                {
+                    if (s.State == WebSocketState.Open)
+                        await s.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, "server restarting", cts.Token);
+                }, cts.Token);
             }
             catch { /* a socket that is already gone is exactly what we want */ }
         }));
@@ -56,26 +77,52 @@ public sealed class AgentConnectionRegistry
 
     public void Register(string deviceId, WebSocket socket)
     {
-        _connections[deviceId] = socket;
+        _connections[deviceId] = new Connection(socket);
         _reconnects.GetOrAdd(deviceId, static _ => new ReconnectWindow()).Mark(); // track C2 churn for the flaky-link signal
     }
 
     public void Unregister(string deviceId, WebSocket socket)
     {
         // Remove only if this is still the same socket, safe across reconnects.
-        if (_connections.TryGetValue(deviceId, out var current) && current == socket)
-            _connections.TryRemove(deviceId, out _);
+        if (_connections.TryGetValue(deviceId, out var current) && current.Socket == socket)
+            _connections.TryRemove(new KeyValuePair<string, Connection>(deviceId, current));
     }
 
-    /// <summary>Sends a signed command to a device. False when the device is offline.</summary>
+    /// <summary>
+    /// Ends a device's live connection, for a device that was just deleted: it is told to leave (close frame
+    /// 1008 "device removed") and the handler's loop ends with it. Reconnecting is then refused, since the
+    /// device no longer exists. A no-op when it is not connected.
+    /// </summary>
+    public async Task DisconnectAsync(string deviceId)
+    {
+        _reconnects.TryRemove(deviceId, out _);
+        if (!_connections.TryRemove(deviceId, out var c)) return;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await SendLockedAsync(c, async s =>
+            {
+                if (s.State == WebSocketState.Open)
+                    await s.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "device removed", cts.Token);
+            }, cts.Token);
+        }
+        catch { /* gone already */ }
+        try { c.Socket.Abort(); } catch { }
+    }
+
+    /// <summary>Sends a signed command to a device. False when the device is offline, or when its socket stayed
+    /// busy with another send for too long.</summary>
     public async Task<bool> TrySendAsync(string deviceId, AgentCommand cmd, CancellationToken ct)
     {
-        if (!_connections.TryGetValue(deviceId, out var socket) || socket.State != WebSocketState.Open)
+        if (!_connections.TryGetValue(deviceId, out var c) || c.Socket.State != WebSocketState.Open)
             return false;
 
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(cmd, AgentJsonContext.Default.AgentCommand);
-        await socket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, ct);
-        return true;
+        return await SendLockedAsync(c, async s =>
+        {
+            if (s.State != WebSocketState.Open) throw new WebSocketException(WebSocketError.InvalidState);
+            await s.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, ct);
+        }, ct);
     }
 
     /// <summary>How many times this device's C2 connection (re)established within the last hour. 0–1 is a stable

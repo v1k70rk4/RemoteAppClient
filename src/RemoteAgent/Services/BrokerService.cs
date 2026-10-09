@@ -38,16 +38,22 @@ public sealed class BrokerService(IOptions<AgentOptions> options, TransportState
 
         // Multiple instances: always keep a fresh listener so a stuck handler, such as a force-killed
         // client, cannot block new connections. Each connection is handled by its own task.
+        // The very first instance insists on being the first: when the name already exists, somebody created
+        // the pipe while the service was down, and joining it would let them see the console's traffic. The
+        // service keeps trying (and saying so) until the name is free; the console refuses the impostor meanwhile.
+        bool first = true;
         while (!stoppingToken.IsCancellationRequested)
         {
             NamedPipeServerStream pipe;
-            try { pipe = CreatePipe(); }
+            try { pipe = CreatePipe(first); }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, L.BrokerService_BrokerPipeCreationFailedRetrying);
-                try { await Task.Delay(2000, stoppingToken); } catch { break; }
+                if (first) logger.LogError(L.BrokerService_PipeNameHeldByAnotherProcess, PipeName, ex.Message);
+                else logger.LogWarning(ex, L.BrokerService_BrokerPipeCreationFailedRetrying);
+                try { await Task.Delay(first ? 5000 : 2000, stoppingToken); } catch { break; }
                 continue;
             }
+            first = false;
 
             try
             {
@@ -122,7 +128,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, TransportState
     private static bool IsAllowed(int remotePort) =>
         remotePort == AdminApiPort || (remotePort >= TunnelPortMin && remotePort < TunnelPortMax);
 
-    private static NamedPipeServerStream CreatePipe()
+    private static NamedPipeServerStream CreatePipe(bool first)
     {
         var sec = new PipeSecurity();
         sec.AddAccessRule(new PipeAccessRule(
@@ -135,6 +141,7 @@ public sealed class BrokerService(IOptions<AgentOptions> options, TransportState
         // Multiple instances are allowed so a stuck handler cannot block new connections.
         return NamedPipeServerStreamAcl.Create(
             PipeName, PipeDirection.InOut, maxNumberOfServerInstances: 8,
-            PipeTransmissionMode.Byte, PipeOptions.Asynchronous, inBufferSize: 0, outBufferSize: 0, sec);
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : PipeOptions.None),
+            inBufferSize: 0, outBufferSize: 0, sec);
     }
 }

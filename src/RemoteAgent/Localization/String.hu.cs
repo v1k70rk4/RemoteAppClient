@@ -18,6 +18,10 @@ internal static partial class Strings
         [nameof(BootstrapEnroller_BootstrapSelfEnrollOK)] = "Bootstrap self-enroll OK: {0}",
         [nameof(BrokerService_ConsoleBrokerStartingPipePipe)] = "Konzol-bróker indul (pipe: {Pipe}).",
         [nameof(BrokerService_BrokerPipeCreationFailedRetrying)] = "Bróker pipe létrehozása sikertelen — újrapróba 2s múlva.",
+        [nameof(BrokerService_PipeNameHeldByAnotherProcess)] = "A(z) {Pipe} pipe már létezik, és nem a miénk: egy másik folyamat tartja a nevet. A konzolok nem használják; újrapróba 5 mp múlva. ({Detail})",
+        [nameof(SshLocalForward_ForwardEndedPortHeld)] = "A bróker-továbbítás megszűnt; a helyi {Port} portot a konzol-munkamenet végéig megtartjuk.",
+        [nameof(Program_InsecureServerUrlRefused)] = "A beléptetés sima HTTP-s szervert nevez meg ({Url}); az agent nem csatlakozik hozzá. Léptesd be újra https:// címmel.",
+        [nameof(EnrollCommand_InsecureServerUrl)] = "A szervercím https:// legyen (sima http csak localhostra engedett).",
         [nameof(BrokerService_BrokerAcceptError)] = "Bróker accept hiba.",
         [nameof(BrokerService_BrokerClientConnected)] = "Bróker: kliens csatlakozott.",
         [nameof(BrokerService_BrokerForwardOKBastionRemote)] = "Bróker forward OK: bástya {Remote} -> helyi {Local}.",
@@ -143,5 +147,9 @@ internal static partial class Strings
         [nameof(DiagMode_Expired)] = "A részletes naplózás ideje lejárt; visszaállt a normál szint.",
         [nameof(DiagMode_ActiveAtStart)] = "Részletes naplózás aktív eddig: {Until} (UTC).",
         [nameof(DiagMode_Failed)] = "A részletes naplózás kapcsolóját nem sikerült átírni.",
+        [nameof(DataDirectory_ItemsRemoved)] = "Adatmappa lezárva ({Folder}); {Count} nem SYSTEM vagy rendszergazda által létrehozott elem eltávolítva.",
+        [nameof(DataDirectory_SecureFailed)] = "Az adatmappát ({Folder}) nem sikerült lezárni: {Reason}",
+        [nameof(HelperUpdateWatcher_StagingNotBySystemIgnored)] = "A Helper előkészített frissítése kihagyva és törölve: nem a SYSTEM vagy a rendszergazdák tulajdona.",
+        [nameof(HelperUpdateWatcher_NoServicePath)] = "A Helper előkészített frissítése kihagyva: a Helper szolgáltatás exe-útvonala nem olvasható.",
     };
 }

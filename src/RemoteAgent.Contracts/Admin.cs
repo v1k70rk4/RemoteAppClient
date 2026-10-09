@@ -156,6 +156,14 @@ public sealed class DeviceInfo
     [JsonPropertyName("batteryPercent")] public int? BatteryPercent { get; set; }
     [JsonPropertyName("sleepAcMinutes")] public int? SleepAcMinutes { get; set; }
     [JsonPropertyName("sleepDcMinutes")] public int? SleepDcMinutes { get; set; }
+    /// <summary>TPM from telemetry (null = unknown): present, version, manufacturer, ready for storage, ready for
+    /// attestation, vulnerable firmware.</summary>
+    [JsonPropertyName("tpmPresent")] public bool? TpmPresent { get; set; }
+    [JsonPropertyName("tpmVersion")] public string? TpmVersion { get; set; }
+    [JsonPropertyName("tpmManufacturer")] public string? TpmManufacturer { get; set; }
+    [JsonPropertyName("tpmReady")] public bool? TpmReady { get; set; }
+    [JsonPropertyName("tpmAttestation")] public bool? TpmAttestation { get; set; }
+    [JsonPropertyName("tpmVulnerableFirmware")] public bool? TpmVulnerableFirmware { get; set; }
 
     /// <summary>Login lockout after 5 failed attempts from the device. Only an admin can unlock it.</summary>
     [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }

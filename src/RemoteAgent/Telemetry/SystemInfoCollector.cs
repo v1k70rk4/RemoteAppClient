@@ -21,6 +21,7 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
     {
         var hw = HardwareInfo.System();
         var pw = PowerInfo.Read();
+        var tpm = TpmInfo.Read();
         var p = new TelemetryPayload
         {
             AgentId = MachineIdentity.Resolve(_options.AgentId),
@@ -45,6 +46,12 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
             BatteryPercent = pw.BatteryPercent,
             SleepAcMinutes = pw.SleepAcMinutes,
             SleepDcMinutes = pw.SleepDcMinutes,
+            TpmPresent = tpm.Present,
+            TpmVersion = tpm.Version,
+            TpmManufacturer = tpm.Manufacturer,
+            TpmReady = tpm.Ready,
+            TpmAttestation = tpm.Attestation,
+            TpmVulnerableFirmware = tpm.VulnerableFirmware,
         };
         ReadSupervisorStatus(p);
         return p;

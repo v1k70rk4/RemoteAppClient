@@ -23,7 +23,15 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
     private readonly HashSet<string> _tokens = new();
     private readonly object _lock = new();
 
-    /// <summary>Starts the service and registers a session token. Concurrent operators each add their own,
+    /// <summary>Forgets every session token: the tunnel is closed, so nothing may use the service until a new
+    /// open-tunnel brings a new token. The listener stays up, so the port is never free for someone else.</summary>
+    public void ClearTokens()
+    {
+        lock (_lock) _tokens.Clear();
+    }
+
+    /// <summary>Starts the service and registers a session token (an empty one only binds the port, which is
+    /// done at agent start so no local user can take it first). Concurrent operators each add their own,
     /// so a second operator joining does not invalidate the first. Idempotent on the listener.</summary>
     public void Start(string token)
     {

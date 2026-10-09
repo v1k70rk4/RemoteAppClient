@@ -117,6 +117,15 @@ public sealed class Device
     public int? SleepAcMinutes { get; set; }
     public int? SleepDcMinutes { get; set; }
 
+    /// <summary>TPM (denormalized from telemetry, as tpmtool reports it; null = unknown, e.g. an older agent):
+    /// present, version, manufacturer id, ready for storage, ready for attestation, vulnerable firmware.</summary>
+    public bool? TpmPresent { get; set; }
+    public string? TpmVersion { get; set; }
+    public string? TpmManufacturer { get; set; }
+    public bool? TpmReady { get; set; }
+    public bool? TpmAttestation { get; set; }
+    public bool? TpmVulnerableFirmware { get; set; }
+
     public DateTimeOffset EnrolledAt { get; set; } = DateTimeOffset.UtcNow;
 
     /// <summary>Admin note such as user name, stored encrypted because it may be sensitive.</summary>

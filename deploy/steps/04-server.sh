@@ -5,20 +5,35 @@ id "$RAC_SVC_USER" &>/dev/null || sudo useradd --system --no-create-home --shell
 sudo mkdir -p "$RAC_PKG_DIR"; sudo chown -R "$RAC_SVC_USER:$RAC_SVC_USER" /var/lib/remoteserver
 need_cmd wixl || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq wixl
 
-# obtain the self-contained server package
-PKG="${RAC_PKG:-/tmp/remoteserver.tar.gz}"
-if [ ! -f "$PKG" ]; then
-  info "package not at $PKG - downloading the latest GitHub release"
-  url="$(curl -fsSL "https://api.github.com/repos/${RAC_GH_REPO}/releases/latest" \
-        | jq -r '.assets[]|select(.name=="RemoteServer-linux-x64.tar.gz")|.browser_download_url')"
-  [ -n "$url" ] && [ "$url" != "null" ] || die "no RemoteServer-linux-x64.tar.gz in the latest release; set RAC_PKG to a local tarball"
-  PKG="/tmp/remoteserver.tar.gz"; curl -fsSL "$url" -o "$PKG"
+# obtain the self-contained server package. It is unpacked as root, so it is never taken from a shared
+# directory as found: a local tarball (RAC_PKG) is copied into a private directory first, and a downloaded
+# one is checked against the release's SHA256SUMS (releases from 2.2.7 carry one; older ones only warn).
+PKGDIR="$(mktemp -d)"; chmod 700 "$PKGDIR"
+trap 'rm -rf "$PKGDIR"' EXIT
+PKG="$PKGDIR/remoteserver.tar.gz"
+if [ -n "${RAC_PKG:-}" ] && [ -f "$RAC_PKG" ]; then
+  cp "$RAC_PKG" "$PKG"
+else
+  rel="$(curl -fsSL "https://api.github.com/repos/${RAC_GH_REPO}/releases/${RAC_GH_RELEASE:-latest}")"
+  url="$(jq -r '.assets[]|select(.name=="RemoteServer-linux-x64.tar.gz")|.browser_download_url' <<<"$rel")"
+  [ -n "$url" ] && [ "$url" != "null" ] || die "no RemoteServer-linux-x64.tar.gz in the release; set RAC_PKG to a local tarball"
+  info "downloading $(jq -r .tag_name <<<"$rel") - RemoteServer-linux-x64.tar.gz"
+  curl -fsSL "$url" -o "$PKG"
+  sums="$(jq -r '.assets[]|select(.name=="SHA256SUMS")|.browser_download_url' <<<"$rel")"
+  if [ -n "$sums" ] && [ "$sums" != "null" ]; then
+    curl -fsSL "$sums" -o "$PKGDIR/SHA256SUMS"
+    (cd "$PKGDIR" && grep ' RemoteServer-linux-x64.tar.gz$' SHA256SUMS | sed 's| RemoteServer-linux-x64.tar.gz$| remoteserver.tar.gz|' | sha256sum -c --quiet -) \
+      || die "RemoteServer-linux-x64.tar.gz does not match the release's SHA256SUMS"
+    ok "package checksum verified against the release"
+  else
+    warn "this release has no SHA256SUMS; the package was not verified"
+  fi
 fi
 
 sudo systemctl stop remoteserver.service 2>/dev/null || true
 sudo mkdir -p "$RAC_APP_DIR" "$RAC_ENV_DIR"
 sudo rm -rf "${RAC_APP_DIR:?}"/*
-sudo tar -xzf "$PKG" -C "$RAC_APP_DIR"
+sudo tar --no-same-owner --no-same-permissions -xzf "$PKG" -C "$RAC_APP_DIR"
 sudo chmod +x "$RAC_APP_DIR/RemoteServer"
 
 # secrets (generated once; only created when missing)
@@ -39,10 +54,12 @@ Server__Bastion__HostKey=${BKEY}
 Server__PublicUrl=https://${RAC_DOMAIN}
 EOF
 
-# permissions: config readable only by the service user
-sudo chown -R "$RAC_SVC_USER:$RAC_SVC_USER" "$RAC_APP_DIR" "$RAC_ENV_DIR"
-sudo find "$RAC_ENV_DIR" -type f -exec chmod 600 {} +
-sudo chmod 700 "$RAC_ENV_DIR"
+# permissions: the binaries and the secrets belong to root; the service user may read them, never write.
+# A compromised service then cannot replace its own executable or its keys.
+sudo chown -R "root:$RAC_SVC_USER" "$RAC_APP_DIR" "$RAC_ENV_DIR"
+sudo chmod -R u=rwX,g=rX,o= "$RAC_APP_DIR"
+sudo find "$RAC_ENV_DIR" -type f -exec chmod 640 {} +
+sudo chmod 750 "$RAC_ENV_DIR"
 
 sudo tee /etc/systemd/system/remoteserver.service >/dev/null <<UNIT
 [Unit]
@@ -56,14 +73,23 @@ User=${RAC_SVC_USER}
 WorkingDirectory=${RAC_APP_DIR}
 EnvironmentFile=${RAC_ENV_DIR}/db.env
 EnvironmentFile=-${RAC_ENV_DIR}/bastion.env
+# Server__ProxySecret, written by 07-nginx together with the nginx side (optional until then).
+EnvironmentFile=-${RAC_ENV_DIR}/proxy.env
 Environment=ASPNETCORE_URLS=http://127.0.0.1:5000
 ExecStart=${RAC_APP_DIR}/RemoteServer
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
-ProtectSystem=full
+# The service writes only under /var/lib/remoteserver; everything else, /opt and /etc included, is read-only
+# to it, and it sees no device nodes.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/remoteserver
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

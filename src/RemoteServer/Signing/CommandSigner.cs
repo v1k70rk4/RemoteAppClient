@@ -28,8 +28,13 @@ public sealed class CommandSigner : IDisposable
     /// <summary>Public key as Base64 SPKI, sent to agents during enrollment.</summary>
     public string PublicKeySpkiBase64 => Convert.ToBase64String(_privateKey.ExportSubjectPublicKeyInfo());
 
-    /// <summary>New signed command with fresh nonce and timestamp.</summary>
-    public AgentCommand Create(string type, CommandData? data = null)
+    /// <summary>Agents from this version verify the version 2 form (every field, bound to the device).</summary>
+    public static readonly Version SigV2MinAgent = new(2, 2, 7, 1);
+
+    /// <summary>New signed command with fresh nonce and timestamp. With <paramref name="deviceId"/> the signature
+    /// is version 2, which only agents from <see cref="SigV2MinAgent"/> can check; the caller decides from the
+    /// agent's reported version (<see cref="UsesV2"/>) and passes null for older ones.</summary>
+    public AgentCommand Create(string type, CommandData? data = null, string? deviceId = null)
     {
         var cmd = new AgentCommand
         {
@@ -38,9 +43,13 @@ public sealed class CommandSigner : IDisposable
             IssuedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Data = data,
         };
-        CommandSignature.Sign(cmd, _privateKey);
+        CommandSignature.Sign(cmd, _privateKey, deviceId);
         return cmd;
     }
+
+    /// <summary>Whether an agent reporting <paramref name="agentVersion"/> verifies version 2 signatures.</summary>
+    public static bool UsesV2(string? agentVersion) =>
+        Version.TryParse(agentVersion, out var v) && v >= SigV2MinAgent;
 
     public void Dispose() => _privateKey.Dispose();
 }

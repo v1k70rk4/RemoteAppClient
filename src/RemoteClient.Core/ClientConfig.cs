@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace RemoteClient;
 
@@ -48,8 +51,37 @@ public sealed class ClientConfig
     /// <summary>Username associated with Hello for passwordless sign-in.</summary>
     public string? HelloUsername { get; set; }
 
-    /// <summary>"Remember this device" 2FA-trust token: lets the server skip TOTP for ~90 days. Useless without the password.</summary>
-    public string? TrustToken { get; set; }
+    /// <summary>"Remember this device" 2FA-trust token: lets the server skip TOTP for ~90 days. Useless without the
+    /// password, but it is still half of a sign-in, so it is not kept in the clear: on Windows it is DPAPI-sealed to
+    /// the signed-in Windows user (<c>dpapi:</c> prefix), elsewhere the config file itself is owner-only.</summary>
+    [JsonIgnore]
+    public string? TrustToken
+    {
+        get => Unseal(TrustTokenStored);
+        set => TrustTokenStored = Seal(value);
+    }
+
+    /// <summary>The stored form of <see cref="TrustToken"/>. Kept under the old JSON name, so a config written by
+    /// an earlier console (the token in the clear) still loads; the next save seals it.</summary>
+    [JsonPropertyName("TrustToken")]
+    public string? TrustTokenStored { get; set; }
+
+    private const string DpapiPrefix = "dpapi:";
+
+    private static string? Seal(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw) || !OperatingSystem.IsWindows()) return raw;
+        try { return DpapiPrefix + Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(raw), null, DataProtectionScope.CurrentUser)); }
+        catch { return raw; } // DPAPI unavailable (rare): better a working sign-in than a silently lost trust
+    }
+
+    private static string? Unseal(string? stored)
+    {
+        if (string.IsNullOrEmpty(stored) || !stored.StartsWith(DpapiPrefix, StringComparison.Ordinal)) return stored;
+        if (!OperatingSystem.IsWindows()) return null;
+        try { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored[DpapiPrefix.Length..]), null, DataProtectionScope.CurrentUser)); }
+        catch { return null; } // another user's or machine's seal: the server simply asks for the code again
+    }
 
     /// <summary>The username the trust token belongs to (prefilled on the login screen and matched before sending the token).</summary>
     public string? TrustUsername { get; set; }
@@ -85,7 +117,14 @@ public sealed class ClientConfig
 
     public void Save()
     {
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-        File.WriteAllText(Path, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        var dir = System.IO.Path.GetDirectoryName(Path)!;
+        Directory.CreateDirectory(dir);
+        var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+        if (OperatingSystem.IsWindows()) { File.WriteAllText(Path, json); return; }
+        // Owner-only on Linux: the file holds the trust token and the last server; ~/.config is often 755.
+        try { File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); } catch { /* best effort */ }
+        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None, UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite };
+        using (var f = new StreamWriter(new FileStream(Path, options))) f.Write(json);
+        try { File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { /* best effort */ } // the file may have pre-existed wider
     }
 }

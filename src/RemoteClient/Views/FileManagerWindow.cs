@@ -43,6 +43,25 @@ internal sealed class LocalBackend : IFsBackend
     public Task RenameAsync(string from, string to, CancellationToken ct) { if (Directory.Exists(from)) Directory.Move(from, to); else File.Move(from, to); return Task.CompletedTask; }
 }
 
+/// <summary>
+/// A listed name joined to a folder - only when it is a plain name (<see cref="SafeNames.IsPlainName"/>) and the
+/// result stays inside <c>dir</c>, as a second check. Null otherwise.
+/// </summary>
+internal static class SafeChild
+{
+    public static string? Of(string dir, string name)
+    {
+        if (!SafeNames.IsPlainName(name)) return null;
+        try
+        {
+            var path = System.IO.Path.Combine(dir, name);
+            var root = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(dir)) + System.IO.Path.DirectorySeparatorChar;
+            return System.IO.Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase) ? path : null;
+        }
+        catch { return null; }
+    }
+}
+
 internal sealed class RemoteBackend(FileClient fc) : IFsBackend
 {
     public async Task<FsList> ListAsync(string path, CancellationToken ct) => (string.IsNullOrEmpty(path) ? await fc.DrivesAsync(ct) : await fc.ListAsync(path, ct)) ?? new FsList { Path = path };
@@ -148,6 +167,14 @@ internal sealed class FilePane : UserControl
         if (string.IsNullOrEmpty(Path)) return;
         var parent = System.IO.Path.GetDirectoryName(Path?.TrimEnd('\\'));
         await NavigateAsync(parent ?? ""); // null at a drive root -> drive list
+    }
+
+    /// <summary>Whether the folder on show has an entry of this name (the copy asks before overwriting it).</summary>
+    public bool Contains(string name)
+    {
+        foreach (ListViewItem it in _list.Items)
+            if (it.Tag is FsEntry e && string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     /// <summary>Selected entries as (entry, full path), skipping the ".." row.</summary>
@@ -292,9 +319,16 @@ public sealed class FileManagerWindow : MaterialForm
         if (items.Count == 0) { SetStatus(L.FileManager_NothingSelected); return; }
         if (string.IsNullOrEmpty(Other.Path)) { SetStatus(L.FileManager_PickDestDir); return; }
         var src = _active.Backend; var dst = Other.Backend; var dstDir = Other.Path;
+
+        // Overwriting is asked about once, for what is selected; inside a copied folder the copy stays within it.
+        int existing = items.Count(i => Other.Contains(i.Entry.Name));
+        if (existing > 0 && MessageBox.Show(L.Format(L.FileManager_ConfirmOverwrite, existing), L.FileManager_Copy,
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+
         _copyCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         var ct = _copyCts.Token;
         ShowProgress(true);
+        _skipped = 0;
         try
         {
             int n = 0;
@@ -302,23 +336,35 @@ public sealed class FileManagerWindow : MaterialForm
             {
                 n++;
                 SetStatus(L.Format(L.FileManager_Copying, entry.Name, n, items.Count));
-                await CopyEntryAsync(src, path, dst, System.IO.Path.Combine(dstDir, entry.Name), entry, ct);
+                if (SafeChild.Of(dstDir, entry.Name) is not { } target) { _skipped++; continue; }
+                await CopyEntryAsync(src, path, dst, target, entry, 0, ct);
             }
-            SetStatus(L.FileManager_Done);
+            SetStatus(_skipped == 0 ? L.FileManager_Done : L.Format(L.FileManager_DoneSkipped, _skipped));
         }
         catch (OperationCanceledException) { SetStatus(L.FileManager_Cancelled); }
         finally { ShowProgress(false); _copyCts.Dispose(); _copyCts = null; }
         await Other.RefreshAsync();
     }
 
-    private async Task CopyEntryAsync(IFsBackend src, string srcPath, IFsBackend dst, string dstPath, FsEntry entry, CancellationToken ct)
+    private int _skipped;
+    private const int MaxCopyDepth = 64;
+
+    // Names come from the other side's listing - for a download, from the managed device. Each one is used only
+    // when it is a single plain name that stays inside the folder it is copied into (see SafeNames); anything else
+    // is skipped and counted, never followed, so a device cannot steer a write elsewhere on this machine.
+    private async Task CopyEntryAsync(IFsBackend src, string srcPath, IFsBackend dst, string dstPath, FsEntry entry, int depth, CancellationToken ct)
     {
         if (entry.IsDir)
         {
+            if (depth >= MaxCopyDepth) throw new InvalidOperationException(L.Format(L.FileManager_TooDeep, MaxCopyDepth));
             await dst.MkdirAsync(dstPath, ct);
             var sub = await src.ListAsync(srcPath, ct);
             foreach (var child in sub.Entries)
-                await CopyEntryAsync(src, System.IO.Path.Combine(srcPath, child.Name), dst, System.IO.Path.Combine(dstPath, child.Name), child, ct);
+            {
+                if (SafeChild.Of(dstPath, child.Name) is not { } childDst || SafeChild.Of(srcPath, child.Name) is not { } childSrc)
+                { _skipped++; continue; }
+                await CopyEntryAsync(src, childSrc, dst, childDst, child, depth + 1, ct);
+            }
         }
         else
         {

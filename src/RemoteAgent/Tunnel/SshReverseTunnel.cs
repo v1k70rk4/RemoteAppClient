@@ -114,6 +114,10 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         // -N: only the forward, no remote command. -R remote:127.0.0.1:local — a reverse forward.
         // 127.0.0.1 instead of 'localhost': Windows ssh may resolve localhost to ::1, while VNC
         // typically listens only on IPv4 loopback.
+        // -F none: no ssh_config at all. Everything this tunnel needs is passed below, and ssh runs as SYSTEM,
+        // so the machine-wide %ProgramData%\ssh\ssh_config must not be able to add options to it.
+        psi.ArgumentList.Add("-F");
+        psi.ArgumentList.Add("none");
         psi.ArgumentList.Add("-N");
         psi.ArgumentList.Add("-R");
         psi.ArgumentList.Add($"{remotePort}:127.0.0.1:{options.LocalForwardPort}");

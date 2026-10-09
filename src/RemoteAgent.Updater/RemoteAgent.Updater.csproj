@@ -7,7 +7,7 @@
     <RootNamespace>RemoteAgent.Updater</RootNamespace>
     <AssemblyName>RemoteAgent.Updater</AssemblyName>
     <OutputType>Exe</OutputType>
-    <Version>2.2.7.0</Version>
+    <Version>2.2.7.1</Version>
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
 
     <!-- Small standalone executable that replaces the main agent, so it cannot be the same exe. -->
@@ -24,6 +24,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RemoteAgent.Contracts\RemoteAgent.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared with the agent: both SYSTEM services secure the ProgramData folder they work in. -->
+    <Compile Include="..\RemoteAgent\Security\DataDirectorySecurity.cs" Link="Security\DataDirectorySecurity.cs" />
+    <!-- Shared with the consoles: the status pipe's other end must be the agent service before its answer counts. -->
+    <Compile Include="..\RemoteClient.Core\PipePeer.cs" Link="Ipc\PipePeer.cs" />
   </ItemGroup>
 
 </Project>

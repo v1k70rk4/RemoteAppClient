@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RemoteAgent.Configuration;
+using RemoteAgent.Security;
 using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
@@ -43,10 +44,27 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
 
     private async Task SwapAsync(string marker, string newExe, CancellationToken ct)
     {
-        var target = (await File.ReadAllTextAsync(marker, ct)).Trim();
-        if (string.IsNullOrWhiteSpace(target))
+        // Only this agent (SYSTEM) or an administrator stages an update; anything else is not acted on.
+        if (!DataDirectorySecurity.IsOwnedBySystemOrAdministrators(marker) ||
+            !DataDirectorySecurity.IsOwnedBySystemOrAdministrators(newExe))
+        {
+            logger.LogWarning(L.HelperUpdateWatcher_StagingNotBySystemIgnored);
+            TryDelete(marker);
+            TryDelete(newExe);
+            return;
+        }
+
+        // The path replaced is the Helper service's own executable, from the registry - never one from a file.
+        if ((await File.ReadAllTextAsync(marker, ct)).Trim().Length == 0)
         {
             logger.LogWarning(L.HelperUpdateWatcher_EmptyUpdateUpdaterReadyNo);
+            TryDelete(marker);
+            return;
+        }
+        var target = DataDirectorySecurity.ServiceExecutablePath(UpdaterService);
+        if (target is null)
+        {
+            logger.LogWarning(L.HelperUpdateWatcher_NoServicePath);
             TryDelete(marker);
             return;
         }

@@ -113,6 +113,9 @@ public static partial class Strings
     public static string FileManager_Copying => Get(nameof(FileManager_Copying));
     public static string FileManager_Done => Get(nameof(FileManager_Done));
     public static string FileManager_ConfirmDelete => Get(nameof(FileManager_ConfirmDelete));
+    public static string FileManager_ConfirmOverwrite => Get(nameof(FileManager_ConfirmOverwrite));
+    public static string FileManager_DoneSkipped => Get(nameof(FileManager_DoneSkipped));
+    public static string FileManager_TooDeep => Get(nameof(FileManager_TooDeep));
     public static string FileManager_SelectOneToRename => Get(nameof(FileManager_SelectOneToRename));
     public static string AboutView_FetchingStatus => Get(nameof(AboutView_FetchingStatus));
     public static string AboutView_Unavailable => Get(nameof(AboutView_Unavailable));
@@ -325,6 +328,14 @@ public static partial class Strings
     public static string DeviceTelemetryPanel_ClientOS => Get(nameof(DeviceTelemetryPanel_ClientOS));
     public static string DeviceTelemetryPanel_MakeModel => Get(nameof(DeviceTelemetryPanel_MakeModel));
     public static string DeviceTelemetryPanel_Serial => Get(nameof(DeviceTelemetryPanel_Serial));
+    public static string DeviceTelemetryPanel_TpmNone => Get(nameof(DeviceTelemetryPanel_TpmNone));
+    public static string DeviceTelemetryPanel_TpmReady => Get(nameof(DeviceTelemetryPanel_TpmReady));
+    public static string DeviceTelemetryPanel_TpmNotReady => Get(nameof(DeviceTelemetryPanel_TpmNotReady));
+    public static string DeviceTelemetryPanel_TpmReadyUnknown => Get(nameof(DeviceTelemetryPanel_TpmReadyUnknown));
+    public static string DeviceTelemetryPanel_TpmAttestationUnknown => Get(nameof(DeviceTelemetryPanel_TpmAttestationUnknown));
+    public static string DeviceTelemetryPanel_TpmAttestation => Get(nameof(DeviceTelemetryPanel_TpmAttestation));
+    public static string DeviceTelemetryPanel_TpmNoAttestation => Get(nameof(DeviceTelemetryPanel_TpmNoAttestation));
+    public static string DeviceTelemetryPanel_TpmVulnerable => Get(nameof(DeviceTelemetryPanel_TpmVulnerable));
     public static string DeviceTelemetryPanel_PublicIP => Get(nameof(DeviceTelemetryPanel_PublicIP));
     public static string DeviceTelemetryPanel_PublicHost => Get(nameof(DeviceTelemetryPanel_PublicHost));
     public static string KvRow_Copied => Get(nameof(KvRow_Copied));

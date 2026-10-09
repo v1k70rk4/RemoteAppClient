@@ -77,6 +77,12 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
         device.BatteryPercent = payload.BatteryPercent;
         device.SleepAcMinutes = payload.SleepAcMinutes;
         device.SleepDcMinutes = payload.SleepDcMinutes;
+        device.TpmPresent = payload.TpmPresent;
+        device.TpmVersion = Short(payload.TpmVersion);
+        device.TpmManufacturer = Short(payload.TpmManufacturer);
+        device.TpmReady = payload.TpmReady;
+        device.TpmAttestation = payload.TpmAttestation;
+        device.TpmVulnerableFirmware = payload.TpmVulnerableFirmware;
         device.LastSeenAt = now;
 
         // Clock skew. Telemetry is NOT signed, so it still arrives from a device whose every command is
@@ -105,6 +111,9 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
     }
 
     /// <summary>"host (1.2.3.4)" when a PTR is known, otherwise the bare address - the shape the console shows.</summary>
+    /// <summary>A short device-reported label (TPM version, manufacturer id), capped so a device cannot fill a row.</summary>
+    private static string? Short(string? s) => s is null ? null : s.Length <= 64 ? s : s[..64];
+
     private static string? IpLabel(string? ip, string? reverse) =>
         string.IsNullOrWhiteSpace(ip) ? null
         : string.IsNullOrWhiteSpace(reverse) ? ip

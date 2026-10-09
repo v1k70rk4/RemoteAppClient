@@ -149,6 +149,13 @@ jobs:
         with:
           path: artifacts
 
+      # One checksum file over every asset, so a download (and 04-server.sh) can be checked against what CI built.
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum windows-x64/* server-linux-x64/* client-linux-deb/* | sed 's|  [^ ]*/|  |' > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -156,3 +163,4 @@ jobs:
             artifacts/windows-x64/*
             artifacts/server-linux-x64/*
             artifacts/client-linux-deb/*
+            artifacts/SHA256SUMS

@@ -25,6 +25,33 @@ public static class PasswordHasher
                $"{Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 
+    // Each check takes 64 MiB and a few hundred milliseconds of CPU, and the sign-in endpoints answer anyone. Only
+    // this many run at once; the rest wait their turn, so a burst of attempts queues instead of exhausting memory.
+    private static readonly SemaphoreSlim Concurrent = new(Math.Clamp(Environment.ProcessorCount, 2, 4));
+    private static readonly TimeSpan QueueTimeout = TimeSpan.FromSeconds(20);
+
+    // A hash of nothing in particular, checked against when the user does not exist, so an unknown name costs the
+    // same time as a wrong password and the answer's timing does not tell which it was.
+    private static readonly Lazy<string> DummyHash = new(() => Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(24))));
+
+    /// <summary>
+    /// Checks a password against a stored hash, or against a dummy when <paramref name="stored"/> is null (unknown
+    /// user - always false, same cost). Null when too many checks are queued already: the caller answers "busy".
+    /// </summary>
+    public static async Task<bool?> VerifyAsync(string password, string? stored, CancellationToken ct)
+    {
+        if (!await Concurrent.WaitAsync(QueueTimeout, ct)) return null;
+        try
+        {
+            return await Task.Run(() =>
+            {
+                bool ok = Verify(password, stored ?? DummyHash.Value);
+                return stored is not null && ok;
+            }, ct);
+        }
+        finally { Concurrent.Release(); }
+    }
+
     public static bool Verify(string password, string stored)
     {
         try

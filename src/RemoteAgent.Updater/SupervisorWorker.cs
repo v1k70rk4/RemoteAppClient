@@ -62,6 +62,11 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         var marker = Path.Combine(UpdateDir, "update.ready");
         var newExe = Path.Combine(UpdateDir, "RemoteAgent.exe");
 
+        // The agent secures the folder too, but the Helper may start first (or run beside an older agent).
+        var secured = RemoteAgent.Security.DataDirectorySecurity.Secure(DataDir);
+        if (!secured.Applied) logger.LogWarning(L.SupervisorWorker_DataDirectorySecureFailed, DataDir, secured.Error);
+        else if (secured.Removed > 0) logger.LogWarning(L.SupervisorWorker_DataDirectoryItemsRemoved, DataDir, secured.Removed);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -177,6 +182,9 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         {
             await using var pipe = new NamedPipeClientStream(".", StatusPipeName, PipeDirection.In, PipeOptions.Asynchronous);
             await pipe.ConnectAsync(PipeConnectTimeoutMs, ct);
+            // A pipe of this name that is not the agent's (put up by a local user while the agent was down) must
+            // not be able to tell the Helper the agent is fine: it counts as no answer.
+            if (!RemoteClient.PipePeer.IsAgentService(pipe, out _)) return null;
             using var ms = new MemoryStream();
             await pipe.CopyToAsync(ms, ct);
             if (ms.Length == 0) return null;
@@ -191,10 +199,28 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
 
     private async Task SwapAgentAsync(string marker, string newExe, CancellationToken ct)
     {
-        var target = (await File.ReadAllTextAsync(marker, ct)).Trim();
-        if (string.IsNullOrWhiteSpace(target))
+        // Only the agent (SYSTEM) or an administrator stages an update; anything else is not acted on.
+        if (!RemoteAgent.Security.DataDirectorySecurity.IsOwnedBySystemOrAdministrators(marker) ||
+            !RemoteAgent.Security.DataDirectorySecurity.IsOwnedBySystemOrAdministrators(newExe))
+        {
+            logger.LogWarning(L.SupervisorWorker_StagingNotBySystemIgnored);
+            TryDelete(marker);
+            TryDelete(newExe);
+            return;
+        }
+
+        // The marker still says what the agent replaces (older agents write it), but the path used is the
+        // RemoteAgent service's own executable, from the registry - never a path taken from a file.
+        if ((await File.ReadAllTextAsync(marker, ct)).Trim().Length == 0)
         {
             logger.LogWarning(L.SupervisorWorker_EmptyUpdateReadyNoTarget);
+            TryDelete(marker);
+            return;
+        }
+        var target = RemoteAgent.Security.DataDirectorySecurity.ServiceExecutablePath(AgentService);
+        if (target is null)
+        {
+            logger.LogWarning(L.SupervisorWorker_NoServicePath);
             TryDelete(marker);
             return;
         }

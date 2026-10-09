@@ -42,6 +42,11 @@ public sealed class ServerOptions
     /// (development) an unreachable Linux default falls back to a "logs" folder next to the binary.</summary>
     public string LogDir { get; set; } = "/var/lib/remoteserver/logs";
 
+    /// <summary>Where the first admin's temporary password is written when the database is seeded (owner-only
+    /// file, 0600). It used to go to the server log, which is kept, shipped and readable more widely than
+    /// a one-time secret should be. The file is removed once that password has been changed.</summary>
+    public string FirstAdminPasswordPath { get; set; } = "/var/lib/remoteserver/first-admin-password.txt";
+
     /// <summary>How many days of log files to keep.</summary>
     public int LogRetentionDays { get; set; } = 14;
 
@@ -52,6 +57,15 @@ public sealed class ServerOptions
     /// <summary>The health alerts (see <see cref="Services.HealthAlertWatcher"/>): e-mail to the support address when a
     /// check starts failing, and once more when it clears.</summary>
     public AlertOptions Alerts { get; set; } = new();
+
+    /// <summary>
+    /// A secret nginx sends in <c>X-RAC-Proxy</c> on every request it forwards. Kestrel's port is reachable not
+    /// only from nginx but through the bastion's loopback forwards too, so the identity headers nginx derives from
+    /// the client certificate (<c>X-Client-Verify</c>, <c>X-Client-Dn</c>) and the real client address
+    /// (<c>X-Real-IP</c>, <c>X-Forwarded-For</c>) are believed only on requests that carry it. Empty: they are
+    /// believed from any caller, as before - set it only once nginx sends it, or every agent is turned away.
+    /// </summary>
+    public string ProxySecret { get; set; } = string.Empty;
 
     /// <summary>Public server base URL, for example https://c2.example.com, embedded in bootstrap blobs.</summary>
     public string PublicUrl { get; set; } = string.Empty;
@@ -124,6 +138,12 @@ public sealed class BastionOptions
 
     /// <summary>Path to the SSH CA private key used by ssh-keygen -s. Readable only by remotesrv.</summary>
     public string SshCaKeyPath { get; set; } = "/etc/remoteserver/agent_ca";
+
+    /// <summary>
+    /// The OpenSSH revocation list (KRL) of deleted devices' SSH keys, for the bastion's <c>RevokedKeys</c>. The
+    /// server keeps it up to date (and its source list next to it, same name with .txt); empty disables it.
+    /// </summary>
+    public string RevokedKeysPath { get; set; } = "/var/lib/remoteserver/ssh/revoked_keys.krl";
 
     /// <summary>Validity of issued SSH certificates in days.</summary>
     public int SshCertValidityDays { get; set; } = 825;

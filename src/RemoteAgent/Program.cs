@@ -53,7 +53,12 @@ static string DeriveSshUrl(string c2Url)
 
 // "bootstrap <blob>" mode: prepares tokenless self-install by writing bootstrap.dat.
 if (args is ["bootstrap", var bootstrapBlob, ..])
-    return RemoteAgent.Enrollment.BootstrapEnroller.WriteBootstrapFile(bootstrapBlob, @"C:\ProgramData\RemoteAgent");
+{
+    RemoteAgent.Security.DataDirectorySecurity.Secure(@"C:\ProgramData\RemoteAgent");
+    var written = RemoteAgent.Enrollment.BootstrapEnroller.WriteBootstrapFile(bootstrapBlob, @"C:\ProgramData\RemoteAgent");
+    RemoteAgent.Security.DataDirectorySecurity.ClaimForAdministrators(@"C:\ProgramData\RemoteAgent\bootstrap.dat");
+    return written;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -66,13 +71,18 @@ builder.Services.Configure<HostOptions>(o =>
     o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 
 // Logging: console plus Windows EventLog, which is the visible log for the SYSTEM service, plus a daily file
-// under ProgramData that an operator can download whole. diag.json next to the enrollment is a reloadable
-// configuration source: the "diag" command writes it to raise the live log level for a few hours, and
-// deletes it to lower it again - no restart either way (see Diagnostics.DiagMode).
+// under ProgramData that an operator can download whole. diag.json next to the enrollment is watched: the
+// "diag" command writes it to raise the live log level for a few hours, and deletes it to lower it again - no
+// restart either way. Only its expiry is read; the levels are fixed in code (see Diagnostics.DiagMode).
 var dataDir = builder.Configuration["Agent:EnrollmentDir"] is { Length: > 0 } configuredDir ? configuredDir : @"C:\ProgramData\RemoteAgent";
 RemoteAgent.Diagnostics.DiagMode.Configure(dataDir);
-try { Directory.CreateDirectory(dataDir); } catch { /* unenrolled console run without rights: the override stays unavailable */ }
-builder.Configuration.AddJsonFile(RemoteAgent.Diagnostics.DiagMode.FilePath, optional: true, reloadOnChange: true);
+// Both folders are secured before anything in them is read: SYSTEM and Administrators only, and whatever
+// someone else put inside is removed (see Security.DataDirectorySecurity). A console run without rights
+// simply gets a failed result, logged once the host is up.
+var securedFolders = new[] { dataDir, RemoteAgent.Security.DataDirectorySecurity.TightVncDataDirectory }
+    .Select(d => (Folder: d, Result: RemoteAgent.Security.DataDirectorySecurity.Secure(d)))
+    .ToArray();
+((IConfigurationBuilder)builder.Configuration).Add(new RemoteAgent.Diagnostics.DiagConfigurationSource());
 builder.Logging.AddEventLog(o => o.SourceName = "RemoteAgent");
 builder.Logging.Services.AddSingleton(new RemoteAgent.Diagnostics.FileLogProvider(RemoteAgent.Diagnostics.DiagMode.LogDirectory, retentionDays: 14));
 builder.Logging.Services.AddSingleton<ILoggerProvider>(sp => sp.GetRequiredService<RemoteAgent.Diagnostics.FileLogProvider>());
@@ -93,6 +103,8 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     try { rec = JsonSerializer.Deserialize(File.ReadAllText(path), AgentLocalJsonContext.Default.EnrollmentRecord); }
     catch { return; }
     if (rec is null || string.IsNullOrWhiteSpace(rec.ServerUrl)) return;
+    // A plain-HTTP server anywhere but this machine is not connected to; the host logs it once it is up.
+    if (!RemoteAgent.Admin.ServerUrlPolicy.IsAllowed(rec.ServerUrl)) { opt.InsecureServerUrl = rec.ServerUrl; return; }
 
     if (!string.IsNullOrWhiteSpace(rec.DeviceId)) opt.AgentId = rec.DeviceId; // server-side DeviceId (cert CN)
     var baseUrl = rec.ServerUrl.TrimEnd('/');
@@ -150,5 +162,13 @@ await RemoteAgent.Enrollment.BootstrapEnroller.TryEnrollAsync(
     string.IsNullOrWhiteSpace(enrollDir) ? @"C:\ProgramData\RemoteAgent" : enrollDir);
 
 var host = builder.Build();
+if (host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentOptions>>().Value.InsecureServerUrl is { } insecure)
+    host.Services.GetRequiredService<ILogger<Program>>().LogError(RemoteAgent.Localization.Strings.Program_InsecureServerUrlRefused, insecure);
+var dataLog = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RemoteAgent.DataDirectory");
+foreach (var (folder, result) in securedFolders)
+{
+    if (!result.Applied) dataLog.LogWarning(RemoteAgent.Localization.Strings.DataDirectory_SecureFailed, folder, result.Error);
+    else if (result.Removed > 0) dataLog.LogWarning(RemoteAgent.Localization.Strings.DataDirectory_ItemsRemoved, folder, result.Removed);
+}
 host.Run();
 return 0;

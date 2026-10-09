@@ -111,6 +111,9 @@ internal static partial class Strings
     public static string Program_GraphSecretChanged => Get(nameof(Program_GraphSecretChanged));
     public static string Program_ThisIsATestEmail => Get(nameof(Program_ThisIsATestEmail));
     public static string Program_BOOTSTRAPAdminCreatedUsernameAdmin => Get(nameof(Program_BOOTSTRAPAdminCreatedUsernameAdmin));
+    public static string Program_BOOTSTRAPAdminCreatedPasswordFile => Get(nameof(Program_BOOTSTRAPAdminCreatedPasswordFile));
+    public static string FirstAdminHandover_CouldNotWrite => Get(nameof(FirstAdminHandover_CouldNotWrite));
+    public static string FirstAdminHandover_CouldNotRemove => Get(nameof(FirstAdminHandover_CouldNotRemove));
     public static string Program_AuditWriteErrorAction => Get(nameof(Program_AuditWriteErrorAction));
     public static string Program_FailedAttemptsLast => Get(nameof(Program_FailedAttemptsLast));
     public static string Program_ThereWereFailedSignIn => Get(nameof(Program_ThereWereFailedSignIn));
@@ -123,6 +126,12 @@ internal static partial class Strings
     public static string Program_RemoteAppClientPasswordRecoveryToken => Get(nameof(Program_RemoteAppClientPasswordRecoveryToken));
     public static string Program_AccessResultDeviceOutcomeNonce => Get(nameof(Program_AccessResultDeviceOutcomeNonce));
     public static string Program_AuditWriteAccessFailed => Get(nameof(Program_AuditWriteAccessFailed));
+    public static string Program_ProxyHeadersWithoutSecret => Get(nameof(Program_ProxyHeadersWithoutSecret));
+    public static string Program_ProxyFingerprintMissing => Get(nameof(Program_ProxyFingerprintMissing));
+    public static string Program_AgentMessageTooLarge => Get(nameof(Program_AgentMessageTooLarge));
+    public static string SshRevocationList_UpdateFailed => Get(nameof(SshRevocationList_UpdateFailed));
+    public static string SshRevocationList_BuildFailed => Get(nameof(SshRevocationList_BuildFailed));
+    public static string SshRevocationList_Rebuilt => Get(nameof(SshRevocationList_Rebuilt));
     public static string Program_UnparseableAgentMessageDevice => Get(nameof(Program_UnparseableAgentMessageDevice));
     public static string Program_EmailDidNotMatch => Get(nameof(Program_EmailDidNotMatch));
     public static string Program_Error => Get(nameof(Program_Error));

@@ -453,7 +453,9 @@ rotated: [`deploy/KEYS.md`](deploy/KEYS.md).
 TLS uses Let's Encrypt with Cloudflare DNS-01 — the script prompts for a Cloudflare API token
 (Zone → DNS → Edit), or place it at `/etc/letsencrypt/cloudflare.ini` first. No Cloudflare? Issue
 the certificate yourself and skip `06-tls`. At the end, `09-blob` prints the bootstrap blob **and
-the first admin login** (`admin` + a temporary password to change on first sign-in).
+the first admin login** (`admin` + a temporary password to change on first sign-in; it is kept in
+`/var/lib/remoteserver/first-admin-password.txt`, readable by the service user only, and the file is
+removed once the password has been changed).
 
 ### First Windows device
 
@@ -524,7 +526,7 @@ Signing scripts and output folders are machine-specific and belong in `build.loc
 
 ```powershell
 dotnet publish src/RemoteClient.Cli/RemoteClient.Cli.csproj -c Release -o C:\tools\racctl
-C:\tools\racctl\racctl.exe token rac_...      # DPAPI-protected, current user
+C:\tools\racctl\racctl.exe token              # paste the token when asked (never on the command line); DPAPI-protected, current user
 C:\tools\racctl\racctl.exe logs --level warn --since 2h
 ```
 

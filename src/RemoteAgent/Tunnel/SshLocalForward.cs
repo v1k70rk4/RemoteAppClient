@@ -19,6 +19,8 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
     private Process? _process;
     private string? _knownHostsPath;
     private WsBridgeListener? _bridge;
+    private TcpListener? _hold;
+    private volatile bool _stopping;
 
     public int LocalPort { get; private set; }
     public bool IsRunning => _process is { HasExited: false };
@@ -71,7 +73,10 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
             RedirectStandardError = true,
         };
 
+        // -F none: no ssh_config (see SshReverseTunnel) - every option comes from here.
         // -N: forward only; -L local:127.0.0.1:remote points to bastion loopback.
+        psi.ArgumentList.Add("-F");
+        psi.ArgumentList.Add("none");
         psi.ArgumentList.Add("-N");
         psi.ArgumentList.Add("-L");
         psi.ArgumentList.Add($"127.0.0.1:{LocalPort}:127.0.0.1:{remotePort}");
@@ -97,6 +102,10 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         proc.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) logger.LogWarning("ssh -L: {Line}", e.Data); };
+        // When ssh dies under a session (network gone, bastion restart) its local port is free, and the console
+        // keeps sending its session token there: whoever binds the port next would receive it. So the port is
+        // taken over at once and held, answering nothing, until the console's session with the broker ends.
+        proc.Exited += (_, _) => { if (!_stopping && ReferenceEquals(_process, proc)) HoldPort(); };
         proc.Start();
         proc.BeginErrorReadLine();
         _process = proc;
@@ -128,8 +137,31 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
         catch { return false; }
     }
 
+    private void HoldPort()
+    {
+        try
+        {
+            var l = new TcpListener(IPAddress.Loopback, LocalPort);
+            l.Start();
+            _hold = l;
+            logger.LogWarning(L.SshLocalForward_ForwardEndedPortHeld, LocalPort);
+            _ = Task.Run(async () =>
+            {
+                while (true)
+                {
+                    try { (await l.AcceptSocketAsync()).Close(); }   // a connect is answered with a close, not by a stranger
+                    catch { break; }
+                }
+            });
+        }
+        catch { /* someone was faster, or we are shutting down; nothing more to do here */ }
+    }
+
     public async Task StopAsync()
     {
+        _stopping = true;
+        try { _hold?.Stop(); } catch { /* best effort */ }
+        _hold = null;
         var proc = _process;
         if (proc is not null)
         {

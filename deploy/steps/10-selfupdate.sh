@@ -22,27 +22,43 @@ INC="$UPD/incoming"
 BK=/var/lib/remoteserver/backups
 OPT=/opt/remoteserver
 SVC=remoteserver
+SVC_USER=remotesrv
 TS=$(date +%Y%m%d-%H%M%S)
 LOG="$UPD/result.log"
 TAR="$INC/server.tar.gz"
 SQL="$INC/upgrade.sql"
 
-log(){ echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; }
+# This runs as root inside a directory the service user owns. Nothing is written there through a path the
+# service user controls: each result file is produced in the root-only backup directory and renamed into
+# place (rename replaces a planted symlink rather than following it), and the files are only ever touched by
+# their fixed names, never through a glob. The staged package and the SQL are untrusted input: unpacked
+# without carrying their owners, modes or device nodes, and the SQL runs in the client's sandbox mode where
+# available, so a "\!" line cannot start a shell as root.
+mkdir -p "$BK"; chmod 700 "$BK"
+PLOG="$BK/result.log.current"
+put(){ # $1 = destination; content on stdin; written root-owned 0644 and renamed into place
+  local t; t="$(mktemp -p "$BK")"; cat > "$t"; chmod 644 "$t"; mv -f -T "$t" "$1"
+}
+MYSQL_OPTS=()
+mysql --help 2>/dev/null | grep -q -- '--sandbox' && MYSQL_OPTS=(--sandbox)
+mysql_db(){ mysql "${MYSQL_OPTS[@]}" remoteserver "$@"; }
+own_app(){ chown -R "root:$SVC_USER" "$OPT"; chmod -R u=rwX,g=rX,o= "$OPT"; }
+
+log(){ echo "[$(date +%H:%M:%S)] $*" >> "$PLOG"; put "$LOG" < "$PLOG"; }
 
 finish(){ # $1 = ok|failed
-  echo "$1" > "$UPD/result.status"
-  date -Iseconds > "$UPD/result.at"
+  echo "$1" | put "$UPD/result.status"
+  date -Iseconds | put "$UPD/result.at"
   rm -f "$UPD/apply.trigger"
-  chmod 644 "$UPD/result.status" "$UPD/result.at" "$LOG" 2>/dev/null || true
   exit 0
 }
 
 restore(){ # restore binaries + DB from the backup made this run, then start and report failure
   log "Rolling back to opt-$TS + db-$TS"
   systemctl stop "$SVC" 2>>"$LOG"
-  rsync -a --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$LOG"
-  chown -R remotesrv:remotesrv "$OPT"
-  [ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql remoteserver 2>>"$LOG"
+  rsync -rlpt --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$LOG"
+  own_app
+  [ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql_db 2>>"$LOG"
   systemctl start "$SVC"
   log "Rollback finished."
   finish failed
@@ -56,22 +72,22 @@ health(){ # 0 if the service is active and answers /health
   return 1
 }
 
-: > "$LOG"
+: > "$PLOG"
 log "Server update starting (ts=$TS)"
-[ -f "$TAR" ] || { log "No staged server.tar.gz; nothing to do."; finish failed; }
+[ -f "$TAR" ] && [ ! -L "$TAR" ] || { log "No staged server.tar.gz; nothing to do."; finish failed; }
+if [ -e "$SQL" ] && [ ! -f "$SQL" -o -L "$SQL" ]; then log "upgrade.sql is not a plain file; refusing."; finish failed; fi
 
 # 1) Backup: binaries + full DB dump.
-mkdir -p "$BK"; chmod 700 "$BK"
 log "Backing up binaries -> $BK/opt-$TS"
 cp -a "$OPT" "$BK/opt-$TS" || { log "Binary backup failed."; finish failed; }
 log "Dumping database -> $BK/db-$TS.sql.gz"
 if ! mysqldump --single-transaction --routines --events remoteserver 2>>"$LOG" | gzip > "$BK/db-$TS.sql.gz"; then
   log "Database dump failed; aborting before any change."; finish failed
 fi
-echo "$TS" > "$UPD/last_backup"; chmod 644 "$UPD/last_backup" 2>/dev/null || true
+echo "$TS" | put "$UPD/last_backup"
 # Bound disk use: keep only the newest 3 backup sets.
-ls -1dt "$BK"/opt-* 2>/dev/null | tail -n +4 | xargs -r rm -rf
-ls -1t "$BK"/db-*.sql.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+ls -1dt "$BK"/opt-* 2>/dev/null | tail -n +4 | while IFS= read -r d; do rm -rf "$d"; done
+ls -1t "$BK"/db-*.sql.gz 2>/dev/null | tail -n +4 | while IFS= read -r f; do rm -f "$f"; done
 
 # 2) Stop the service.
 log "Stopping $SVC"
@@ -80,11 +96,11 @@ systemctl stop "$SVC"
 # 3) Optional schema upgrade (after the DB backup).
 if [ -f "$SQL" ]; then
   log "Applying upgrade.sql"
-  if mysql remoteserver < "$SQL" 2>>"$LOG"; then
+  if mysql_db < "$SQL" 2>>"$LOG"; then
     log "upgrade.sql applied."
   else
     log "upgrade.sql FAILED; restoring DB and aborting."
-    gunzip -c "$BK/db-$TS.sql.gz" | mysql remoteserver 2>>"$LOG"
+    gunzip -c "$BK/db-$TS.sql.gz" | mysql_db 2>>"$LOG"
     systemctl start "$SVC"
     finish failed
   fi
@@ -93,16 +109,16 @@ fi
 # 4) Extract the new build and locate the RemoteServer apphost (handles flat or nested tarballs).
 STAGE=$(mktemp -d)
 log "Extracting tar.gz"
-if ! tar -xzf "$TAR" -C "$STAGE" 2>>"$LOG"; then log "Extract failed."; rm -rf "$STAGE"; restore; fi
+if ! tar --no-same-owner --no-same-permissions -xzf "$TAR" -C "$STAGE" 2>>"$LOG"; then log "Extract failed."; rm -rf "$STAGE"; restore; fi
 APP=$(find "$STAGE" -type f -name RemoteServer | head -n1)
 if [ -z "$APP" ]; then log "RemoteServer binary not found in tar.gz."; rm -rf "$STAGE"; restore; fi
 SRCDIR=$(dirname "$APP")
 
 # 5) Swap in place, preserving the prod appsettings.json.
 log "Syncing new build into $OPT (preserving appsettings.json)"
-rsync -a --delete --exclude appsettings.json "$SRCDIR"/ "$OPT"/ 2>>"$LOG" || { log "rsync failed."; rm -rf "$STAGE"; restore; }
-chown -R remotesrv:remotesrv "$OPT"
-chmod +x "$OPT/RemoteServer" 2>/dev/null || true
+rsync -rlpt --delete --exclude appsettings.json "$SRCDIR"/ "$OPT"/ 2>>"$LOG" || { log "rsync failed."; rm -rf "$STAGE"; restore; }
+own_app
+chmod u+x,g+x "$OPT/RemoteServer" 2>/dev/null || true
 rm -rf "$STAGE"
 
 # 6) Start + health-check, with auto-rollback on failure.
@@ -129,20 +145,33 @@ UPD=/var/lib/remoteserver/updates
 BK=/var/lib/remoteserver/backups
 OPT=/opt/remoteserver
 SVC=remoteserver
+SVC_USER=remotesrv
 LOG="$UPD/result.log"
 
-log(){ echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; }
-finish(){ echo "$1" > "$UPD/result.status"; date -Iseconds > "$UPD/result.at"; rm -f "$UPD/rollback.trigger"; chmod 644 "$UPD/result.status" "$UPD/result.at" "$LOG" 2>/dev/null || true; exit 0; }
+# Same care as deploy.sh: the service user owns $UPD, so every result file is produced in the root-only backup
+# directory and renamed into place, and the backup name read from last_backup must look like a timestamp
+# before it becomes part of a path.
+mkdir -p "$BK"; chmod 700 "$BK"
+PLOG="$BK/result.log.current"
+put(){ local t; t="$(mktemp -p "$BK")"; cat > "$t"; chmod 644 "$t"; mv -f -T "$t" "$1"; }
+MYSQL_OPTS=()
+mysql --help 2>/dev/null | grep -q -- '--sandbox' && MYSQL_OPTS=(--sandbox)
 
-: > "$LOG"
-TS=$(cat "$UPD/last_backup" 2>/dev/null || true)
-if [ -z "${TS:-}" ] || [ ! -d "$BK/opt-$TS" ]; then log "No backup to roll back to."; finish failed; fi
+log(){ echo "[$(date +%H:%M:%S)] $*" >> "$PLOG"; put "$LOG" < "$PLOG"; }
+finish(){
+  echo "$1" | put "$UPD/result.status"; date -Iseconds | put "$UPD/result.at"; rm -f "$UPD/rollback.trigger"
+  exit 0
+}
+
+: > "$PLOG"
+TS=$([ -L "$UPD/last_backup" ] || cat "$UPD/last_backup" 2>/dev/null || true)
+if ! [[ "${TS:-}" =~ ^[0-9]{8}-[0-9]{6}$ ]] || [ ! -d "$BK/opt-$TS" ]; then log "No backup to roll back to."; finish failed; fi
 
 log "Rolling back to $TS"
 systemctl stop "$SVC"
-rsync -a --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$LOG"
-chown -R remotesrv:remotesrv "$OPT"
-[ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql remoteserver 2>>"$LOG"
+rsync -rlpt --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$LOG"
+chown -R "root:$SVC_USER" "$OPT"; chmod -R u=rwX,g=rX,o= "$OPT"
+[ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql "${MYSQL_OPTS[@]}" remoteserver 2>>"$LOG"
 systemctl start "$SVC"
 
 ok=0
