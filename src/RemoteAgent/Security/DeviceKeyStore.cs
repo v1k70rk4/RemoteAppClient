@@ -83,34 +83,43 @@ public static class DeviceKeyStore
         }
         catch (CryptographicException)
         {
+            var keyName = cng.KeyName ?? throw new CryptographicException("The device key has no name.");
             store.Add(leaf); // public part only; the binding follows
-            using var stored = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false)
-                .OfType<X509Certificate2>().FirstOrDefault()
-                ?? throw new CryptographicException("The certificate did not land in the store.");
-            var info = new CryptKeyProvInfo
+            try
             {
-                ContainerName = cng.KeyName ?? throw new CryptographicException("The device key has no name."),
-                ProvName = cng.Provider?.Provider ?? TpmProviderName,
-                ProvType = 0,            // CNG, not a CAPI provider type
-                Flags = CryptMachineKeyset,
-                KeySpec = 0,             // CNG keys have no CAPI key spec
-            };
-            if (!CertSetCertificateContextProperty(stored.Handle, CertKeyProvInfoPropId, 0, ref info))
+                using var stored = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false)
+                    .OfType<X509Certificate2>().FirstOrDefault()
+                    ?? throw new CryptographicException("The certificate did not land in the store.");
+                var info = new CryptKeyProvInfo
+                {
+                    ContainerName = keyName,
+                    ProvName = cng.Provider?.Provider ?? TpmProviderName,
+                    ProvType = 0,            // CNG, not a CAPI provider type
+                    Flags = CryptMachineKeyset,
+                    KeySpec = 0,             // CNG keys have no CAPI key spec
+                };
+                if (!CertSetCertificateContextProperty(stored.Handle, CertKeyProvInfoPropId, 0, ref info))
+                    throw new CryptographicException($"Binding the certificate to the key failed (0x{Marshal.GetLastWin32Error():X8}).");
+            }
+            catch
             {
-                var err = Marshal.GetLastWin32Error();
-                RemoveCertificate(thumbprint);
-                throw new CryptographicException($"Binding the certificate to the key failed (0x{err:X8}).");
+                RemoveCertificate(thumbprint); // never leave a key-less certificate behind in the store
+                throw;
             }
         }
         store.Close();
 
-        // The only test that counts: load it back the way SChannel will, and sign with it.
+        // The only test that counts: load it back the way SChannel will, sign with it, and check the signature
+        // both against the certificate's own public key and against the device key - the store entry must be
+        // this certificate, and this certificate must be for this key.
         try
         {
             using var check = CertHelper.LoadClientCertificate(thumbprint);
             using var priv = check.GetECDsaPrivateKey() ?? throw new CryptographicException("The stored certificate has no usable private key.");
+            using var pub = check.GetECDsaPublicKey() ?? throw new CryptographicException("The stored certificate has no ECDSA public key.");
             var data = RandomNumberGenerator.GetBytes(32);
             var sig = priv.SignData(data, HashAlgorithmName.SHA256);
+            if (!pub.VerifyData(data, sig, HashAlgorithmName.SHA256)) throw new CryptographicException("The stored certificate does not match the key it is bound to.");
             if (!key.VerifyData(data, sig, HashAlgorithmName.SHA256)) throw new CryptographicException("The stored certificate's key is not the device key.");
         }
         catch
