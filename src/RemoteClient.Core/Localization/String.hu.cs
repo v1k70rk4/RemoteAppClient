@@ -352,7 +352,7 @@ public static partial class Strings
         [nameof(DevicesView_RekeyDone)] = "Új kulcs és tanúsítvány a helyén; a régi visszavonva.",
         [nameof(DevicesView_RekeyFailed)] = "A gép nem tudta megújítani a kulcsát; a jelenlegi marad. Lásd a naplóját.",
         [nameof(DevicesView_StatusRekeyRequested)] = "KULCSKÉRÉS",
-        [nameof(DevicesView_RekeyApproveConfirm)] = "{0} új eszközkulcsot kér: azt jelzi, a kulcsa eltűnt (törölt TPM?). {1} néven jelentkezik, innen: {2}, ekkor: {3}.\n\nCsak akkor hagyd jóvá, ha ez tényleg a várt gép. A jóváhagyás új tanúsítványt ad ki, a régi érvénytelen lesz; a gép az azonosítójával, csoportjával és jegyzeteivel jön vissza.",
+        [nameof(DevicesView_RekeyApproveConfirm)] = "{0} új eszközkulcsot kér: azt jelzi, a kulcsa eltűnt (törölt TPM?). {1} néven jelentkezik, innen: {2}, ekkor: {3}.\nA kért kulcs ujjlenyomata: {4} — ugyanezt a gép beírta az eseménynaplójába és a C:\\ProgramData\\RemoteAgent\\logs mappába; kétség esetén vesd össze.\n\nCsak akkor hagyd jóvá, ha ez tényleg a várt gép. A jóváhagyás új tanúsítványt ad ki, a régi érvénytelen lesz; a gép az azonosítójával, csoportjával és jegyzeteivel jön vissza.",
         [nameof(DevicesView_RekeyApproved)] = "{0}: az új tanúsítvány jóváhagyva; a gép egy percen belül átveszi.",
         [nameof(DevicesView_RekeyRejectMenu)] = "Kulcskérés elutasítása",
         [nameof(DevicesView_RekeyRejectConfirm)] = "Elutasítod {0} kulcskérését? A gép tanúsítvány nélkül (offline) marad, amíg újra nem kér és valaki jóvá nem hagyja.",

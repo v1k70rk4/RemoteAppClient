@@ -26,7 +26,7 @@ internal static partial class Strings
         [nameof(RekeyService_ServerRefused)] = "Device key renewal: the server refused the request (HTTP {Status}).",
         [nameof(RekeyService_ConfirmFailed)] = "Device key renewal: the new certificate was not accepted by the server (HTTP {Status}); rolled back, the current one stays.",
         [nameof(RekeyService_KeyLost)] = "The device key is gone (provider: {Provider}; a cleared TPM?). The device cannot authenticate; a new certificate will be requested and an administrator must approve it in the console.",
-        [nameof(RekeyService_RequestOpened)] = "Lost-key request {RequestId} sent to the server; polling every minute until an administrator decides.",
+        [nameof(RekeyService_RequestOpened)] = "Lost-key request {RequestId} sent to the server (new key fingerprint {Fingerprint}); polling every minute until an administrator decides.",
         [nameof(RekeyService_RequestFailed)] = "The lost-key request was refused by the server (HTTP {Status}); trying again in 15 minutes.",
         [nameof(RekeyService_RequestRejected)] = "The lost-key request ended without a certificate ({State}); a new request goes out in 24 hours.",
         [nameof(RekeyService_Recovered)] = "Lost-key request approved: new certificate installed, key in {Provider}, valid until {NotAfter:yyyy-MM-dd}. The device is back.",

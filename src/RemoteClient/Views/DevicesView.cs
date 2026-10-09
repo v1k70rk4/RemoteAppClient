@@ -1006,7 +1006,7 @@ public sealed class DevicesView : UserControl, IContentView
         {
             // The yellow lost-key case: the same button approves the new certificate for the device.
             var when = askedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-            if (MessageBox.Show(L.Format(L.DevicesView_RekeyApproveConfirm, sel.Hostname, sel.RekeyRequestHostname ?? "?", sel.RekeyRequestIp ?? "?", when),
+            if (MessageBox.Show(L.Format(L.DevicesView_RekeyApproveConfirm, sel.Hostname, sel.RekeyRequestHostname ?? "?", sel.RekeyRequestIp ?? "?", when, sel.RekeyRequestKeyFingerprint ?? "?"),
                     L.DevicesView_Approve, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             try { await _api.ApproveRekeyRequestAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_RekeyApproved, sel.Hostname)); await RefreshAsync(); }
             catch (Exception ex) { SetStatus(L.DevicesView_ApproveError + ex.Message); }

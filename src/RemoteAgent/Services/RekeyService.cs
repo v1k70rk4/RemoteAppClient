@@ -67,6 +67,7 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         var baseUrl = _opt.Telemetry.IngestUrl.Replace("/api/telemetry", "", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
         using var fresh = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
         string? newThumb = null;
+        bool switched = false;
         try
         {
             var csr = new CertificateRequest("CN=rekey", fresh.Key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
@@ -107,13 +108,18 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
             else if (id.PfxPath is { } pfx) { try { System.IO.File.Delete(pfx); } catch { /* best effort */ } }
             logger.LogWarning(L.RekeyService_Rekeyed, reason, fresh.Provider, resp.NotAfter);
             reconnect.Request(); // the command channel moves to the new certificate now, not at its next drop
+            switched = true;
             return true;
         }
-        catch
+        finally
         {
-            if (newThumb is not null) DeviceKeyStore.RemoveCertificate(newThumb);
-            DeviceKeyStore.DeleteKey(fresh.KeyName);
-            throw;
+            // Refused, empty, unconfirmed or thrown: the key and certificate made for this round go, or every
+            // daily retry would leave another machine key behind in the TPM.
+            if (!switched)
+            {
+                if (newThumb is not null) DeviceKeyStore.RemoveCertificate(newThumb);
+                DeviceKeyStore.DeleteKey(fresh.KeyName);
+            }
         }
     }
 
@@ -134,7 +140,12 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         public string KeyName { get; set; } = "";
         public string Provider { get; set; } = "";
         public DateTimeOffset OpenedUtc { get; set; }
+        public string? KeyFingerprint { get; set; }
     }
+
+    /// <summary>SHA-256 of the key's SubjectPublicKeyInfo, shortened like the console shows it.</summary>
+    public static string KeyFingerprint(ECDsa key) =>
+        Convert.ToHexString(SHA256.HashData(key.ExportSubjectPublicKeyInfo()))[..16];
 
     private string RecoveryPath => Path.Combine(_opt.EnrollmentDir, "rekey-request.json");
 
@@ -160,21 +171,27 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
                 var fresh = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
                 key = fresh.Key;
                 var csr = new CertificateRequest("CN=rekey", key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
+                var fingerprint = KeyFingerprint(key);
                 using var http = PlainClient();
                 using var r = await http.PostAsJsonAsync($"{baseUrl}/enroll/rekey",
                     new RekeyRequestOpen { DeviceId = rec.DeviceId, Hostname = Environment.MachineName, Csr = csr, KeyProvider = fresh.Provider },
                     AgentJsonContext.Default.RekeyRequestOpen, ct);
                 if (!r.IsSuccessStatusCode)
                 {
+                    // 409: the server already holds a request for this device, or still sees it alive - wait, do not
+                    // pile up keys; anything else: try again later all the same.
                     logger.LogWarning(L.RekeyService_RequestFailed, (int)r.StatusCode);
+                    key.Dispose();
                     DeviceKeyStore.DeleteKey(fresh.KeyName);
                     await Task.Delay(TimeSpan.FromMinutes(15), ct);
                     continue;
                 }
                 var opened = (await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyRequestOpened, ct))!;
-                state = new RecoveryState { RequestId = opened.RequestId, Token = opened.Token, KeyName = fresh.KeyName, Provider = fresh.Provider, OpenedUtc = DateTimeOffset.UtcNow };
+                state = new RecoveryState { RequestId = opened.RequestId, Token = opened.Token, KeyName = fresh.KeyName, Provider = fresh.Provider, OpenedUtc = DateTimeOffset.UtcNow, KeyFingerprint = fingerprint };
                 System.IO.File.WriteAllText(RecoveryPath, JsonSerializer.Serialize(state, AgentLocalJsonContext.Default.RecoveryState));
-                logger.LogWarning(L.RekeyService_RequestOpened, opened.RequestId);
+                // The fingerprint is what the administrator sees in the console next to the request: it is in this
+                // log and in the event log so the two can be compared before approving.
+                logger.LogWarning(L.RekeyService_RequestOpened, opened.RequestId, fingerprint);
             }
 
             // Poll until decided.
@@ -237,11 +254,15 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         System.IO.File.Move(tmp, path, overwrite: true);
     }
 
+    /// <summary>A client presenting exactly this snapshot's certificate - not the live identity, which is still
+    /// the old one while a candidate proves itself at /api/rekey/confirm.</summary>
     private HttpClient BuildClient(DeviceIdentity.Snapshot id)
     {
         var handler = new SocketsHttpHandler();
         handler.SslOptions.ClientCertificates ??= new();
-        handler.SslOptions.ClientCertificates.Add(CertHelper.ResolveClientCertificate(id.PfxPath, id.Thumbprint));
+        handler.SslOptions.ClientCertificates.Add(id.InStore
+            ? CertHelper.LoadClientCertificate(id.Thumbprint)
+            : CertHelper.LoadClientCertificateFromProtectedPfx(id.PfxPath!));
         if (!string.IsNullOrWhiteSpace(_opt.Telemetry.ServerCertPinSha256))
             handler.SslOptions.RemoteCertificateValidationCallback = CertHelper.PinnedServerValidator(_opt.Telemetry.ServerCertPinSha256);
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };

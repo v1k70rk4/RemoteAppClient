@@ -352,7 +352,7 @@ public static partial class Strings
         [nameof(DevicesView_RekeyDone)] = "New key and certificate in place; the old ones are retired.",
         [nameof(DevicesView_RekeyFailed)] = "The device could not renew its key; it keeps the current one. See its log.",
         [nameof(DevicesView_StatusRekeyRequested)] = "KEY REQUEST",
-        [nameof(DevicesView_RekeyApproveConfirm)] = "{0} asks for a new device key: it says its key is gone (a cleared TPM?). It reports itself as {1}, from {2}, at {3}.\n\nApprove only if this is the machine you expect. Approval issues a new certificate and invalidates the old one; the device comes back with its id, group and notes.",
+        [nameof(DevicesView_RekeyApproveConfirm)] = "{0} asks for a new device key: it says its key is gone (a cleared TPM?). It reports itself as {1}, from {2}, at {3}.\nFingerprint of the requested key: {4} - the device wrote the same value into its event log and C:\\ProgramData\\RemoteAgent\\logs; compare them if in doubt.\n\nApprove only if this is the machine you expect. Approval issues a new certificate and invalidates the old one; the device comes back with its id, group and notes.",
         [nameof(DevicesView_RekeyApproved)] = "{0}: new certificate approved; the device picks it up within a minute.",
         [nameof(DevicesView_RekeyRejectMenu)] = "Reject key request",
         [nameof(DevicesView_RekeyRejectConfirm)] = "Reject the key request of {0}? The device stays without a certificate (offline) until it asks again and someone approves.",

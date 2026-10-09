@@ -840,6 +840,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         RekeyRequestedAt = rekeyByDevice.TryGetValue(d.Id, out var rr) ? rr.CreatedAt : null,
         RekeyRequestHostname = rekeyByDevice.TryGetValue(d.Id, out var rr2) ? rr2.Hostname : null,
         RekeyRequestIp = rekeyByDevice.TryGetValue(d.Id, out var rr3) ? rr3.SourceIp : null,
+        RekeyRequestKeyFingerprint = rekeyByDevice.TryGetValue(d.Id, out var rr4) ? rr4.KeyFingerprint : null,
         LoginFailCount = d.LoginFailCount,
         LoginLocked = d.LoginLockedAt is not null,
         Note = viaToken ? null : protector.TryUnprotect(d.Note),
@@ -1607,7 +1608,7 @@ app.MapPost("/admin/devices/{deviceId}/rekey-request/approve", async (string dev
     device.PreviousCertThumbprint = null; device.PreviousCertValidUntil = null;
     rr.State = "approved"; rr.CertificatePem = certPem; rr.CertNotAfter = notAfter; rr.DecidedAt = now; rr.DecidedBy = me.Username;
     await db.SaveChangesAsync(ct);
-    await AuditAsync(db, ctx, "device-rekey-approved", device.Id, $"{rr.Hostname} · {rr.SourceIp}");
+    await AuditAsync(db, ctx, "device-rekey-approved", device.Id, $"{rr.Hostname} · {rr.SourceIp} · key {rr.KeyFingerprint}");
     app.Logger.LogInformation(L.Program_RekeyRequestApproved, device.DeviceId, me.Username);
     return Results.NoContent();
 });
@@ -1732,7 +1733,7 @@ app.MapPost("/api/rekey/confirm", async (HttpContext ctx, AppDbContext db, Cance
 // no certificate, and nothing is issued until an administrator approves the request in the console (the row
 // turns yellow). One pending request per device, seven days, rate-limited per source. Under /enroll because
 // nginx proxies that path without a client certificate, like enrollment itself. ===
-app.MapPost("/enroll/rekey", async (HttpContext ctx, AppDbContext db, RequestLimiter limiter, CancellationToken ct) =>
+app.MapPost("/enroll/rekey", async (HttpContext ctx, AppDbContext db, RequestLimiter limiter, AgentConnectionRegistry registry, CancellationToken ct) =>
 {
     var ip = PublicIpOf(ctx) ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
     if (!limiter.Allow("rekey-request:" + ip, 10, TimeSpan.FromHours(1)))
@@ -1742,24 +1743,37 @@ app.MapPost("/enroll/rekey", async (HttpContext ctx, AppDbContext db, RequestLim
     catch (JsonException) { return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
     if (req is null || string.IsNullOrWhiteSpace(req.DeviceId) || req.DeviceId.Length > 64 || string.IsNullOrWhiteSpace(req.Csr) || req.Csr.Length > 16 * 1024)
         return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400);
-    try { CertificateRequest.LoadSigningRequestPem(req.Csr, HashAlgorithmName.SHA256); }
+    string fingerprint;
+    try
+    {
+        var csr = CertificateRequest.LoadSigningRequestPem(req.Csr, HashAlgorithmName.SHA256);
+        fingerprint = Convert.ToHexString(SHA256.HashData(csr.PublicKey.ExportSubjectPublicKeyInfo()))[..16];
+    }
     catch { return Results.Json(new RekeyError { Code = "bad_csr" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
 
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == req.DeviceId, ct);
     if (device is null || device.Status != DeviceStatus.Approved)
         return Results.Json(new RekeyError { Code = "unknown_device" }, AgentJsonContext.Default.RekeyError, statusCode: 404);
+    // Anyone who knows a device id can call this. A device that is talking to the server with its certificate
+    // has not lost its key: no request is opened for it, so a healthy device cannot be flagged - or taken over
+    // through an approval - by a stranger.
+    if (registry.IsConnected(device.DeviceId) || device.LastSeenAt > DateTimeOffset.UtcNow.AddMinutes(-10))
+        return Results.Json(new RekeyError { Code = "device_alive" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+    // And a pending request is never replaced: the first one stands until it is decided or expires, so a
+    // second caller cannot swap in a key of their own under a request the administrator is about to approve.
+    if (await db.RekeyRequests.AnyAsync(r => r.DeviceKey == device.Id && r.State == "pending" && r.ExpiresAt > DateTimeOffset.UtcNow, ct))
+        return Results.Json(new RekeyError { Code = "request_pending" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
 
     var hostname = (req.Hostname ?? "").Trim(); if (hostname.Length > 128) hostname = hostname[..128];
     var provider = req.KeyProvider is "tpm" or "software" ? req.KeyProvider : "software";
     var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-    db.RekeyRequests.RemoveRange(await db.RekeyRequests.Where(r => r.DeviceKey == device.Id && r.State == "pending").ToListAsync(ct));
     var rr = new RekeyRecoveryRequest
     {
-        DeviceKey = device.Id, Hostname = hostname, SourceIp = ip, Csr = req.Csr, KeyProvider = provider,
+        DeviceKey = device.Id, Hostname = hostname, SourceIp = ip, Csr = req.Csr, KeyProvider = provider, KeyFingerprint = fingerprint,
         TokenHash = Sha256Hex(raw), ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
     };
     db.RekeyRequests.Add(rr);
-    db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-rekey-request", TargetDeviceId = device.Id, DetailJson = JsonSerializer.Serialize(new { hostname, ip, provider }) });
+    db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-rekey-request", TargetDeviceId = device.Id, DetailJson = JsonSerializer.Serialize(new { hostname, ip, provider, fingerprint }) });
     await db.SaveChangesAsync(ct);
     app.Logger.LogWarning(L.Program_RekeyRequestOpened, device.Hostname, hostname, ip);
     return Results.Json(new RekeyRequestOpened { RequestId = rr.Id, Token = raw }, AgentJsonContext.Default.RekeyRequestOpened);

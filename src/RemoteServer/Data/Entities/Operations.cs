@@ -125,6 +125,10 @@ public sealed class RekeyRecoveryRequest
     public string Csr { get; set; } = string.Empty;
     public string KeyProvider { get; set; } = string.Empty;
 
+    /// <summary>SHA-256 of the CSR's public key, shortened: the device logs the same value, so an administrator
+    /// can compare the two before approving.</summary>
+    public string KeyFingerprint { get; set; } = string.Empty;
+
     /// <summary>SHA-256 of the polling token; the raw token goes to the device once.</summary>
     public string TokenHash { get; set; } = string.Empty;
 

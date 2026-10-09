@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS `RekeyRequests` (
     `SourceIp` longtext CHARACTER SET utf8mb4 NULL,
     `Csr` longtext CHARACTER SET utf8mb4 NOT NULL,
     `KeyProvider` varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+    `KeyFingerprint` varchar(32) CHARACTER SET utf8mb4 NOT NULL,
     `TokenHash` varchar(64) CHARACTER SET utf8mb4 NOT NULL,
     `CreatedAt` datetime(6) NOT NULL,
     `ExpiresAt` datetime(6) NOT NULL,
@@ -35,3 +36,4 @@ CREATE TABLE IF NOT EXISTS `RekeyRequests` (
     CONSTRAINT `PK_RekeyRequests` PRIMARY KEY (`Id`)
 ) CHARACTER SET=utf8mb4;
 CREATE INDEX IF NOT EXISTS `IX_RekeyRequests_DeviceKey_State` ON `RekeyRequests` (`DeviceKey`, `State`);
+ALTER TABLE `RekeyRequests` ADD COLUMN IF NOT EXISTS `KeyFingerprint` varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT '';

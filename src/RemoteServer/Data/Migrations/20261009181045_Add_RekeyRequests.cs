@@ -25,6 +25,8 @@ namespace RemoteServer.Data.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     KeyProvider = table.Column<string>(type: "varchar(16)", maxLength: 16, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
+                    KeyFingerprint = table.Column<string>(type: "varchar(32)", maxLength: 32, nullable: false)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
                     TokenHash = table.Column<string>(type: "varchar(64)", maxLength: 64, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     CreatedAt = table.Column<DateTimeOffset>(type: "datetime(6)", nullable: false),

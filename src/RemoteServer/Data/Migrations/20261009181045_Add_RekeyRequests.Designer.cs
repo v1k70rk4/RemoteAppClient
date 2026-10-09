@@ -12,7 +12,7 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261009174122_Add_RekeyRequests")]
+    [Migration("20261009181045_Add_RekeyRequests")]
     partial class Add_RekeyRequests
     {
         /// <inheritdoc />
@@ -559,6 +559,11 @@ namespace RemoteServer.Data.Migrations
                     b.Property<string>("Hostname")
                         .IsRequired()
                         .HasColumnType("longtext");
+
+                    b.Property<string>("KeyFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
 
                     b.Property<string>("KeyProvider")
                         .IsRequired()

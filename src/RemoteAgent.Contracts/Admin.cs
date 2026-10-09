@@ -172,6 +172,8 @@ public sealed class DeviceInfo
     [JsonPropertyName("rekeyRequestedAt")] public DateTimeOffset? RekeyRequestedAt { get; set; }
     [JsonPropertyName("rekeyRequestHostname")] public string? RekeyRequestHostname { get; set; }
     [JsonPropertyName("rekeyRequestIp")] public string? RekeyRequestIp { get; set; }
+    /// <summary>Shortened SHA-256 of the requested key; the device logs the same, for the administrator to compare.</summary>
+    [JsonPropertyName("rekeyRequestKeyFingerprint")] public string? RekeyRequestKeyFingerprint { get; set; }
 
     /// <summary>Login lockout after 5 failed attempts from the device. Only an admin can unlock it.</summary>
     [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }

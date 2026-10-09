@@ -557,6 +557,11 @@ namespace RemoteServer.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<string>("KeyFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
                     b.Property<string>("KeyProvider")
                         .IsRequired()
                         .HasMaxLength(16)

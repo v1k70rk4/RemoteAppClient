@@ -339,6 +339,7 @@ CREATE TABLE `RekeyRequests` (
     `SourceIp` longtext CHARACTER SET utf8mb4 NULL,
     `Csr` longtext CHARACTER SET utf8mb4 NOT NULL,
     `KeyProvider` varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+    `KeyFingerprint` varchar(32) CHARACTER SET utf8mb4 NOT NULL,
     `TokenHash` varchar(64) CHARACTER SET utf8mb4 NOT NULL,
     `CreatedAt` datetime(6) NOT NULL,
     `ExpiresAt` datetime(6) NOT NULL,

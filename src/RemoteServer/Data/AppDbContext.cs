@@ -102,6 +102,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.TokenHash).HasMaxLength(64);
             e.Property(x => x.State).HasMaxLength(16);
             e.Property(x => x.KeyProvider).HasMaxLength(16);
+            e.Property(x => x.KeyFingerprint).HasMaxLength(32);
         });
 
         b.Entity<Command>(e =>

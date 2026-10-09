@@ -26,7 +26,7 @@ internal static partial class Strings
         [nameof(RekeyService_ServerRefused)] = "Eszközkulcs megújítása: a szerver elutasította a kérést (HTTP {Status}).",
         [nameof(RekeyService_ConfirmFailed)] = "Eszközkulcs megújítása: az új tanúsítványt a szerver nem fogadta el (HTTP {Status}); visszavonva, a jelenlegi marad.",
         [nameof(RekeyService_KeyLost)] = "Az eszközkulcs eltűnt (tároló: {Provider}; törölt TPM?). A gép nem tud hitelesíteni; új tanúsítványt kér, amit egy rendszergazdának kell jóváhagynia a konzolban.",
-        [nameof(RekeyService_RequestOpened)] = "Kulcscsere-kérés ({RequestId}) elküldve a szervernek; percenként lekérdezzük, amíg egy rendszergazda dönt.",
+        [nameof(RekeyService_RequestOpened)] = "Kulcscsere-kérés ({RequestId}) elküldve a szervernek (az új kulcs ujjlenyomata: {Fingerprint}); percenként lekérdezzük, amíg egy rendszergazda dönt.",
         [nameof(RekeyService_RequestFailed)] = "A kulcscsere-kérést a szerver elutasította (HTTP {Status}); újrapróba 15 perc múlva.",
         [nameof(RekeyService_RequestRejected)] = "A kulcscsere-kérés tanúsítvány nélkül zárult ({State}); 24 óra múlva új kérés megy.",
         [nameof(RekeyService_Recovered)] = "A kulcscsere-kérést jóváhagyták: új tanúsítvány a helyén, kulcs: {Provider}, érvényes eddig: {NotAfter:yyyy-MM-dd}. A gép újra él.",
