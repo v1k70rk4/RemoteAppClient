@@ -30,6 +30,8 @@ internal static partial class Strings
         [nameof(RekeyService_RequestFailed)] = "A kulcscsere-kérést a szerver elutasította (HTTP {Status}); újrapróba 15 perc múlva.",
         [nameof(RekeyService_RequestRejected)] = "A kulcscsere-kérés tanúsítvány nélkül zárult ({State}); 24 óra múlva új kérés megy.",
         [nameof(RekeyService_Recovered)] = "A kulcscsere-kérést jóváhagyták: új tanúsítvány a helyén, kulcs: {Provider}, érvényes eddig: {NotAfter:yyyy-MM-dd}. A gép újra él.",
+        [nameof(RekeyService_ConfirmUnknown)] = "Eszközkulcs megújítása: az új tanúsítvány ({Thumbprint}) megerősítésére nem jött válasz; a tárban marad, a következő kör tisztázza, melyikben bízik a szerver.",
+        [nameof(RekeyService_OldKeyCleanupFailed)] = "Eszközkulcs megújítása: az új tanúsítvány használatban, de a régi kulcsanyagot nem sikerült eltávolítani.",
         [nameof(RekeyService_Rekeyed)] = "Eszközkulcs megújítva ({Reason}): a kulcs mostantól itt van: {Provider}, a tanúsítvány eddig érvényes: {NotAfter:yyyy-MM-dd}.",
         [nameof(BrokerService_BrokerAcceptError)] = "Bróker accept hiba.",
         [nameof(BrokerService_BrokerClientConnected)] = "Bróker: kliens csatlakozott.",

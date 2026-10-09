@@ -80,6 +80,8 @@ internal static partial class Strings
     public static string RekeyService_ServerRefused => Get(nameof(RekeyService_ServerRefused));
     public static string RekeyService_ConfirmFailed => Get(nameof(RekeyService_ConfirmFailed));
     public static string RekeyService_Rekeyed => Get(nameof(RekeyService_Rekeyed));
+    public static string RekeyService_ConfirmUnknown => Get(nameof(RekeyService_ConfirmUnknown));
+    public static string RekeyService_OldKeyCleanupFailed => Get(nameof(RekeyService_OldKeyCleanupFailed));
     public static string RekeyService_KeyLost => Get(nameof(RekeyService_KeyLost));
     public static string RekeyService_RequestOpened => Get(nameof(RekeyService_RequestOpened));
     public static string RekeyService_RequestFailed => Get(nameof(RekeyService_RequestFailed));

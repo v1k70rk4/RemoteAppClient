@@ -30,6 +30,8 @@ internal static partial class Strings
         [nameof(RekeyService_RequestFailed)] = "The lost-key request was refused by the server (HTTP {Status}); trying again in 15 minutes.",
         [nameof(RekeyService_RequestRejected)] = "The lost-key request ended without a certificate ({State}); a new request goes out in 24 hours.",
         [nameof(RekeyService_Recovered)] = "Lost-key request approved: new certificate installed, key in {Provider}, valid until {NotAfter:yyyy-MM-dd}. The device is back.",
+        [nameof(RekeyService_ConfirmUnknown)] = "Device key renewal: no answer to the confirmation of the new certificate ({Thumbprint}); it is kept in the store and the next round resolves which one the server trusts.",
+        [nameof(RekeyService_OldKeyCleanupFailed)] = "Device key renewal: the new certificate is in use, but the old key material could not be removed.",
         [nameof(RekeyService_Rekeyed)] = "Device key renewed ({Reason}): the key is now in {Provider}, the certificate is valid until {NotAfter:yyyy-MM-dd}.",
         [nameof(BrokerService_BrokerAcceptError)] = "Broker accept error.",
         [nameof(BrokerService_BrokerClientConnected)] = "Broker: client connected.",

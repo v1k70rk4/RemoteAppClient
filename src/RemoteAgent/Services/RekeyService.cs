@@ -67,7 +67,7 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         var baseUrl = _opt.Telemetry.IngestUrl.Replace("/api/telemetry", "", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
         using var fresh = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
         string? newThumb = null;
-        bool switched = false;
+        bool switched = false, confirmSent = false;
         try
         {
             var csr = new CertificateRequest("CN=rekey", fresh.Key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
@@ -89,38 +89,72 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
             newThumb = DeviceKeyStore.InstallCertificate(resp.Certificate, fresh.Key);
             var candidate = new DeviceIdentity.Snapshot(fresh.Provider, newThumb, fresh.KeyName, null, resp.NotAfter);
 
-            // Prove the new certificate at the server before anything old is touched.
-            using (var http = BuildClient(candidate))
+            // Prove the new certificate at the server before anything old is touched. Once the confirm request
+            // has left, the server may have committed even if the answer never arrives: from here the candidate
+            // is kept unless the server says, in so many words, that it is not the certificate of record.
+            confirmSent = true;
+            var confirmed = await ConfirmAsync(candidate, baseUrl, ct);
+            if (confirmed is null)
             {
-                using var r = await http.PostAsync($"{baseUrl}/api/rekey/confirm", content: null, ct);
-                if (!r.IsSuccessStatusCode)
+                // Lost answer: ask once more. A commit shows as "nothing pending" with this certificate accepted.
+                confirmed = await ConfirmAsync(candidate, baseUrl, ct);
+                if (confirmed is null)
                 {
-                    logger.LogWarning(L.RekeyService_ConfirmFailed, (int)r.StatusCode);
-                    DeviceKeyStore.RemoveCertificate(newThumb);
-                    return false;
+                    logger.LogWarning(L.RekeyService_ConfirmUnknown, newThumb);
+                    return false; // candidate kept (see finally); the next round resolves it
                 }
             }
+            if (confirmed == false) { confirmSent = false; return false; } // the server refused it: safe to discard
 
-            // Switch: every later connection uses the new identity; enrollment.json says so for the next start.
+            // Switch first: every later connection uses the new identity and enrollment.json says so for the next
+            // start. The old key material goes afterwards, best effort - a failure there must not undo the switch.
             DeviceIdentity.Set(candidate);
             RewriteEnrollment(candidate);
-            if (id.InStore) { DeviceKeyStore.RemoveCertificate(id.Thumbprint); DeviceKeyStore.DeleteKey(id.KeyName); }
-            else if (id.PfxPath is { } pfx) { try { System.IO.File.Delete(pfx); } catch { /* best effort */ } }
+            switched = true;
+            try
+            {
+                if (id.InStore) { DeviceKeyStore.RemoveCertificate(id.Thumbprint); DeviceKeyStore.DeleteKey(id.KeyName); }
+                else if (id.PfxPath is { } pfx) System.IO.File.Delete(pfx);
+            }
+            catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_OldKeyCleanupFailed); }
             logger.LogWarning(L.RekeyService_Rekeyed, reason, fresh.Provider, resp.NotAfter);
             reconnect.Request(); // the command channel moves to the new certificate now, not at its next drop
-            switched = true;
             return true;
         }
         finally
         {
-            // Refused, empty, unconfirmed or thrown: the key and certificate made for this round go, or every
-            // daily retry would leave another machine key behind in the TPM.
-            if (!switched)
+            // Refused, empty, or thrown before the confirm left: the key and certificate made for this round go,
+            // or every daily retry would leave another machine key behind in the TPM. After the confirm left they
+            // stay: the server may trust them now, and deleting them would cost an administrator-approved recovery.
+            if (!switched && !confirmSent)
             {
                 if (newThumb is not null) DeviceKeyStore.RemoveCertificate(newThumb);
                 DeviceKeyStore.DeleteKey(fresh.KeyName);
             }
         }
+    }
+
+    /// <summary>One confirm call with the candidate's certificate. True: the server made it the certificate of
+    /// record (now, or already - "nothing pending" while accepting this certificate). False: the server refused it
+    /// (not the pending one, or the offer lapsed). Null: no answer arrived, so nothing is known.</summary>
+    private async Task<bool?> ConfirmAsync(DeviceIdentity.Snapshot candidate, string baseUrl, CancellationToken ct)
+    {
+        try
+        {
+            using var http = BuildClient(candidate);
+            using var r = await http.PostAsync($"{baseUrl}/api/rekey/confirm", content: null, ct);
+            if (r.IsSuccessStatusCode) return true;
+            if ((int)r.StatusCode == 409)
+            {
+                // Authenticated with the candidate yet nothing pending: the earlier confirm committed.
+                try { var e = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyError, ct); if (e?.Code == "nothing_pending") return true; }
+                catch { /* no body */ }
+            }
+            logger.LogWarning(L.RekeyService_ConfirmFailed, (int)r.StatusCode);
+            return false;
+        }
+        catch (HttpRequestException) { return null; }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return null; } // timeout
     }
 
     // ---- lost key -------------------------------------------------------------------------------------
