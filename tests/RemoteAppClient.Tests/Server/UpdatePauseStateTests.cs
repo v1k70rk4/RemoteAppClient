@@ -37,8 +37,10 @@ public class UpdatePauseStateTests
         var dev = Guid.NewGuid();
         s.Set(dev, "vnc", "2.8.89.0", "2.8.85.0");
         s.Set(dev, "vnc", "2.8.89.0", "2.8.87.0");
-        Assert.False(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.85.0"));
-        Assert.True(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.87.0"));
+        Assert.True(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.87.0"));   // the newer pause is the one that counts
+        Assert.False(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.85.0"));  // and a mismatch drops it
+        Assert.False(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.87.0"));
+        s.Set(dev, "vnc", "2.8.89.0", "2.8.87.0");
         s.Clear(dev);
         Assert.False(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.87.0"));
     }
