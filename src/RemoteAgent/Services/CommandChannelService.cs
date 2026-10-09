@@ -23,6 +23,7 @@ public sealed class CommandChannelService(
     CommandBus bus,
     AgentStatusState status,
     AgentUplink uplink,
+    ReconnectSignal reconnect,
     ILogger<CommandChannelService> logger) : BackgroundService
 {
     private readonly CommandChannelOptions _opt = options.Value.CommandChannel;
@@ -91,6 +92,8 @@ public sealed class CommandChannelService(
         var delay = baseDelay;
 
         NetworkChange.NetworkAddressChanged += OnAddressChanged;
+        void OnReconnectRequested() => OnAddressChanged(null, EventArgs.Empty); // a new certificate: same treatment as a new address
+        reconnect.Requested += OnReconnectRequested;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -127,7 +130,7 @@ public sealed class CommandChannelService(
                 delay = kicked ? baseDelay : TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, maxDelay.TotalSeconds));
             }
         }
-        finally { NetworkChange.NetworkAddressChanged -= OnAddressChanged; }
+        finally { NetworkChange.NetworkAddressChanged -= OnAddressChanged; reconnect.Requested -= OnReconnectRequested; }
     }
 
     private async Task ConnectAndListenAsync(CancellationToken ct)

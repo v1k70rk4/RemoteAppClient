@@ -112,6 +112,11 @@ internal static partial class Strings
     public static string Program_ThisIsATestEmail => Get(nameof(Program_ThisIsATestEmail));
     public static string Program_BOOTSTRAPAdminCreatedUsernameAdmin => Get(nameof(Program_BOOTSTRAPAdminCreatedUsernameAdmin));
     public static string Program_BOOTSTRAPAdminCreatedPasswordFile => Get(nameof(Program_BOOTSTRAPAdminCreatedPasswordFile));
+    public static string Program_RekeyCsrFailed => Get(nameof(Program_RekeyCsrFailed));
+    public static string Program_RekeyIssued => Get(nameof(Program_RekeyIssued));
+    public static string Program_RekeyConfirmed => Get(nameof(Program_RekeyConfirmed));
+    public static string Program_RekeyRequestOpened => Get(nameof(Program_RekeyRequestOpened));
+    public static string Program_RekeyRequestApproved => Get(nameof(Program_RekeyRequestApproved));
     public static string FirstAdminHandover_CouldNotWrite => Get(nameof(FirstAdminHandover_CouldNotWrite));
     public static string FirstAdminHandover_CouldNotRemove => Get(nameof(FirstAdminHandover_CouldNotRemove));
     public static string Program_AuditWriteErrorAction => Get(nameof(Program_AuditWriteErrorAction));

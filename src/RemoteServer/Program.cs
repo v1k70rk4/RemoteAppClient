@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -64,6 +65,7 @@ builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddSingleton<ClockSkewTracker>();   // per-device clock readings live across requests
 builder.Services.AddSingleton<UpdatePauseState>();   // which devices auto-converge has given up on, and why
+builder.Services.AddSingleton<RequestLimiter>();     // per-source limits for the certificate-less endpoints
 builder.Services.AddScoped<ITelemetrySink, DbTelemetrySink>();
 builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<EnrollmentService>();
@@ -753,6 +755,13 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
             && (c.Status == CommandStatus.Queued || c.Status == CommandStatus.Sent || c.Status == CommandStatus.Acked)
             && deviceGuids.Contains(c.DeviceId))
         .ToListAsync(ct);
+    // Pending lost-key requests, shown as a yellow state with approve/reject.
+    var nowForRekey = DateTimeOffset.UtcNow;
+    var rekeyByDevice = (await db.RekeyRequests
+            .Where(r => r.State == "pending" && r.ExpiresAt > nowForRekey && deviceGuids.Contains(r.DeviceKey))
+            .ToListAsync(ct))
+        .GroupBy(r => r.DeviceKey).ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.CreatedAt).First());
+
     var pendingInfo = new Dictionary<Guid, string>();
     foreach (var grp in inflight.GroupBy(c => c.DeviceId))
     {
@@ -826,6 +835,12 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         TpmReady = d.TpmReady,
         TpmAttestation = d.TpmAttestation,
         TpmVulnerableFirmware = d.TpmVulnerableFirmware,
+        KeyProvider = d.KeyProvider,
+        CertNotAfter = d.CertNotAfter,
+        RekeyRequestedAt = rekeyByDevice.TryGetValue(d.Id, out var rr) ? rr.CreatedAt : null,
+        RekeyRequestHostname = rekeyByDevice.TryGetValue(d.Id, out var rr2) ? rr2.Hostname : null,
+        RekeyRequestIp = rekeyByDevice.TryGetValue(d.Id, out var rr3) ? rr3.SourceIp : null,
+        RekeyRequestKeyFingerprint = rekeyByDevice.TryGetValue(d.Id, out var rr4) ? rr4.KeyFingerprint : null,
         LoginFailCount = d.LoginFailCount,
         LoginLocked = d.LoginLockedAt is not null,
         Note = viaToken ? null : protector.TryUnprotect(d.Note),
@@ -1539,6 +1554,79 @@ app.MapPost("/admin/devices/{deviceId}/diag", async (
     return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
 });
 
+// Re-key on demand: the device makes a new key (in the TPM when it can) and gets a new certificate, the old one
+// retired - for a device whose TPM firmware was updated, or whose key the operator wants replaced. Answered
+// "rekeyed" / "failed" via access-result. Agents before 2.3.0 do not know the command.
+app.MapPost("/admin/devices/{deviceId}/rekey", async (
+    string deviceId, HttpContext ctx, AppDbContext db, CommandService commands, AccessResultStore accessResults, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    if (!Version.TryParse(device.AgentVersion, out var agentVersion) || agentVersion < new Version(2, 3, 0, 0))
+        return Results.Conflict(new { error = "agent_too_old", agentVersion = device.AgentVersion });
+    var me = (User)ctx.Items["user"]!;
+    await db.Commands
+        .Where(c => c.DeviceId == device.Id && c.Type == CommandTypes.Rekey && c.Status == RemoteServer.Data.CommandStatus.Queued)
+        .ExecuteDeleteAsync(ct);
+    var cmd = await commands.EnqueueAsync(deviceId, CommandTypes.Rekey, new CommandData(), createdBy: me.Id, ct);
+    if (cmd is null) return Results.NotFound();
+    await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct);
+    await AuditAsync(db, ctx, "device-rekey-requested", device.Id, null);
+    return Results.Json(new OpenTunnelResult { DeviceId = deviceId, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "" }, AgentJsonContext.Default.OpenTunnelResult);
+});
+
+// The administrator's decision on a lost-key request. Approval signs the stored CSR for the same device id and
+// makes it the device's certificate at once - the old key is gone or stolen, so there is no grace for it.
+app.MapPost("/admin/devices/{deviceId}/rekey-request/approve", async (string deviceId, HttpContext ctx, AppDbContext db, CertificateAuthority ca, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    var now = DateTimeOffset.UtcNow;
+    var rr = await db.RekeyRequests.Where(r => r.DeviceKey == device.Id && r.State == "pending" && r.ExpiresAt > now)
+        .OrderByDescending(r => r.CreatedAt).FirstOrDefaultAsync(ct);
+    if (rr is null) return Results.NotFound(new { error = "no_request" });
+    var me = (User)ctx.Items["user"]!;
+
+    string certPem; string thumbprint; DateTimeOffset notAfter;
+    try
+    {
+        certPem = ca.SignClientCsr(rr.Csr, device.DeviceId);
+        using var leaf = X509Certificate2.CreateFromPem(certPem);
+        thumbprint = leaf.Thumbprint;
+        notAfter = new DateTimeOffset(leaf.NotAfter.ToUniversalTime());
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, L.Program_RekeyCsrFailed, device.DeviceId);
+        return Results.BadRequest(new { error = "bad_csr" });
+    }
+
+    device.CertThumbprint = thumbprint;
+    device.CertNotAfter = notAfter;
+    device.KeyProvider = rr.KeyProvider;
+    device.PendingCertThumbprint = null; device.PendingCertUntil = null;
+    device.PreviousCertThumbprint = null; device.PreviousCertValidUntil = null;
+    rr.State = "approved"; rr.CertificatePem = certPem; rr.CertNotAfter = notAfter; rr.DecidedAt = now; rr.DecidedBy = me.Username;
+    await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "device-rekey-approved", device.Id, $"{rr.Hostname} · {rr.SourceIp} · key {rr.KeyFingerprint}");
+    app.Logger.LogInformation(L.Program_RekeyRequestApproved, device.DeviceId, me.Username);
+    return Results.NoContent();
+});
+
+app.MapPost("/admin/devices/{deviceId}/rekey-request/reject", async (string deviceId, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+    if (device is null) return Results.NotFound();
+    var now = DateTimeOffset.UtcNow;
+    var me = (User)ctx.Items["user"]!;
+    var pending = await db.RekeyRequests.Where(r => r.DeviceKey == device.Id && r.State == "pending").ToListAsync(ct);
+    if (pending.Count == 0) return Results.NotFound(new { error = "no_request" });
+    foreach (var r in pending) { r.State = "rejected"; r.DecidedAt = now; r.DecidedBy = me.Username; }
+    await db.SaveChangesAsync(ct);
+    await AuditAsync(db, ctx, "device-rekey-rejected", device.Id, $"{pending[0].Hostname} · {pending[0].SourceIp}");
+    return Results.NoContent();
+});
+
 // Audit log query with filters: action key, actor username, deviceId, limit.
 app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceId, int? limit, AppDbContext db, CancellationToken ct) =>
 {
@@ -1569,6 +1657,164 @@ app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceI
 // === Enrollment ===
 // Device sends CSR + token. On success, signed cert + CA are returned.
 // On failure, machine-readable code is returned and localized by the client.
+// === Re-key: a new certificate for a new key, for the device the current certificate belongs to. ===
+// The TPM move and the renewal both come through here. The current certificate stays primary until the device
+// proves the new one with /api/rekey/confirm; an offer the device never confirms lapses by itself.
+const int RekeyConfirmMinutes = 60;
+const int RekeyGraceMinutes = 10;
+app.MapPost("/api/rekey", async (HttpContext ctx, AppDbContext db, CertificateAuthority ca, CancellationToken ct) =>
+{
+    var device = await AuthorizedDeviceAsync(ctx, db, ct);
+    if (device is null) return Results.Json(new RekeyError { Code = "unauthorized" }, AgentJsonContext.Default.RekeyError, statusCode: 401);
+    if (device.Status != DeviceStatus.Approved) return Results.Json(new RekeyError { Code = "not_approved" }, AgentJsonContext.Default.RekeyError, statusCode: 403);
+
+    RekeyRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.RekeyRequest, ct); }
+    catch (JsonException) { return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
+    if (req is null || string.IsNullOrWhiteSpace(req.Csr) || req.Csr.Length > 16 * 1024)
+        return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400);
+    var provider = req.KeyProvider is "tpm" or "software" ? req.KeyProvider : "software";
+
+    string certPem; string thumbprint; DateTimeOffset notAfter;
+    try
+    {
+        certPem = ca.SignClientCsr(req.Csr, device.DeviceId);
+        using var leaf = X509Certificate2.CreateFromPem(certPem);
+        thumbprint = leaf.Thumbprint;
+        notAfter = new DateTimeOffset(leaf.NotAfter.ToUniversalTime());
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, L.Program_RekeyCsrFailed, device.DeviceId);
+        return Results.Json(new RekeyError { Code = "bad_csr" }, AgentJsonContext.Default.RekeyError, statusCode: 400);
+    }
+
+    device.PendingCertThumbprint = thumbprint;
+    device.PendingCertUntil = DateTimeOffset.UtcNow.AddMinutes(RekeyConfirmMinutes);
+    db.AuditLogs.Add(new AuditLog
+    {
+        Actor = "device", Action = "device-rekey-issued", TargetDeviceId = device.Id,
+        DetailJson = JsonSerializer.Serialize(new { reason = req.Reason, provider, notAfter }),
+    });
+    await db.SaveChangesAsync(ct);
+    ctx.Items["rekeyProvider"] = provider;
+    app.Logger.LogInformation(L.Program_RekeyIssued, device.DeviceId, req.Reason, provider);
+    return Results.Json(new RekeyResponse { Certificate = certPem, NotAfter = notAfter, ConfirmWithinMinutes = RekeyConfirmMinutes },
+        AgentJsonContext.Default.RekeyResponse);
+});
+
+// Made with the NEW certificate: proves it works end to end, then it becomes the device's certificate and the
+// old one is retired after a short grace. Without the proxy's fingerprint the call still has to be the device's
+// own (mTLS at nginx); the switch is then taken on the device's word, as the rest of the identity is today.
+app.MapPost("/api/rekey/confirm", async (HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+{
+    var device = await AuthorizedDeviceAsync(ctx, db, ct);
+    if (device is null) return Results.Json(new RekeyError { Code = "unauthorized" }, AgentJsonContext.Default.RekeyError, statusCode: 401);
+    if (device.PendingCertThumbprint is not { } pending || device.PendingCertUntil is not { } until || until < DateTimeOffset.UtcNow)
+        return Results.Json(new RekeyError { Code = "nothing_pending" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+    var presented = PresentedFingerprint(ctx);
+    if (presented.Length > 0 && !string.Equals(presented, pending, StringComparison.OrdinalIgnoreCase))
+        return Results.Json(new RekeyError { Code = "wrong_certificate" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+
+    var now = DateTimeOffset.UtcNow;
+    device.PreviousCertThumbprint = device.CertThumbprint;
+    device.PreviousCertValidUntil = now.AddMinutes(RekeyGraceMinutes);
+    device.CertThumbprint = pending;
+    device.PendingCertThumbprint = null;
+    device.PendingCertUntil = null;
+    device.CertNotAfter = null; // the agent reports the new expiry with its next telemetry; the CA knew it at issue
+    db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-rekey-confirmed", TargetDeviceId = device.Id });
+    await db.SaveChangesAsync(ct);
+    app.Logger.LogInformation(L.Program_RekeyConfirmed, device.DeviceId);
+    return Results.NoContent();
+});
+
+// === Lost-key recovery. A device whose TPM lost its key has nothing to authenticate with; it asks here, with
+// no certificate, and nothing is issued until an administrator approves the request in the console (the row
+// turns yellow). One pending request per device, seven days, rate-limited per source. Under /enroll because
+// nginx proxies that path without a client certificate, like enrollment itself. ===
+app.MapPost("/enroll/rekey", async (HttpContext ctx, AppDbContext db, RequestLimiter limiter, AgentConnectionRegistry registry, CancellationToken ct) =>
+{
+    var ip = PublicIpOf(ctx) ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+    if (!limiter.Allow("rekey-request:" + ip, 10, TimeSpan.FromHours(1)))
+        return Results.Json(new RekeyError { Code = "rate_limited" }, AgentJsonContext.Default.RekeyError, statusCode: 429);
+    RekeyRequestOpen? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.RekeyRequestOpen, ct); }
+    catch (JsonException) { return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
+    if (req is null || string.IsNullOrWhiteSpace(req.DeviceId) || req.DeviceId.Length > 64 || string.IsNullOrWhiteSpace(req.Csr) || req.Csr.Length > 16 * 1024)
+        return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400);
+    string fingerprint;
+    try
+    {
+        var csr = CertificateRequest.LoadSigningRequestPem(req.Csr, HashAlgorithmName.SHA256);
+        fingerprint = Convert.ToHexString(SHA256.HashData(csr.PublicKey.ExportSubjectPublicKeyInfo()))[..16];
+    }
+    catch { return Results.Json(new RekeyError { Code = "bad_csr" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
+
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == req.DeviceId, ct);
+    if (device is null || device.Status != DeviceStatus.Approved)
+        return Results.Json(new RekeyError { Code = "unknown_device" }, AgentJsonContext.Default.RekeyError, statusCode: 404);
+    // Anyone who knows a device id can call this. A device that is talking to the server with its certificate
+    // has not lost its key: no request is opened for it, so a healthy device cannot be flagged - or taken over
+    // through an approval - by a stranger.
+    if (registry.IsConnected(device.DeviceId) || device.LastSeenAt > DateTimeOffset.UtcNow.AddMinutes(-10))
+        return Results.Json(new RekeyError { Code = "device_alive" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+    // And a pending request is never replaced: the first one stands until it is decided or expires, so a
+    // second caller cannot swap in a key of their own under a request the administrator is about to approve.
+    // The one exception is the same key asking again (the CSR's signature proves the caller holds it): a device
+    // that lost its request credentials in a crash gets its own request back with fresh ones.
+    var existing = await db.RekeyRequests.Where(r => r.DeviceKey == device.Id && r.State == "pending" && r.ExpiresAt > DateTimeOffset.UtcNow)
+        .OrderByDescending(r => r.CreatedAt).FirstOrDefaultAsync(ct);
+    if (existing is not null)
+    {
+        bool sameKey;
+        try
+        {
+            var prior = CertificateRequest.LoadSigningRequestPem(existing.Csr, HashAlgorithmName.SHA256);
+            var now2 = CertificateRequest.LoadSigningRequestPem(req.Csr, HashAlgorithmName.SHA256);
+            sameKey = prior.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(now2.PublicKey.ExportSubjectPublicKeyInfo());
+        }
+        catch { sameKey = false; }
+        if (!sameKey)
+            return Results.Json(new RekeyError { Code = "request_pending" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+        var rebound = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        existing.TokenHash = Sha256Hex(rebound);
+        await db.SaveChangesAsync(ct);
+        return Results.Json(new RekeyRequestOpened { RequestId = existing.Id, Token = rebound }, AgentJsonContext.Default.RekeyRequestOpened);
+    }
+
+    var hostname = (req.Hostname ?? "").Trim(); if (hostname.Length > 128) hostname = hostname[..128];
+    var provider = req.KeyProvider is "tpm" or "software" ? req.KeyProvider : "software";
+    var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+    var rr = new RekeyRecoveryRequest
+    {
+        DeviceKey = device.Id, Hostname = hostname, SourceIp = ip, Csr = req.Csr, KeyProvider = provider, KeyFingerprint = fingerprint,
+        TokenHash = Sha256Hex(raw), ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+    };
+    db.RekeyRequests.Add(rr);
+    db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-rekey-request", TargetDeviceId = device.Id, DetailJson = JsonSerializer.Serialize(new { hostname, ip, provider, fingerprint }) });
+    await db.SaveChangesAsync(ct);
+    app.Logger.LogWarning(L.Program_RekeyRequestOpened, device.Hostname, hostname, ip);
+    return Results.Json(new RekeyRequestOpened { RequestId = rr.Id, Token = raw }, AgentJsonContext.Default.RekeyRequestOpened);
+});
+
+app.MapGet("/enroll/rekey/{id:guid}", async (Guid id, string? token, HttpContext ctx, AppDbContext db, RequestLimiter limiter, CancellationToken ct) =>
+{
+    var ip = PublicIpOf(ctx) ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+    if (!limiter.Allow("rekey-poll:" + ip, 120, TimeSpan.FromHours(1)))
+        return Results.Json(new RekeyError { Code = "rate_limited" }, AgentJsonContext.Default.RekeyError, statusCode: 429);
+    var rr = await db.RekeyRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
+    if (rr is null || string.IsNullOrEmpty(token) || !string.Equals(rr.TokenHash, Sha256Hex(token), StringComparison.Ordinal))
+        return Results.Json(new RekeyError { Code = "unknown_request" }, AgentJsonContext.Default.RekeyError, statusCode: 404);
+    if (rr.State == "approved" && rr.CertificatePem is not null)
+        return Results.Json(new RekeyRequestStatus { State = "approved", Certificate = rr.CertificatePem, NotAfter = rr.CertNotAfter }, AgentJsonContext.Default.RekeyRequestStatus);
+    if (rr.State == "rejected")
+        return Results.Json(new RekeyRequestStatus { State = "rejected" }, AgentJsonContext.Default.RekeyRequestStatus, statusCode: 410);
+    if (rr.ExpiresAt < DateTimeOffset.UtcNow)
+        return Results.Json(new RekeyRequestStatus { State = "expired" }, AgentJsonContext.Default.RekeyRequestStatus, statusCode: 410);
+    return Results.Json(new RekeyRequestStatus { State = "pending" }, AgentJsonContext.Default.RekeyRequestStatus, statusCode: 202);
+});
+
 app.MapPost("/enroll", async (HttpContext ctx, EnrollmentService enroll, CancellationToken ct) =>
 {
     EnrollRequest? req;
@@ -2615,11 +2861,20 @@ static async Task<Device?> AuthorizedDeviceAsync(HttpContext ctx, AppDbContext d
                 .LogWarning(L.Program_ProxyFingerprintMissing);
         return device;
     }
-    return string.IsNullOrEmpty(device.CertThumbprint) ||
-           string.Equals(fingerprint, device.CertThumbprint, StringComparison.OrdinalIgnoreCase)
-        ? device
-        : null;
+    if (string.IsNullOrEmpty(device.CertThumbprint) || Same(fingerprint, device.CertThumbprint)) return device;
+    // A re-key in flight: the certificate issued for the new key is accepted until the device confirms it or the
+    // offer lapses; a retired one for a short while after the switch, for connections that were already open.
+    var now = DateTimeOffset.UtcNow;
+    if (device.PendingCertThumbprint is { } pending && device.PendingCertUntil > now && Same(fingerprint, pending)) return device;
+    if (device.PreviousCertThumbprint is { } previous && device.PreviousCertValidUntil > now && Same(fingerprint, previous)) return device;
+    return null;
+
+    static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 }
+
+// The certificate the request authenticated with, when nginx forwards it (empty otherwise).
+static string PresentedFingerprint(HttpContext ctx) =>
+    FromTrustedProxyQuiet(ctx) ? ctx.Request.Headers["X-Client-Fingerprint"].ToString().Replace(":", "") : "";
 
 // True when the request came through nginx: it carries Server:ProxySecret in X-RAC-Proxy. With no secret
 // configured every request counts, as before the secret existed. A request that brings identity or address

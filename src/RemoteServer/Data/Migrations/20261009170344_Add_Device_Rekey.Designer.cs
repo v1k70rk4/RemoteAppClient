@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RemoteServer.Data;
 
@@ -11,9 +12,11 @@ using RemoteServer.Data;
 namespace RemoteServer.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261009170344_Add_Device_Rekey")]
+    partial class Add_Device_Rekey
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -520,71 +523,6 @@ namespace RemoteServer.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("HelloCredentials");
-                });
-
-            modelBuilder.Entity("RemoteServer.Data.Entities.RekeyRecoveryRequest", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTimeOffset?>("CertNotAfter")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("CertificatePem")
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Csr")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTimeOffset?>("DecidedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("DecidedBy")
-                        .HasColumnType("longtext");
-
-                    b.Property<Guid>("DeviceKey")
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Hostname")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("KeyFingerprint")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<string>("KeyProvider")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)");
-
-                    b.Property<string>("SourceIp")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DeviceKey", "State");
-
-                    b.ToTable("RekeyRequests");
                 });
 
             modelBuilder.Entity("RemoteServer.Data.Entities.ReleasePackage", b =>

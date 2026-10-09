@@ -17,6 +17,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<DeviceEvent> DeviceEvents => Set<DeviceEvent>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
+    public DbSet<RekeyRecoveryRequest> RekeyRequests => Set<RekeyRecoveryRequest>();
     public DbSet<Command> Commands => Set<Command>();
     public DbSet<ReleasePackage> ReleasePackages => Set<ReleasePackage>();
     public DbSet<RemoteSession> RemoteSessions => Set<RemoteSession>();
@@ -93,6 +94,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<EnrollmentToken>(e =>
         {
             e.HasIndex(x => x.TokenHash).IsUnique();
+        });
+
+        b.Entity<RekeyRecoveryRequest>(e =>
+        {
+            e.HasIndex(x => new { x.DeviceKey, x.State });
+            e.Property(x => x.TokenHash).HasMaxLength(64);
+            e.Property(x => x.State).HasMaxLength(16);
+            e.Property(x => x.KeyProvider).HasMaxLength(16);
+            e.Property(x => x.KeyFingerprint).HasMaxLength(32);
         });
 
         b.Entity<Command>(e =>

@@ -86,6 +86,8 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
         device.TpmReady = payload.TpmReady;
         device.TpmAttestation = payload.TpmAttestation;
         device.TpmVulnerableFirmware = payload.TpmVulnerableFirmware;
+        if (payload.KeyProvider is not null) device.KeyProvider = Short(payload.KeyProvider);
+        if (payload.CertNotAfter is { } notAfter && device.CertNotAfter is null) device.CertNotAfter = notAfter; // devices enrolled before the column existed
         device.LastSeenAt = now;
 
         // Clock skew. Telemetry is NOT signed, so it still arrives from a device whose every command is

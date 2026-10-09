@@ -110,7 +110,20 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
     var baseUrl = rec.ServerUrl.TrimEnd('/');
     opt.CommandChannel.Url = baseUrl.Replace("https://", "wss://").Replace("http://", "ws://") + "/agent";
     opt.Telemetry.IngestUrl = baseUrl + "/api/telemetry";
-    opt.ClientCertPfxPath = Path.Combine(opt.EnrollmentDir, "agent.pfx.dat");
+    var provider = rec.KeyProvider ?? RemoteAgent.Security.DeviceKeyStore.File;
+    if (provider is RemoteAgent.Security.DeviceKeyStore.Tpm or RemoteAgent.Security.DeviceKeyStore.Software)
+    {
+        // Key and certificate in LocalMachine\My: the services load by thumbprint, no file.
+        opt.ClientCertPfxPath = "";
+        opt.CommandChannel.ClientCertThumbprint = rec.CertThumbprint;
+        opt.Telemetry.ClientCertThumbprint = rec.CertThumbprint;
+    }
+    else
+        opt.ClientCertPfxPath = Path.Combine(opt.EnrollmentDir, "agent.pfx.dat");
+    var pfxOrNull = string.IsNullOrEmpty(opt.ClientCertPfxPath) ? null : opt.ClientCertPfxPath;
+    RemoteAgent.Security.DeviceIdentity.Set(new RemoteAgent.Security.DeviceIdentity.Snapshot(
+        provider, rec.CertThumbprint, rec.KeyName, pfxOrNull,
+        rec.CertNotAfterUtc ?? RemoteAgent.Security.DeviceIdentity.ReadNotAfter(pfxOrNull, rec.CertThumbprint)));
     if (!string.IsNullOrWhiteSpace(rec.CommandSigningPublicKey))
         opt.CommandChannel.CommandSigningPublicKey = rec.CommandSigningPublicKey;
 
@@ -137,6 +150,7 @@ builder.Services.AddSingleton<TransportState>(sp =>
 });
 builder.Services.AddSingleton<AgentStatusState>();
 builder.Services.AddSingleton<AgentUplink>();
+builder.Services.AddSingleton<ReconnectSignal>();
 builder.Services.AddSingleton<RemoteAgent.Power.SessionKeepAwake>();
 builder.Services.AddSingleton<CommandVerifier>();
 builder.Services.AddSingleton<SystemInfoCollector>();
@@ -154,6 +168,8 @@ builder.Services.AddHostedService<HelperUpdateWatcher>();
 builder.Services.AddHostedService<BrokerService>();
 builder.Services.AddHostedService<StatusPipeService>();
 builder.Services.AddHostedService<RemoteAgent.Diagnostics.DiagModeService>();
+builder.Services.AddSingleton<RekeyService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RekeyService>());
 
 // Tokenless self-install: when there is no enrollment but bootstrap.dat exists, enroll now,
 // before the host is built and before PostConfigure reads enrollment.json.

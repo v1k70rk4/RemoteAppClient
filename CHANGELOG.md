@@ -3,6 +3,39 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
+## What's New in 2.3.0
+
+**The device key lives in the TPM, and certificates renew themselves** ([ADR-0003](docs/adr/0003-tpm-device-key.md))
+- A device's mTLS key is now a named, machine-scoped, non-exportable CNG key: in the TPM (Microsoft Platform
+  Crypto Provider) when the machine has one that is ready and not flagged for vulnerable firmware, otherwise in
+  the software key storage provider. The certificate sits in `LocalMachine\My` bound to the key; nothing private
+  is written to a file any more. An administrator, or a lifted disk, no longer yields a usable device identity.
+  Enrollment creates the key this way; the DPAPI-sealed PFX remains only for machines where CNG key storage is
+  unavailable.
+- Devices enrolled earlier move their key into the TPM by themselves: 5–30 minutes after the 2.3.0 agent starts
+  (randomized, so a rollout does not re-key the whole fleet in one minute) it asks the server for a certificate
+  for a new TPM key (`/api/rekey`, authenticated with the current certificate). The server issues it but keeps
+  the current certificate primary until the device proves the new one with a call made with it
+  (`/api/rekey/confirm`); only then does the agent switch, rewrite `enrollment.json` and delete the old key and
+  file. A failure anywhere leaves the device on its old identity; the offer lapses after an hour. The retired
+  certificate is accepted for ten more minutes, for connections already open. Both steps are audit rows.
+- The same path renews a certificate within 60 days of its end, so the 825-day certificates from 2026 renew
+  in 2028 instead of expiring.
+- Telemetry reports where the key is (`tpm` / `software` / `file`) and when the certificate expires; the server
+  records the expiry at issue as well.
+- The console's TPM row says where the key is (*kulcs: TPM / szoftver / fájl*, yellow when a ready TPM is not
+  used yet) and when the certificate ends. *Commands → Új eszközkulcs (TPM)* makes a device re-key now, for
+  example after a TPM firmware update; answered like a power action.
+- **A device whose TPM lost its key** (a BIOS update that cleared the Intel PTT, a deliberate TPM clear) has no
+  certificate to authenticate with. The agent notices, creates a new key and sends a lost-key request without a
+  certificate (`/enroll/rekey`, rate-limited, one pending per device, seven days). Nothing is issued by itself:
+  the device turns yellow in the console (*KULCSKÉRÉS*, with the name and address it reports and when), and
+  *Approve* issues the certificate for the same device id - the old one is out at once - while a context-menu
+  item rejects it. The device polls every minute and comes back with its id, group and notes. Every step is an
+  audit row (`device-rekey-request`, `-approved`, `-rejected`).
+- Schema: six nullable `Devices` columns and the `RekeyRequests` table (`upgrade-2.3.0-rekey.sql`, idempotent).
+- Not in this round: TPM-backed SSH keys.
+
 ## What's New in 2.2.7
 
 A release about seeing: what a device is doing when something is wrong, and what the server is doing when nobody

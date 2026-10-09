@@ -20,6 +20,7 @@ public sealed class TunnelOrchestratorService(
     RemoteAgent.Update.UpdateInstaller updateInstaller,
     AgentUplink uplink,
     RemoteAgent.Power.SessionKeepAwake keepAwake,
+    RekeyService rekey,
     ILoggerFactory loggerFactory,
     ILogger<TunnelOrchestratorService> logger) : BackgroundService
 {
@@ -79,6 +80,9 @@ public sealed class TunnelOrchestratorService(
                 break;
             case CommandTypes.Diag:
                 await DiagCommandAsync(cmd, ct);
+                break;
+            case CommandTypes.Rekey:
+                await RekeyCommandAsync(cmd, ct);
                 break;
             default:
                 logger.LogWarning(L.TunnelOrchestratorService_UnknownCommandType, cmd.Type);
@@ -315,6 +319,22 @@ public sealed class TunnelOrchestratorService(
         catch (Exception ex)
         {
             logger.LogError(ex, L.DiagMode_Failed);
+            outcome = "failed";
+        }
+        await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
+    }
+
+    /// <summary>The console asked for a new key and certificate (after a TPM firmware update, say).</summary>
+    private async Task RekeyCommandAsync(AgentCommand cmd, CancellationToken ct)
+    {
+        string outcome;
+        try
+        {
+            outcome = RemoteAgent.Security.DeviceIdentity.Current is { } id && await rekey.RekeyAsync(id, "console", ct) ? "rekeyed" : "failed";
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, L.RekeyService_Failed);
             outcome = "failed";
         }
         await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);

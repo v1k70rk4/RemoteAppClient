@@ -280,6 +280,29 @@ public sealed class AdminApi : IDisposable
         return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
     }
 
+    /// <summary>Asks the device for a new key (in the TPM when it can) and certificate. Returns the nonce to poll the
+    /// outcome ("rekeyed" / "failed"), or null when the device's agent predates the command (server answers 409).</summary>
+    public async Task<string?> RekeyAsync(string deviceId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/rekey", content: null, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Conflict) return null;
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.OpenTunnelResult, ct))?.Nonce;
+    }
+
+    /// <summary>Approves a device's lost-key request: its new certificate is issued and the old one is out.</summary>
+    public async Task ApproveRekeyRequestAsync(string deviceId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/rekey-request/approve", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task RejectRekeyRequestAsync(string deviceId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"/admin/devices/{deviceId}/rekey-request/reject", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Fetches audit log with filters. Empty filter = all. action/actor/deviceId are optional.</summary>
     /// <summary>
     /// A device's history: liveness transitions (online / flaky / not-controllable / offline) and IP changes,

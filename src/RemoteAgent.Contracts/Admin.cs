@@ -164,6 +164,16 @@ public sealed class DeviceInfo
     [JsonPropertyName("tpmReady")] public bool? TpmReady { get; set; }
     [JsonPropertyName("tpmAttestation")] public bool? TpmAttestation { get; set; }
     [JsonPropertyName("tpmVulnerableFirmware")] public bool? TpmVulnerableFirmware { get; set; }
+    /// <summary>Where the device key lives: "tpm" | "software" | "file"; null = unknown (older agent).</summary>
+    [JsonPropertyName("keyProvider")] public string? KeyProvider { get; set; }
+    /// <summary>Device certificate expiry.</summary>
+    [JsonPropertyName("certNotAfter")] public DateTimeOffset? CertNotAfter { get; set; }
+    /// <summary>A pending lost-key request from the device (its TPM lost the key): when, from where. Null = none.</summary>
+    [JsonPropertyName("rekeyRequestedAt")] public DateTimeOffset? RekeyRequestedAt { get; set; }
+    [JsonPropertyName("rekeyRequestHostname")] public string? RekeyRequestHostname { get; set; }
+    [JsonPropertyName("rekeyRequestIp")] public string? RekeyRequestIp { get; set; }
+    /// <summary>Shortened SHA-256 of the requested key; the device logs the same, for the administrator to compare.</summary>
+    [JsonPropertyName("rekeyRequestKeyFingerprint")] public string? RekeyRequestKeyFingerprint { get; set; }
 
     /// <summary>Login lockout after 5 failed attempts from the device. Only an admin can unlock it.</summary>
     [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }

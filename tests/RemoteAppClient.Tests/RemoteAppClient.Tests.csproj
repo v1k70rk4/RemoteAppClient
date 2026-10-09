@@ -40,6 +40,7 @@
     <Compile Include="..\..\src\RemoteAgent\Diagnostics\DiagConfigurationSource.cs" Link="Agent\DiagConfigurationSource.cs" />
     <Compile Include="..\..\src\RemoteAgent\Telemetry\TpmInfo.cs" Link="Agent\TpmInfo.cs" />
     <Compile Include="..\..\src\RemoteAgent\Diagnostics\FileLog.cs" Link="Agent\FileLog.cs" />
+    <Compile Include="..\..\src\RemoteAgent\Security\RekeyPolicy.cs" Link="Agent\RekeyPolicy.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -102,6 +102,15 @@ public sealed class TelemetryPayload
     [JsonPropertyName("tpmVulnerableFirmware")]
     public bool? TpmVulnerableFirmware { get; set; }
 
+    /// <summary>Where the device's mTLS private key lives: "tpm", "software" (non-exportable CNG key) or "file"
+    /// (the DPAPI-sealed PFX of agents before 2.3). Null from agents that do not report it.</summary>
+    [JsonPropertyName("keyProvider")]
+    public string? KeyProvider { get; set; }
+
+    /// <summary>When the device certificate expires, as the agent reads it from its own certificate.</summary>
+    [JsonPropertyName("certNotAfter")]
+    public DateTimeOffset? CertNotAfter { get; set; }
+
     [JsonPropertyName("collectedAtUtc")]
     public DateTimeOffset CollectedAtUtc { get; set; }
 

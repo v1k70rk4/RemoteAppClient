@@ -158,6 +158,7 @@ public sealed class DevicesView : UserControl, IContentView
             power.DropDownItems.Add(new ToolStripSeparator());
             power.DropDownItems.Add(L.DevicesView_DiagOn24, null, async (_, _) => await RunDiagAsync(24));
             power.DropDownItems.Add(L.DevicesView_DiagOff, null, async (_, _) => await RunDiagAsync(0));
+            power.DropDownItems.Add(L.DevicesView_Rekey, null, async (_, _) => await RunRekeyAsync());
             menu.Items.Add(power);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(L.DevicesView_Delete, null, async (_, _) => await DeleteSelectedAsync());
@@ -236,6 +237,9 @@ public sealed class DevicesView : UserControl, IContentView
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(L.DevicesView_DiagOn24, null, async (_, _) => await RunDiagAsync(24));
         menu.Items.Add(L.DevicesView_DiagOff, null, async (_, _) => await RunDiagAsync(0));
+        menu.Items.Add(L.DevicesView_Rekey, null, async (_, _) => await RunRekeyAsync());
+        if (SelectedDevice() is { RekeyRequestedAt: not null })
+            menu.Items.Add(L.DevicesView_RekeyRejectMenu, null, async (_, _) => await RejectRekeyAsync());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(L.DevicesView_Delete, null, async (_, _) => await DeleteSelectedAsync());
         menu.Show(_header.More, new Point(0, _header.More.Height));
@@ -429,6 +433,7 @@ public sealed class DevicesView : UserControl, IContentView
         {
             DeviceState.Error => (ThemeManager.DangerFg, ThemeManager.DangerBg),
             DeviceState.Pending => (ThemeManager.WarnFg, ThemeManager.WarnBg),
+            DeviceState.RekeyRequested => (ThemeManager.WarnFg, ThemeManager.WarnBg),
             DeviceState.Online => (ThemeManager.OkFg, ThemeManager.OkBg),
             DeviceState.Flaky => (ThemeManager.WarnFg, ThemeManager.WarnBg),
             DeviceState.Reporting => (ThemeManager.BetaFg, ThemeManager.BetaBg),
@@ -893,10 +898,39 @@ public sealed class DevicesView : UserControl, IContentView
         catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
     }
 
-    private async Task<string> WaitPowerAsync(string? nonce)
+    private async Task RejectRekeyAsync()
+    {
+        if (SelectedDevice() is not { } d || d.RekeyRequestedAt is null) return;
+        if (MessageBox.Show(L.Format(L.DevicesView_RekeyRejectConfirm, d.Hostname), L.DevicesView_RekeyRejectMenu, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { await _api.RejectRekeyRequestAsync(d.DeviceId); SetStatus(L.Format(L.DevicesView_RekeyRejected, d.Hostname)); await RefreshAsync(); }
+        catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
+    }
+
+    private async Task RunRekeyAsync()
+    {
+        if (SelectedDevice() is not { } d) { SetStatus(L.DevicesView_SelectADevice); return; }
+        if (MessageBox.Show(L.Format(L.DevicesView_RekeyConfirm, d.Hostname), L.DevicesView_Rekey, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try
+        {
+            SetStatus(L.DeviceCommandsPanel_Sending);
+            var nonce = await _api.RekeyAsync(d.DeviceId);
+            if (nonce is null) { SetStatus(L.Format(L.DevicesView_RekeyAgentTooOld, d.AgentVersion ?? "?")); return; }
+            var outcome = await WaitPowerAsync(nonce, seconds: 90); // TPM key, two round trips, the switch
+            SetStatus(outcome switch
+            {
+                "rekeyed" => L.DevicesView_RekeyDone,
+                "failed" => L.DevicesView_RekeyFailed,
+                _ => L.DeviceCommandsPanel_NoAnswer,
+            });
+            if (outcome == "rekeyed") await RefreshAsync();
+        }
+        catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
+    }
+
+    private async Task<string> WaitPowerAsync(string? nonce, int seconds = 15)
     {
         if (string.IsNullOrEmpty(nonce)) return "";
-        for (int i = 0; i < 15; i++)
+        for (int i = 0; i < seconds; i++)
         {
             try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
             catch { /* transient */ }
@@ -968,6 +1002,16 @@ public sealed class DevicesView : UserControl, IContentView
     private async Task ApproveSelectedAsync()
     {
         if (SelectedDevice() is not { } sel) return;
+        if (sel.RekeyRequestedAt is { } askedAt)
+        {
+            // The yellow lost-key case: the same button approves the new certificate for the device.
+            var when = askedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            if (MessageBox.Show(L.Format(L.DevicesView_RekeyApproveConfirm, sel.Hostname, sel.RekeyRequestHostname ?? "?", sel.RekeyRequestIp ?? "?", when, sel.RekeyRequestKeyFingerprint ?? "?"),
+                    L.DevicesView_Approve, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            try { await _api.ApproveRekeyRequestAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_RekeyApproved, sel.Hostname)); await RefreshAsync(); }
+            catch (Exception ex) { SetStatus(L.DevicesView_ApproveError + ex.Message); }
+            return;
+        }
         if (string.Equals(sel.Status, "Approved", StringComparison.OrdinalIgnoreCase)) { SetStatus(L.Format(L.DevicesView_IsAlreadyApproved, sel.Hostname)); return; }
         if (MessageBox.Show(L.Format(L.DevicesView_ApproveThisDevice, sel.Hostname, sel.DeviceId), L.DevicesView_Approve, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         try { await _api.ApproveDeviceAsync(sel.DeviceId); SetStatus(L.Format(L.DevicesView_Approved, sel.Hostname)); await RefreshAsync(); }
