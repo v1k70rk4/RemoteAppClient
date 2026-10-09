@@ -204,9 +204,18 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         try { if (File.Exists(PendingPath)) pending = JsonSerializer.Deserialize(File.ReadAllText(PendingPath), AgentLocalJsonContext.Default.PendingCandidate); }
         catch { /* unreadable: treated as none */ }
         if (pending is null || DeviceIdentity.Current is not { } current) return false;
-        if (!DeviceKeyStore.KeyExists(pending.KeyName) || current.Thumbprint == pending.Thumbprint)
+        if (current.Thumbprint == pending.Thumbprint)
         {
-            try { File.Delete(PendingPath); } catch { /* best effort */ }   // nothing to resolve, or already switched
+            // Already the live identity: the switch happened, but the round may have died before enrollment.json
+            // was rewritten (the pending file is still here). Persist it again - idempotent - so a restart does not
+            // come back with the old certificate, then drop the file.
+            RewriteEnrollment(current);
+            try { File.Delete(PendingPath); } catch { /* best effort */ }
+            return false;
+        }
+        if (!DeviceKeyStore.KeyExists(pending.KeyName))
+        {
+            try { File.Delete(PendingPath); } catch { /* best effort */ }   // nothing left to resolve
             return false;
         }
         var outcome = await ResolveCandidateAsync(pending, current, "pending", ct);
