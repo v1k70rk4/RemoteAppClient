@@ -3,7 +3,7 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
-## What's New in 2.3.0 (in progress)
+## What's New in 2.3.0
 
 **The device key lives in the TPM, and certificates renew themselves** ([ADR-0003](docs/adr/0003-tpm-device-key.md))
 - A device's mTLS key is now a named, machine-scoped, non-exportable CNG key: in the TPM (Microsoft Platform
