@@ -59,4 +59,5 @@ public sealed class EnrollmentRecord
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(EnrollmentRecord))]
 [JsonSerializable(typeof(RemoteAgent.Services.RekeyService.RecoveryState))]
+[JsonSerializable(typeof(RemoteAgent.Services.RekeyService.PendingCandidate))]
 public sealed partial class AgentLocalJsonContext : JsonSerializerContext;

@@ -16,35 +16,48 @@ namespace RemoteAgent.Services;
 /// <summary>
 /// Moves the device key into the TPM and renews the certificate before it ends; both are "new key, new
 /// certificate, old one retired". Checked once after start (after a randomized 5-30 minute delay, so a fleet-wide
-/// agent rollout does not re-key every device in the same minute) and then daily.
+/// agent rollout does not re-key every device in the same minute) and then daily; the console can ask for a
+/// round at any time. Rounds are serialized: one at a time, whoever asks.
 ///
 /// Order of operations, so a failure anywhere leaves the device on its old identity: new key → CSR → the server
 /// issues a certificate but keeps the old one primary → the new certificate is installed and proven with a
 /// confirm call made with it → only then the agent switches, rewrites enrollment.json and deletes the old key
-/// material. The server retires the old certificate at the confirm, with a short grace for connections in flight.
+/// material. A candidate whose confirmation got no answer is written to rekey-pending.json and resolved before
+/// anything else, in the next round or after a restart: the server may already trust it.
+///
+/// A device whose key is gone (the TPM was cleared) has nothing to authenticate with; see <see cref="RecoverAsync"/>.
 /// </summary>
 public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal reconnect, ILogger<RekeyService> logger) : BackgroundService
 {
     private readonly AgentOptions _opt = options.Value;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    private string BaseUrl => _opt.Telemetry.IngestUrl.Replace("/api/telemetry", "", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
+    private string PendingPath => Path.Combine(_opt.EnrollmentDir, "rekey-pending.json");
+    private string RecoveryPath => Path.Combine(_opt.EnrollmentDir, "rekey-request.json");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (DeviceIdentity.Current is null || string.IsNullOrWhiteSpace(_opt.Telemetry.IngestUrl)) return;
 
-        // No usable key (the TPM was cleared, the store entry is gone): nothing else in this agent can talk to
-        // the server. Ask for a new certificate and wait for an administrator; this takes over until it is done.
-        if (!IdentityUsable(DeviceIdentity.Current))
+        try
         {
-            try { await RecoverAsync(stoppingToken); }
-            catch (OperationCanceledException) { return; }
-        }
+            // A candidate from an earlier round whose confirmation got no answer comes first: the server may
+            // already trust it, and a working identity must not be thrown away for a new attempt.
+            await RunSerializedAsync(async ct => { await ResolvePendingAsync(ct); }, stoppingToken);
 
-        try { await Task.Delay(TimeSpan.FromMinutes(5 + Random.Shared.Next(0, 26)), stoppingToken); }
+            // No usable key (the TPM was cleared, the store entry is gone): nothing else in this agent can talk to
+            // the server. Ask for a new certificate and wait for an administrator; this takes over until it is done.
+            if (DeviceIdentity.Current is { } id && !IdentityUsable(id))
+                await RunSerializedAsync(RecoverAsync, stoppingToken);
+
+            await Task.Delay(TimeSpan.FromMinutes(5 + Random.Shared.Next(0, 26)), stoppingToken);
+        }
         catch (OperationCanceledException) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            try { await CheckAsync(stoppingToken); }
+            try { await RunSerializedAsync(CheckAsync, stoppingToken); }
             catch (OperationCanceledException) { break; }
             catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_Failed); }
             try { await Task.Delay(TimeSpan.FromHours(24), stoppingToken); }
@@ -52,22 +65,54 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         }
     }
 
-    private async Task CheckAsync(CancellationToken ct)
+    private async Task RunSerializedAsync(Func<CancellationToken, Task> work, CancellationToken ct)
     {
-        var id = DeviceIdentity.Current;
-        if (id is null) return;
-        var reason = RekeyPolicy.Reason(id.Provider, DeviceKeyStore.TpmUsable(), id.NotAfter, DateTimeOffset.UtcNow);
-        if (reason is null) return;
-        await RekeyAsync(id, reason, ct);
+        await _gate.WaitAsync(ct);
+        try { await work(ct); }
+        finally { _gate.Release(); }
     }
 
-    /// <summary>One re-key round; public so a console command can trigger it later.</summary>
+    /// <summary>The daily decision. A pending candidate or a lost key is dealt with before the policy is asked.</summary>
+    private async Task CheckAsync(CancellationToken ct)
+    {
+        if (await ResolvePendingAsync(ct)) return; // a candidate is still in flight: nothing new this round
+        var id = DeviceIdentity.Current;
+        if (id is null) return;
+        if (!IdentityUsable(id)) { await RecoverAsync(ct); return; }
+        var reason = RekeyPolicy.Reason(id.Provider, DeviceKeyStore.TpmUsable(), id.NotAfter, DateTimeOffset.UtcNow);
+        if (reason is null) return;
+        await RekeyCoreAsync(id, reason, ct);
+    }
+
+    /// <summary>One re-key round on request (the console's "new device key"). Serialized with the daily check.</summary>
     public async Task<bool> RekeyAsync(DeviceIdentity.Snapshot id, string reason, CancellationToken ct)
     {
-        var baseUrl = _opt.Telemetry.IngestUrl.Replace("/api/telemetry", "", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
+        await _gate.WaitAsync(ct);
+        try
+        {
+            if (await ResolvePendingAsync(ct)) return false; // an earlier candidate is still unresolved: no second one
+            return await RekeyCoreAsync(DeviceIdentity.Current ?? id, reason, ct);
+        }
+        finally { _gate.Release(); }
+    }
+
+    // ---- the round ------------------------------------------------------------------------------------
+
+    /// <summary>A candidate certificate installed and waiting for its confirmation to be known.</summary>
+    public sealed class PendingCandidate
+    {
+        public string KeyName { get; set; } = "";
+        public string Provider { get; set; } = "";
+        public string Thumbprint { get; set; } = "";
+        public DateTimeOffset? NotAfter { get; set; }
+        public DateTimeOffset CreatedUtc { get; set; }
+    }
+
+    private async Task<bool> RekeyCoreAsync(DeviceIdentity.Snapshot id, string reason, CancellationToken ct)
+    {
         using var fresh = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
         string? newThumb = null;
-        bool switched = false, confirmSent = false;
+        bool keep = false; // once the candidate is on file, this round no longer owns its cleanup
         try
         {
             var csr = new CertificateRequest("CN=rekey", fresh.Key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
@@ -75,7 +120,7 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
             RekeyResponse? resp;
             using (var http = BuildClient(id))
             {
-                using var r = await http.PostAsJsonAsync($"{baseUrl}/api/rekey",
+                using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/rekey",
                     new RekeyRequest { Csr = csr, KeyProvider = fresh.Provider, Reason = reason }, AgentJsonContext.Default.RekeyRequest, ct);
                 if (!r.IsSuccessStatusCode)
                 {
@@ -87,46 +132,19 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
             if (resp is null || string.IsNullOrEmpty(resp.Certificate)) return false;
 
             newThumb = DeviceKeyStore.InstallCertificate(resp.Certificate, fresh.Key);
-            var candidate = new DeviceIdentity.Snapshot(fresh.Provider, newThumb, fresh.KeyName, null, resp.NotAfter);
+            var candidate = new PendingCandidate { KeyName = fresh.KeyName, Provider = fresh.Provider, Thumbprint = newThumb, NotAfter = resp.NotAfter, CreatedUtc = DateTimeOffset.UtcNow };
+            // On file before the confirm leaves: from here the server may trust the candidate at any moment, so
+            // it must survive a crash or a lost answer and be resolved later rather than remade.
+            WriteJson(PendingPath, JsonSerializer.Serialize(candidate, AgentLocalJsonContext.Default.PendingCandidate));
+            keep = true;
 
-            // Prove the new certificate at the server before anything old is touched. Once the confirm request
-            // has left, the server may have committed even if the answer never arrives: from here the candidate
-            // is kept unless the server says, in so many words, that it is not the certificate of record.
-            confirmSent = true;
-            var confirmed = await ConfirmAsync(candidate, baseUrl, ct);
-            if (confirmed is null)
-            {
-                // Lost answer: ask once more. A commit shows as "nothing pending" with this certificate accepted.
-                confirmed = await ConfirmAsync(candidate, baseUrl, ct);
-                if (confirmed is null)
-                {
-                    logger.LogWarning(L.RekeyService_ConfirmUnknown, newThumb);
-                    return false; // candidate kept (see finally); the next round resolves it
-                }
-            }
-            if (confirmed == false) { confirmSent = false; return false; } // the server refused it: safe to discard
-
-            // Switch first: every later connection uses the new identity and enrollment.json says so for the next
-            // start. The old key material goes afterwards, best effort - a failure there must not undo the switch.
-            DeviceIdentity.Set(candidate);
-            RewriteEnrollment(candidate);
-            switched = true;
-            try
-            {
-                if (id.InStore) { DeviceKeyStore.RemoveCertificate(id.Thumbprint); DeviceKeyStore.DeleteKey(id.KeyName); }
-                else if (id.PfxPath is { } pfx) System.IO.File.Delete(pfx);
-            }
-            catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_OldKeyCleanupFailed); }
-            logger.LogWarning(L.RekeyService_Rekeyed, reason, fresh.Provider, resp.NotAfter);
-            reconnect.Request(); // the command channel moves to the new certificate now, not at its next drop
-            return true;
+            return await ResolveCandidateAsync(candidate, id, reason, ct) == true;
         }
         finally
         {
-            // Refused, empty, or thrown before the confirm left: the key and certificate made for this round go,
-            // or every daily retry would leave another machine key behind in the TPM. After the confirm left they
-            // stay: the server may trust them now, and deleting them would cost an administrator-approved recovery.
-            if (!switched && !confirmSent)
+            // Refused, empty, or thrown before the candidate was on file: the key and certificate made for this
+            // round go, or every daily retry would leave another machine key behind in the TPM.
+            if (!keep)
             {
                 if (newThumb is not null) DeviceKeyStore.RemoveCertificate(newThumb);
                 DeviceKeyStore.DeleteKey(fresh.KeyName);
@@ -134,15 +152,69 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         }
     }
 
+    /// <summary>Confirms a candidate at the server and acts on the outcome. True: switched to it. False: the server
+    /// refused it, and it is gone. Null: still unknown (no answer twice), kept on file for a later round.</summary>
+    private async Task<bool?> ResolveCandidateAsync(PendingCandidate candidate, DeviceIdentity.Snapshot current, string reason, CancellationToken ct)
+    {
+        var snapshot = new DeviceIdentity.Snapshot(candidate.Provider, candidate.Thumbprint, candidate.KeyName, null, candidate.NotAfter);
+        var confirmed = await ConfirmAsync(snapshot, ct) ?? await ConfirmAsync(snapshot, ct);
+        if (confirmed is null)
+        {
+            logger.LogWarning(L.RekeyService_ConfirmUnknown, candidate.Thumbprint);
+            return null;
+        }
+        if (confirmed == false)
+        {
+            DeviceKeyStore.RemoveCertificate(candidate.Thumbprint);
+            DeviceKeyStore.DeleteKey(candidate.KeyName);
+            try { File.Delete(PendingPath); } catch { /* best effort */ }
+            return false;
+        }
+
+        // Switch first: every later connection uses the new identity and enrollment.json says so for the next
+        // start. The old key material goes afterwards, best effort - a failure there must not undo the switch.
+        DeviceIdentity.Set(snapshot);
+        RewriteEnrollment(snapshot);
+        try { File.Delete(PendingPath); } catch { /* best effort */ }
+        try
+        {
+            if (current.Thumbprint != candidate.Thumbprint)
+            {
+                if (current.InStore) { DeviceKeyStore.RemoveCertificate(current.Thumbprint); DeviceKeyStore.DeleteKey(current.KeyName); }
+                else if (current.PfxPath is { } pfx) File.Delete(pfx);
+            }
+        }
+        catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_OldKeyCleanupFailed); }
+        logger.LogWarning(L.RekeyService_Rekeyed, reason, candidate.Provider, candidate.NotAfter);
+        reconnect.Request(); // the command channel moves to the new certificate now, not at its next drop
+        return true;
+    }
+
+    /// <summary>Resolves a candidate left on file by an earlier round. True while one is still unresolved.</summary>
+    private async Task<bool> ResolvePendingAsync(CancellationToken ct)
+    {
+        PendingCandidate? pending = null;
+        try { if (File.Exists(PendingPath)) pending = JsonSerializer.Deserialize(File.ReadAllText(PendingPath), AgentLocalJsonContext.Default.PendingCandidate); }
+        catch { /* unreadable: treated as none */ }
+        if (pending is null || DeviceIdentity.Current is not { } current) return false;
+        if (!DeviceKeyStore.KeyExists(pending.KeyName) || current.Thumbprint == pending.Thumbprint)
+        {
+            try { File.Delete(PendingPath); } catch { /* best effort */ }   // nothing to resolve, or already switched
+            return false;
+        }
+        var outcome = await ResolveCandidateAsync(pending, current, "pending", ct);
+        return outcome is null;
+    }
+
     /// <summary>One confirm call with the candidate's certificate. True: the server made it the certificate of
     /// record (now, or already - "nothing pending" while accepting this certificate). False: the server refused it
     /// (not the pending one, or the offer lapsed). Null: no answer arrived, so nothing is known.</summary>
-    private async Task<bool?> ConfirmAsync(DeviceIdentity.Snapshot candidate, string baseUrl, CancellationToken ct)
+    private async Task<bool?> ConfirmAsync(DeviceIdentity.Snapshot candidate, CancellationToken ct)
     {
         try
         {
             using var http = BuildClient(candidate);
-            using var r = await http.PostAsync($"{baseUrl}/api/rekey/confirm", content: null, ct);
+            using var r = await http.PostAsync($"{BaseUrl}/api/rekey/confirm", content: null, ct);
             if (r.IsSuccessStatusCode) return true;
             if ((int)r.StatusCode == 409)
             {
@@ -163,12 +235,13 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
     {
         if (!id.InStore) return true; // a PFX file: present or not, the old path handles it
         if (!DeviceKeyStore.KeyExists(id.KeyName)) return false;
-        try { using var c = CertHelper.ResolveClientCertificate(null, id.Thumbprint); return c.HasPrivateKey; }
+        try { using var c = CertHelper.LoadClientCertificate(id.Thumbprint); return c.HasPrivateKey; }
         catch { return false; }
     }
 
     public sealed class RecoveryState
     {
+        /// <summary>Empty until the server has accepted the request: the key exists, the request may not.</summary>
         public Guid RequestId { get; set; }
         public string Token { get; set; } = "";
         public string KeyName { get; set; } = "";
@@ -181,111 +254,147 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
     public static string KeyFingerprint(ECDsa key) =>
         Convert.ToHexString(SHA256.HashData(key.ExportSubjectPublicKeyInfo()))[..16];
 
-    private string RecoveryPath => Path.Combine(_opt.EnrollmentDir, "rekey-request.json");
-
-    /// <summary>Opens (or resumes) a lost-key request and polls it until the administrator decides. On approval the
-    /// device switches to the new certificate and returns; on rejection or expiry it waits a day and asks again.</summary>
+    /// <summary>
+    /// Opens (or resumes) a lost-key request and polls it until the administrator decides. The key is made and
+    /// written to rekey-request.json before the request is sent, so a crash in between does not strand a request
+    /// the server accepted: sending the same key again makes the server hand back that request with fresh polling
+    /// credentials (the CSR proves the key is ours). On approval the device switches to the new certificate and
+    /// returns; on rejection or expiry it waits a day and asks again. Transport trouble is waited out, never fatal.
+    /// </summary>
     private async Task RecoverAsync(CancellationToken ct)
     {
         var id = DeviceIdentity.Current!;
-        var baseUrl = _opt.Telemetry.IngestUrl.Replace("/api/telemetry", "", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
-        var rec = JsonSerializer.Deserialize(System.IO.File.ReadAllText(Path.Combine(_opt.EnrollmentDir, "enrollment.json")), AgentLocalJsonContext.Default.EnrollmentRecord)!;
+        var rec = JsonSerializer.Deserialize(File.ReadAllText(Path.Combine(_opt.EnrollmentDir, "enrollment.json")), AgentLocalJsonContext.Default.EnrollmentRecord)!;
         logger.LogError(L.RekeyService_KeyLost, id.Provider);
 
         while (!ct.IsCancellationRequested)
         {
-            RecoveryState? state = null;
-            try { if (System.IO.File.Exists(RecoveryPath)) state = JsonSerializer.Deserialize(System.IO.File.ReadAllText(RecoveryPath), AgentLocalJsonContext.Default.RecoveryState); }
-            catch { state = null; }
-            ECDsa? key = state is null ? null : DeviceKeyStore.Open(state.KeyName);
-            if (state is null || key is null)
+            try
             {
-                // A fresh key and a fresh request. The key is persisted under its name, so a restart resumes
-                // with the same request rather than opening a new one every time.
-                var fresh = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
-                key = fresh.Key;
-                var csr = new CertificateRequest("CN=rekey", key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
-                var fingerprint = KeyFingerprint(key);
-                using var http = PlainClient();
-                using var r = await http.PostAsJsonAsync($"{baseUrl}/enroll/rekey",
-                    new RekeyRequestOpen { DeviceId = rec.DeviceId, Hostname = Environment.MachineName, Csr = csr, KeyProvider = fresh.Provider },
-                    AgentJsonContext.Default.RekeyRequestOpen, ct);
-                if (!r.IsSuccessStatusCode)
+                RecoveryState? state = null;
+                try { if (File.Exists(RecoveryPath)) state = JsonSerializer.Deserialize(File.ReadAllText(RecoveryPath), AgentLocalJsonContext.Default.RecoveryState); }
+                catch { state = null; }
+                ECDsa? key = state is null ? null : DeviceKeyStore.Open(state.KeyName);
+                if (state is null || key is null)
                 {
-                    // 409: the server already holds a request for this device, or still sees it alive - wait, do not
-                    // pile up keys; anything else: try again later all the same.
-                    logger.LogWarning(L.RekeyService_RequestFailed, (int)r.StatusCode);
-                    key.Dispose();
-                    DeviceKeyStore.DeleteKey(fresh.KeyName);
-                    await Task.Delay(TimeSpan.FromMinutes(15), ct);
-                    continue;
+                    var fresh = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
+                    key = fresh.Key;
+                    state = new RecoveryState { KeyName = fresh.KeyName, Provider = fresh.Provider, KeyFingerprint = KeyFingerprint(key) };
+                    WriteJson(RecoveryPath, JsonSerializer.Serialize(state, AgentLocalJsonContext.Default.RecoveryState));
                 }
-                var opened = (await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyRequestOpened, ct))!;
-                state = new RecoveryState { RequestId = opened.RequestId, Token = opened.Token, KeyName = fresh.KeyName, Provider = fresh.Provider, OpenedUtc = DateTimeOffset.UtcNow, KeyFingerprint = fingerprint };
-                System.IO.File.WriteAllText(RecoveryPath, JsonSerializer.Serialize(state, AgentLocalJsonContext.Default.RecoveryState));
-                // The fingerprint is what the administrator sees in the console next to the request: it is in this
-                // log and in the event log so the two can be compared before approving.
-                logger.LogWarning(L.RekeyService_RequestOpened, opened.RequestId, fingerprint);
+                using (key)
+                {
+                    if (state.RequestId == Guid.Empty && !await OpenRequestAsync(state, key, rec.DeviceId, ct))
+                    {
+                        await Task.Delay(TimeSpan.FromMinutes(15), ct);
+                        continue;
+                    }
+                    var done = await PollRequestAsync(state, key, id, ct);
+                    if (done) return;
+                }
+                await Task.Delay(TimeSpan.FromHours(24), ct); // rejected or expired: a new request tomorrow
             }
-
-            // Poll until decided.
-            while (!ct.IsCancellationRequested)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
             {
-                await Task.Delay(TimeSpan.FromMinutes(1), ct);
-                RekeyRequestStatus? status; int code;
-                try
-                {
-                    using var http = PlainClient();
-                    using var r = await http.GetAsync($"{baseUrl}/enroll/rekey/{state.RequestId}?token={Uri.EscapeDataString(state.Token)}", ct);
-                    code = (int)r.StatusCode;
-                    status = code is 200 or 202 or 410 ? await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyRequestStatus, ct) : null;
-                }
-                catch (HttpRequestException) { continue; } // network: keep polling
-                if (code == 202) continue;
-                if (code == 200 && status?.Certificate is { } pem)
-                {
-                    var thumb = DeviceKeyStore.InstallCertificate(pem, key);
-                    var snapshot = new DeviceIdentity.Snapshot(state.Provider, thumb, state.KeyName, null, status.NotAfter);
-                    DeviceIdentity.Set(snapshot);
-                    RewriteEnrollment(snapshot);
-                    try { System.IO.File.Delete(RecoveryPath); } catch { /* best effort */ }
-                    DeviceKeyStore.RemoveCertificate(id.Thumbprint);
-                    logger.LogWarning(L.RekeyService_Recovered, state.Provider, status.NotAfter);
-                    key.Dispose();
-                    reconnect.Request(); // the channel has been failing without a certificate; try at once
-                    return;
-                }
-                // Rejected, expired, or the server no longer knows the request: start over tomorrow.
-                logger.LogError(L.RekeyService_RequestRejected, status?.State ?? code.ToString());
-                try { System.IO.File.Delete(RecoveryPath); } catch { /* best effort */ }
-                DeviceKeyStore.DeleteKey(state.KeyName);
-                key.Dispose();
-                await Task.Delay(TimeSpan.FromHours(24), ct);
-                break;
+                logger.LogWarning(ex, L.RekeyService_Failed);
+                await Task.Delay(TimeSpan.FromMinutes(15), ct);
             }
         }
     }
 
-    /// <summary>A client with no certificate (the device has none to offer), still pinned when a pin is set.</summary>
-    private HttpClient PlainClient()
+    /// <summary>Sends the request for the key on file. True when the server accepted it (id and token now in the
+    /// state). A pending request for this very key comes back as the same request with new credentials.</summary>
+    private async Task<bool> OpenRequestAsync(RecoveryState state, ECDsa key, string deviceId, CancellationToken ct)
     {
-        var handler = new SocketsHttpHandler();
-        if (!string.IsNullOrWhiteSpace(_opt.Telemetry.ServerCertPinSha256))
-            handler.SslOptions.RemoteCertificateValidationCallback = CertHelper.PinnedServerValidator(_opt.Telemetry.ServerCertPinSha256);
-        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        var csr = new CertificateRequest("CN=rekey", key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
+        HttpResponseMessage r;
+        try
+        {
+            using var http = PlainClient();
+            r = await http.PostAsJsonAsync($"{BaseUrl}/enroll/rekey",
+                new RekeyRequestOpen { DeviceId = deviceId, Hostname = Environment.MachineName, Csr = csr, KeyProvider = state.Provider },
+                AgentJsonContext.Default.RekeyRequestOpen, ct);
+        }
+        catch (HttpRequestException) { return false; }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return false; }
+        using (r)
+        {
+            if (!r.IsSuccessStatusCode)
+            {
+                // 409: the server still sees the device alive, or holds somebody else's request; 404: the device is
+                // gone from the server. The key stays for the next try, nothing piles up.
+                logger.LogWarning(L.RekeyService_RequestFailed, (int)r.StatusCode);
+                return false;
+            }
+            var opened = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyRequestOpened, ct);
+            if (opened is null || opened.RequestId == Guid.Empty) return false;
+            state.RequestId = opened.RequestId; state.Token = opened.Token; state.OpenedUtc = DateTimeOffset.UtcNow;
+            WriteJson(RecoveryPath, JsonSerializer.Serialize(state, AgentLocalJsonContext.Default.RecoveryState));
+            // The fingerprint is what the administrator sees in the console next to the request: it is in this
+            // log and in the event log so the two can be compared before approving.
+            logger.LogWarning(L.RekeyService_RequestOpened, opened.RequestId, state.KeyFingerprint);
+            return true;
+        }
     }
+
+    /// <summary>Polls the request every minute. True once the device is back on a new certificate; false when the
+    /// request ended without one (its state and key are then gone) and a new one is due later.</summary>
+    private async Task<bool> PollRequestAsync(RecoveryState state, ECDsa key, DeviceIdentity.Snapshot old, CancellationToken ct)
+    {
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromMinutes(1), ct);
+            RekeyRequestStatus? status; int code;
+            try
+            {
+                using var http = PlainClient();
+                using var r = await http.GetAsync($"{BaseUrl}/enroll/rekey/{state.RequestId}?token={Uri.EscapeDataString(state.Token)}", ct);
+                code = (int)r.StatusCode;
+                status = code is 200 or 202 or 410 ? await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyRequestStatus, ct) : null;
+            }
+            catch (HttpRequestException) { continue; } // network: keep polling
+            catch (TaskCanceledException) when (!ct.IsCancellationRequested) { continue; }
+            if (code == 202 || code == 429) continue;
+            if (code == 200 && status?.Certificate is { } pem)
+            {
+                var thumb = DeviceKeyStore.InstallCertificate(pem, key);
+                var snapshot = new DeviceIdentity.Snapshot(state.Provider, thumb, state.KeyName, null, status.NotAfter);
+                DeviceIdentity.Set(snapshot);
+                RewriteEnrollment(snapshot);
+                try { File.Delete(RecoveryPath); } catch { /* best effort */ }
+                DeviceKeyStore.RemoveCertificate(old.Thumbprint);
+                logger.LogWarning(L.RekeyService_Recovered, state.Provider, status.NotAfter);
+                reconnect.Request(); // the channel has been failing without a certificate; try at once
+                return true;
+            }
+            // Rejected, expired, or the server no longer knows the request: start over tomorrow.
+            logger.LogError(L.RekeyService_RequestRejected, status?.State ?? code.ToString());
+            try { File.Delete(RecoveryPath); } catch { /* best effort */ }
+            DeviceKeyStore.DeleteKey(state.KeyName);
+            return false;
+        }
+    }
+
+    // ---- plumbing -------------------------------------------------------------------------------------
 
     private void RewriteEnrollment(DeviceIdentity.Snapshot s)
     {
         var path = Path.Combine(_opt.EnrollmentDir, "enrollment.json");
-        var rec = JsonSerializer.Deserialize(System.IO.File.ReadAllText(path), AgentLocalJsonContext.Default.EnrollmentRecord)!;
+        var rec = JsonSerializer.Deserialize(File.ReadAllText(path), AgentLocalJsonContext.Default.EnrollmentRecord)!;
         rec.CertThumbprint = s.Thumbprint;
         rec.KeyProvider = s.Provider;
         rec.KeyName = s.KeyName;
         rec.CertNotAfterUtc = s.NotAfter;
+        WriteJson(path, JsonSerializer.Serialize(rec, AgentLocalJsonContext.Default.EnrollmentRecord));
+    }
+
+    /// <summary>Atomic write: a crash mid-write leaves the previous file, never a torn one.</summary>
+    private static void WriteJson(string path, string json)
+    {
         var tmp = path + ".tmp";
-        System.IO.File.WriteAllText(tmp, JsonSerializer.Serialize(rec, AgentLocalJsonContext.Default.EnrollmentRecord));
-        System.IO.File.Move(tmp, path, overwrite: true);
+        File.WriteAllText(tmp, json);
+        File.Move(tmp, path, overwrite: true);
     }
 
     /// <summary>A client presenting exactly this snapshot's certificate - not the live identity, which is still
@@ -297,6 +406,15 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         handler.SslOptions.ClientCertificates.Add(id.InStore
             ? CertHelper.LoadClientCertificate(id.Thumbprint)
             : CertHelper.LoadClientCertificateFromProtectedPfx(id.PfxPath!));
+        if (!string.IsNullOrWhiteSpace(_opt.Telemetry.ServerCertPinSha256))
+            handler.SslOptions.RemoteCertificateValidationCallback = CertHelper.PinnedServerValidator(_opt.Telemetry.ServerCertPinSha256);
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+    }
+
+    /// <summary>A client with no certificate (the device has none to offer), still pinned when a pin is set.</summary>
+    private HttpClient PlainClient()
+    {
+        var handler = new SocketsHttpHandler();
         if (!string.IsNullOrWhiteSpace(_opt.Telemetry.ServerCertPinSha256))
             handler.SslOptions.RemoteCertificateValidationCallback = CertHelper.PinnedServerValidator(_opt.Telemetry.ServerCertPinSha256);
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };

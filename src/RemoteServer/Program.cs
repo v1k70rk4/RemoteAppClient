@@ -1761,8 +1761,27 @@ app.MapPost("/enroll/rekey", async (HttpContext ctx, AppDbContext db, RequestLim
         return Results.Json(new RekeyError { Code = "device_alive" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
     // And a pending request is never replaced: the first one stands until it is decided or expires, so a
     // second caller cannot swap in a key of their own under a request the administrator is about to approve.
-    if (await db.RekeyRequests.AnyAsync(r => r.DeviceKey == device.Id && r.State == "pending" && r.ExpiresAt > DateTimeOffset.UtcNow, ct))
-        return Results.Json(new RekeyError { Code = "request_pending" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+    // The one exception is the same key asking again (the CSR's signature proves the caller holds it): a device
+    // that lost its request credentials in a crash gets its own request back with fresh ones.
+    var existing = await db.RekeyRequests.Where(r => r.DeviceKey == device.Id && r.State == "pending" && r.ExpiresAt > DateTimeOffset.UtcNow)
+        .OrderByDescending(r => r.CreatedAt).FirstOrDefaultAsync(ct);
+    if (existing is not null)
+    {
+        bool sameKey;
+        try
+        {
+            var prior = CertificateRequest.LoadSigningRequestPem(existing.Csr, HashAlgorithmName.SHA256);
+            var now2 = CertificateRequest.LoadSigningRequestPem(req.Csr, HashAlgorithmName.SHA256);
+            sameKey = prior.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(now2.PublicKey.ExportSubjectPublicKeyInfo());
+        }
+        catch { sameKey = false; }
+        if (!sameKey)
+            return Results.Json(new RekeyError { Code = "request_pending" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+        var rebound = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        existing.TokenHash = Sha256Hex(rebound);
+        await db.SaveChangesAsync(ct);
+        return Results.Json(new RekeyRequestOpened { RequestId = existing.Id, Token = rebound }, AgentJsonContext.Default.RekeyRequestOpened);
+    }
 
     var hostname = (req.Hostname ?? "").Trim(); if (hostname.Length > 128) hostname = hostname[..128];
     var provider = req.KeyProvider is "tpm" or "software" ? req.KeyProvider : "software";
