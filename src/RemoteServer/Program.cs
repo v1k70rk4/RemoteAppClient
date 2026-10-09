@@ -63,6 +63,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<SshRevocationList>
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddSingleton<ClockSkewTracker>();   // per-device clock readings live across requests
+builder.Services.AddSingleton<UpdatePauseState>();   // which devices auto-converge has given up on, and why
 builder.Services.AddScoped<ITelemetrySink, DbTelemetrySink>();
 builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<EnrollmentService>();
