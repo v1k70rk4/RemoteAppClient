@@ -40,19 +40,26 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
     {
         if (DeviceIdentity.Current is null || string.IsNullOrWhiteSpace(_opt.Telemetry.IngestUrl)) return;
 
+        // Nothing on this path may end the service: with the host's default behaviour an unhandled exception
+        // here would stop the whole agent, channel and tunnels included, and a bad file would do it every start.
         try
         {
             // A candidate from an earlier round whose confirmation got no answer comes first: the server may
             // already trust it, and a working identity must not be thrown away for a new attempt.
             await RunSerializedAsync(async ct => { await ResolvePendingAsync(ct); }, stoppingToken);
-
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_Failed); }
+        try
+        {
             // No usable key (the TPM was cleared, the store entry is gone): nothing else in this agent can talk to
             // the server. Ask for a new certificate and wait for an administrator; this takes over until it is done.
             if (DeviceIdentity.Current is { } id && !IdentityUsable(id))
                 await RunSerializedAsync(RecoverAsync, stoppingToken);
-
-            await Task.Delay(TimeSpan.FromMinutes(5 + Random.Shared.Next(0, 26)), stoppingToken);
         }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_Failed); }
+        try { await Task.Delay(TimeSpan.FromMinutes(5 + Random.Shared.Next(0, 26)), stoppingToken); }
         catch (OperationCanceledException) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
@@ -211,19 +218,33 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
     /// (not the pending one, or the offer lapsed). Null: no answer arrived, so nothing is known.</summary>
     private async Task<bool?> ConfirmAsync(DeviceIdentity.Snapshot candidate, CancellationToken ct)
     {
+        HttpClient http;
+        try { http = BuildClient(candidate); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The candidate is not usable on this machine (its certificate is gone from the store): no point
+            // keeping it, whatever the server thinks.
+            logger.LogWarning(ex, L.RekeyService_ConfirmFailed, 0);
+            return false;
+        }
         try
         {
-            using var http = BuildClient(candidate);
-            using var r = await http.PostAsync($"{BaseUrl}/api/rekey/confirm", content: null, ct);
-            if (r.IsSuccessStatusCode) return true;
-            if ((int)r.StatusCode == 409)
+            using (http)
             {
-                // Authenticated with the candidate yet nothing pending: the earlier confirm committed.
-                try { var e = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyError, ct); if (e?.Code == "nothing_pending") return true; }
-                catch { /* no body */ }
+                using var r = await http.PostAsync($"{BaseUrl}/api/rekey/confirm", content: null, ct);
+                if (r.IsSuccessStatusCode) return true;
+                var sc = (int)r.StatusCode;
+                if (sc == 409)
+                {
+                    // Authenticated with the candidate yet nothing pending: the earlier confirm committed.
+                    try { var e = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.RekeyError, ct); if (e?.Code == "nothing_pending") return true; }
+                    catch { /* no body */ }
+                }
+                // A proxy or server hiccup says nothing about whether the commit happened: unknown, try later.
+                if (sc == 429 || sc >= 500) return null;
+                logger.LogWarning(L.RekeyService_ConfirmFailed, sc);
+                return false; // an explicit refusal (not the pending one, offer lapsed, not authorized)
             }
-            logger.LogWarning(L.RekeyService_ConfirmFailed, (int)r.StatusCode);
-            return false;
         }
         catch (HttpRequestException) { return null; }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return null; } // timeout
@@ -264,13 +285,13 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
     private async Task RecoverAsync(CancellationToken ct)
     {
         var id = DeviceIdentity.Current!;
-        var rec = JsonSerializer.Deserialize(File.ReadAllText(Path.Combine(_opt.EnrollmentDir, "enrollment.json")), AgentLocalJsonContext.Default.EnrollmentRecord)!;
         logger.LogError(L.RekeyService_KeyLost, id.Provider);
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
+                var rec = JsonSerializer.Deserialize(File.ReadAllText(Path.Combine(_opt.EnrollmentDir, "enrollment.json")), AgentLocalJsonContext.Default.EnrollmentRecord)!;
                 RecoveryState? state = null;
                 try { if (File.Exists(RecoveryPath)) state = JsonSerializer.Deserialize(File.ReadAllText(RecoveryPath), AgentLocalJsonContext.Default.RecoveryState); }
                 catch { state = null; }
@@ -289,8 +310,9 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
                         await Task.Delay(TimeSpan.FromMinutes(15), ct);
                         continue;
                     }
-                    var done = await PollRequestAsync(state, key, id, ct);
-                    if (done) return;
+                    var outcome = await PollRequestAsync(state, key, id, ct);
+                    if (outcome == PollOutcome.Recovered) return;
+                    if (outcome == PollOutcome.Reopen) continue; // the server lost the request: ask again with the same key, now
                 }
                 await Task.Delay(TimeSpan.FromHours(24), ct); // rejected or expired: a new request tomorrow
             }
@@ -338,9 +360,14 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         }
     }
 
-    /// <summary>Polls the request every minute. True once the device is back on a new certificate; false when the
-    /// request ended without one (its state and key are then gone) and a new one is due later.</summary>
-    private async Task<bool> PollRequestAsync(RecoveryState state, ECDsa key, DeviceIdentity.Snapshot old, CancellationToken ct)
+    private enum PollOutcome { Recovered, Ended, Reopen }
+
+    /// <summary>Polls the request every minute until the administrator decides. Recovered: the device is back on a
+    /// new certificate. Ended: rejected or expired (state and key gone; a new request is due later). Reopen: the
+    /// server no longer knows the request (404), so it is asked again with the same key. Anything transient - a
+    /// 5xx from the proxy, a 429, no answer - is waited out; a long wait for an administrator must not be undone by
+    /// one bad minute.</summary>
+    private async Task<PollOutcome> PollRequestAsync(RecoveryState state, ECDsa key, DeviceIdentity.Snapshot old, CancellationToken ct)
     {
         while (true)
         {
@@ -355,7 +382,14 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
             }
             catch (HttpRequestException) { continue; } // network: keep polling
             catch (TaskCanceledException) when (!ct.IsCancellationRequested) { continue; }
-            if (code == 202 || code == 429) continue;
+            catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning(ex, L.RekeyService_Failed); continue; }
+            if (code == 404)
+            {
+                state.RequestId = Guid.Empty; state.Token = "";
+                WriteJson(RecoveryPath, JsonSerializer.Serialize(state, AgentLocalJsonContext.Default.RecoveryState));
+                return PollOutcome.Reopen;
+            }
+            if (code != 200 && code != 410) continue; // pending, throttled, a hiccup: keep waiting
             if (code == 200 && status?.Certificate is { } pem)
             {
                 var thumb = DeviceKeyStore.InstallCertificate(pem, key);
@@ -366,13 +400,14 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
                 DeviceKeyStore.RemoveCertificate(old.Thumbprint);
                 logger.LogWarning(L.RekeyService_Recovered, state.Provider, status.NotAfter);
                 reconnect.Request(); // the channel has been failing without a certificate; try at once
-                return true;
+                return PollOutcome.Recovered;
             }
-            // Rejected, expired, or the server no longer knows the request: start over tomorrow.
+            if (code == 200) continue; // 200 without a certificate: not a decision yet
+            // Rejected or expired: start over tomorrow.
             logger.LogError(L.RekeyService_RequestRejected, status?.State ?? code.ToString());
             try { File.Delete(RecoveryPath); } catch { /* best effort */ }
             DeviceKeyStore.DeleteKey(state.KeyName);
-            return false;
+            return PollOutcome.Ended;
         }
     }
 
