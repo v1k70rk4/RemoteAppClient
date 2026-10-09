@@ -74,4 +74,8 @@ internal static partial class Strings
     public static string SupervisorWorker_ServiceDidNotStopWithin => Get(nameof(SupervisorWorker_ServiceDidNotStopWithin));
     public static string SupervisorWorker_SupervisorCycleError => Get(nameof(SupervisorWorker_SupervisorCycleError));
     public static string SupervisorWorker_KillFailed => Get(nameof(SupervisorWorker_KillFailed));
+    public static string SupervisorWorker_DataDirectoryItemsRemoved => Get(nameof(SupervisorWorker_DataDirectoryItemsRemoved));
+    public static string SupervisorWorker_DataDirectorySecureFailed => Get(nameof(SupervisorWorker_DataDirectorySecureFailed));
+    public static string SupervisorWorker_UntrustedStagingIgnored => Get(nameof(SupervisorWorker_UntrustedStagingIgnored));
+    public static string SupervisorWorker_NoServicePath => Get(nameof(SupervisorWorker_NoServicePath));
 }

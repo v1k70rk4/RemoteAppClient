@@ -264,6 +264,24 @@ namespace RemoteServer.Data.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<bool?>("TpmAttestation")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("TpmManufacturer")
+                        .HasColumnType("longtext");
+
+                    b.Property<bool?>("TpmPresent")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool?>("TpmReady")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("TpmVersion")
+                        .HasColumnType("longtext");
+
+                    b.Property<bool?>("TpmVulnerableFirmware")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<int?>("TunnelPort")
                         .HasColumnType("int");
 

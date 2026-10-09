@@ -38,6 +38,10 @@ public sealed class TunnelOrchestratorService(
         // Separate idle watchdog closes inactive tunnels even when no command arrives.
         var watchdog = Task.Run(() => IdleWatchdogAsync(stoppingToken), stoppingToken);
 
+        // The file service binds its loopback port now, with no token, so the port is the agent's for as long
+        // as it runs: bound only when a session needed it, a local user could have taken it first.
+        (_fileService ??= new RemoteAgent.Files.FileService(loggerFactory.CreateLogger<RemoteAgent.Files.FileService>())).Start("");
+
         try
         {
             await foreach (var cmd in bus.ReadAllAsync(stoppingToken))
@@ -319,6 +323,7 @@ public sealed class TunnelOrchestratorService(
     private async Task CloseTunnelAsync()
     {
         keepAwake.Release();   // with or without a tunnel: nothing is left to keep the device awake for
+        _fileService?.ClearTokens();   // the session's file tokens die with the tunnel
         if (_tunnel is null) return;
         await _tunnel.StopAsync();
         _tunnelPort = 0;

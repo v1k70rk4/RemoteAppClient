@@ -20,5 +20,9 @@ internal static partial class Strings
         [nameof(SupervisorWorker_ServiceDidNotStopWithin)] = "A(z) {Service} nem állt le {Sec}s alatt — processz kilövése (PID {Pid}).",
         [nameof(SupervisorWorker_SupervisorCycleError)] = "Supervisor ciklus hiba.",
         [nameof(SupervisorWorker_KillFailed)] = "Kill sikertelen.",
+        [nameof(SupervisorWorker_DataDirectoryItemsRemoved)] = "Adatmappa lezárva ({Folder}); {Count} nem SYSTEM vagy rendszergazda által létrehozott elem eltávolítva.",
+        [nameof(SupervisorWorker_DataDirectorySecureFailed)] = "Az adatmappát ({Folder}) nem sikerült lezárni: {Reason}",
+        [nameof(SupervisorWorker_UntrustedStagingIgnored)] = "Az agent előkészített frissítése kihagyva és törölve: nem SYSTEM vagy rendszergazda hozta létre.",
+        [nameof(SupervisorWorker_NoServicePath)] = "Az agent előkészített frissítése kihagyva: a RemoteAgent szolgáltatás exe-útvonala nem olvasható.",
     };
 }

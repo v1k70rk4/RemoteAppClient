@@ -21,13 +21,18 @@ public static class TotpService
     }
 
     /// <summary>Validates code with +/-1 time window for clock skew tolerance.</summary>
-    public static bool Verify(string secretBase32, string code)
+    public static bool Verify(string secretBase32, string code) => Verify(secretBase32, code, out _);
+
+    /// <summary>Same, also returning the 30-second time step the code matched, so the caller can refuse a
+    /// second use of it (<see cref="TotpReplayGuard"/>).</summary>
+    public static bool Verify(string secretBase32, string code, out long step)
     {
+        step = 0;
         if (string.IsNullOrWhiteSpace(code)) return false;
         try
         {
             var totp = new Totp(Base32Encoding.ToBytes(secretBase32));
-            return totp.VerifyTotp(code.Trim(), out _, new VerificationWindow(previous: 1, future: 1));
+            return totp.VerifyTotp(code.Trim(), out step, new VerificationWindow(previous: 1, future: 1));
         }
         catch { return false; }
     }

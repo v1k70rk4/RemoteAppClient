@@ -37,11 +37,13 @@ require_sudo() { sudo -n true 2>/dev/null || die "passwordless sudo required (ru
 #   - otherwise the application's own credentials ($h, $p, $u, $pw from db.env, set by the caller), which then
 #     have to carry DDL rights themselves - said once, so a DML-only account fails with a reason.
 # shellcheck disable=SC2154
+# --sandbox (MariaDB client 10.11.7+): a "\!" or "system" line in an SQL file cannot start a shell.
+db_sandbox() { mariadb --help 2>/dev/null | grep -q -- '--sandbox' && printf -- '--sandbox'; }
 db_admin() {
-  if sudo grep -qs '^RAC_DB_LOCAL=1' "${RAC_ENV_DIR:-/etc/remoteserver}/db.env"; then sudo mariadb "$@"; return; fi
+  if sudo grep -qs '^RAC_DB_LOCAL=1' "${RAC_ENV_DIR:-/etc/remoteserver}/db.env"; then sudo mariadb $(db_sandbox) "$@"; return; fi
   if [ -n "${RAC_DB_ADMIN_CONN:-}" ]; then db_client_with "$RAC_DB_ADMIN_CONN" "$@"; return; fi
   if { [ -z "${h:-}" ] || [ "$h" = localhost ] || [ "$h" = 127.0.0.1 ]; } && systemctl is-active --quiet mariadb 2>/dev/null; then
-    sudo mariadb "$@"; return
+    sudo mariadb $(db_sandbox) "$@"; return
   fi
   [ -n "${RAC_DB_ADMIN_WARNED:-}" ] || { warn "external database: schema changes run with the application's credentials ($u@$h); they need DDL rights, or set RAC_DB_ADMIN_CONN"; RAC_DB_ADMIN_WARNED=1; }
   db_client_with "Server=${h:-localhost};Port=${p:-3306};User Id=$u;Password=$pw" "$@"
@@ -61,7 +63,7 @@ db_client_with() {
   cpw="${cpw//\\/\\\\}"; cpw="${cpw//\"/\\\"}"
   opt="$(mktemp)"; chmod 600 "$opt"
   printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "${ch:-localhost}" "${cp:-3306}" "$cu" "$cpw" > "$opt"
-  mariadb --defaults-extra-file="$opt" "$@" && rc=0 || rc=$?
+  mariadb $(db_sandbox) --defaults-extra-file="$opt" "$@" && rc=0 || rc=$?
   rm -f "$opt"
   return "$rc"
 }

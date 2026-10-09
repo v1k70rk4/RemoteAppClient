@@ -43,6 +43,11 @@ public sealed class AgentCommand
     /// <summary>Signature over the canonical form of the fields above (Base64).</summary>
     [JsonPropertyName("sig")]
     public string Signature { get; set; } = string.Empty;
+
+    /// <summary>Which canonical form the signature covers: 0 or absent = version 1 (the original, partial form),
+    /// 2 = every field plus the device id (agents from 2.2.7.1). See <see cref="CommandSignature"/>.</summary>
+    [JsonPropertyName("sv")]
+    public int SigVersion { get; set; }
 }
 
 public sealed class CommandData

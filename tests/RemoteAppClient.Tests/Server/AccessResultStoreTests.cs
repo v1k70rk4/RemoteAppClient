@@ -69,6 +69,44 @@ public class AccessResultStoreTests
     }
 
     [Fact]
+    public void A_device_cannot_answer_another_devices_command()
+    {
+        var s = new AccessResultStore();
+        var target = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        s.SetPending("n1", "alice", target, "HOST");
+        Assert.Null(s.RecordOutcome("n1", "granted", other));       // not its command
+        Assert.Null(s.Get("n1"));
+        Assert.Equal("auto", s.RecordOutcome("n1", "auto", target)!.Outcome);
+    }
+
+    [Fact]
+    public void An_answer_parked_by_the_wrong_device_is_dropped_when_the_request_binds()
+    {
+        var s = new AccessResultStore();
+        var target = Guid.NewGuid();
+        s.RecordOutcome("n1", "granted", Guid.NewGuid());            // someone else got in first with this nonce
+        var bound = s.SetPending("n1", "alice", target, "HOST");
+        Assert.Null(bound.Outcome);                                   // not the target's answer: gone
+        Assert.Equal("denied", s.RecordOutcome("n1", "denied", target)!.Outcome);
+
+        var s2 = new AccessResultStore();
+        s2.RecordOutcome("n2", "granted", target);                    // the right device was simply fast
+        Assert.Equal("granted", s2.SetPending("n2", "alice", target, "HOST").Outcome);
+    }
+
+    [Fact]
+    public void Parked_answers_have_a_ceiling()
+    {
+        var s = new AccessResultStore();
+        var dev = Guid.NewGuid();
+        int parked = 0;
+        for (int i = 0; i < 10_100; i++)
+            if (s.RecordOutcome("n" + i, "auto", dev) is not null) parked++;
+        Assert.Equal(10_000, parked);
+    }
+
+    [Fact]
     public void Unknown_and_empty_nonces_are_handled()
     {
         var s = new AccessResultStore();

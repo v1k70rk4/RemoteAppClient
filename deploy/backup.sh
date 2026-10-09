@@ -20,7 +20,8 @@
 #
 # Usage:  ./deploy/backup.sh [output-dir] [--encrypt]   # default: current directory
 #         --encrypt (or RAC_BACKUP_PASS in the environment) seals the archive with a passphrase
-#         (AES-256-CBC, PBKDF2); restore.sh recognises and decrypts it. Keep the passphrase elsewhere.
+#         (AES-256-CBC, PBKDF2 with 600000 iterations); restore.sh recognises and decrypts it. Keep the
+#         passphrase elsewhere.
 # Restore: see deploy/restore.sh
 
 set -euo pipefail
@@ -30,6 +31,7 @@ source "$HERE/lib.sh"
 [ -f "$HERE/config.env" ] && source "$HERE/config.env"
 require_sudo
 
+umask 077   # everything staged or written here holds the fleet's private keys
 OUT_DIR="$PWD"; ENCRYPT="${RAC_BACKUP_PASS:+1}"
 for a in "$@"; do case "$a" in --encrypt) ENCRYPT=1 ;; *) OUT_DIR="$a" ;; esac; done
 [ -d "$OUT_DIR" ] || die "output directory not found: $OUT_DIR"
@@ -104,7 +106,7 @@ if [ -n "$ENCRYPT" ]; then
   [ -n "$RAC_BACKUP_PASS" ] || die "empty passphrase"
   # The passphrase reaches openssl over a private descriptor, not the environment: that would be inherited by
   # every later child process and readable through /proc for as long as openssl runs.
-  tar -C "$STAGE" -cz . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass fd:3 -out "$ARCHIVE" 3< <(printf '%s\n' "$RAC_BACKUP_PASS")
+  tar -C "$STAGE" -cz . | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass fd:3 -out "$ARCHIVE" 3< <(printf '%s\n' "$RAC_BACKUP_PASS")
 else
   tar -C "$STAGE" -czf "$ARCHIVE" .
 fi

@@ -870,7 +870,8 @@ public sealed class MainForm : MaterialForm
             {
                 if (_newPass.Text.Length < 10) { _setupStatus.Text = L.MainForm_PasswordMustBeAtLeast; return; }
                 if (_newPass.Text != _newPass2.Text) { _setupStatus.Text = L.MainForm_TheTwoPasswordsDoNot; return; }
-                await _api!.ChangePasswordAsync(_newPass.Text);
+                // The sign-in password goes along; after a Hello sign-in there is none, and the forced change allows that.
+                await _api!.ChangePasswordAsync(_newPass.Text, string.IsNullOrEmpty(_pass.Text) ? null : _pass.Text);
             }
             if (_login.TotpEnrollRequired)
             {

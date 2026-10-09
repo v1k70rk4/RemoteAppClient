@@ -138,6 +138,20 @@ public sealed class AuthService(AppDbContext db)
         }
     }
 
+    /// <summary>After a password change: every other live session of the user ends, and so do the "remember this
+    /// device" trusts, so whoever held the old password (or a stolen session) is signed out everywhere. The
+    /// session that made the change keeps working. Access tokens stay: they were minted knowingly and a
+    /// password is not what protects them.</summary>
+    public async Task RevokeOtherSessionsAsync(Guid userId, Guid keepSessionId, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var live = await db.UserSessions.Where(s => s.UserId == userId && s.RevokedAt == null && s.Id != keepSessionId).ToListAsync(ct);
+        foreach (var s in live) s.RevokedAt = now;
+        var trusts = await db.DeviceTrusts.Where(t => t.UserId == userId && t.RevokedAt == null).ToListAsync(ct);
+        foreach (var t in trusts) t.RevokedAt = now;
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>Revokes all live sessions of a user for lockout or permission removal.</summary>
     public async Task RevokeAllForUserAsync(Guid userId, CancellationToken ct)
     {

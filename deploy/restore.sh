@@ -45,7 +45,10 @@ trap 'rm -rf "$STAGE"' EXIT
 if [ "$(head -c 8 "$ARCHIVE" 2>/dev/null)" = "Salted__" ]; then
   info "encrypted archive - passphrase required"
   PASS="$(ask_secret 'Backup passphrase')"
-  openssl enc -d -aes-256-cbc -pbkdf2 -in "$ARCHIVE" -pass "pass:$PASS" 2>/dev/null | tar -xz -C "$STAGE" \
+  # The passphrase goes over a private descriptor, not the command line (visible in the process list).
+  # Archives from 2.2.7 on use 600000 PBKDF2 iterations; earlier ones used openssl's default, so try both.
+  decrypt(){ openssl enc -d -aes-256-cbc -pbkdf2 "$@" -in "$ARCHIVE" -pass fd:3 3< <(printf '%s\n' "$PASS") 2>/dev/null; }
+  { decrypt -iter 600000 || decrypt; } | tar -xz -C "$STAGE" \
     || die "could not decrypt the archive - wrong passphrase?"
   unset PASS
 else

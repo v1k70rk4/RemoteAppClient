@@ -70,7 +70,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
             {
                 resp.EnsureSuccessStatusCode();
-                await using var fs = File.Create(tmp);
+                await using var fs = DataDirectorySecurity.CreateNew(tmp);
                 await resp.Content.CopyToAsync(fs, ct);
             }
 
@@ -114,7 +114,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
             {
                 resp.EnsureSuccessStatusCode();
-                await using var fs = File.Create(msi);
+                await using var fs = DataDirectorySecurity.CreateNew(msi);
                 await resp.Content.CopyToAsync(fs, ct);
             }
 
@@ -168,7 +168,7 @@ public sealed class UpdateInstaller(IOptions<AgentOptions> options, ILogger<Upda
             using (var resp = await http.GetAsync(resolved, HttpCompletionOption.ResponseHeadersRead, ct))
             {
                 resp.EnsureSuccessStatusCode();
-                await using var fs = File.Create(tmp);
+                await using var fs = DataDirectorySecurity.CreateNew(tmp);
                 await resp.Content.CopyToAsync(fs, ct);
             }
 

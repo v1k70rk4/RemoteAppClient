@@ -19,6 +19,7 @@ public sealed class CommandVerifier : IDisposable
     private readonly ILogger<CommandVerifier> _logger;
     private readonly int _maxAgeSeconds;
     private readonly ECDsa? _publicKey;
+    private readonly string _deviceId;
 
     // Nonces seen within the replay window: nonce -> expiry.
     private readonly ConcurrentDictionary<string, long> _seenNonces = new();
@@ -31,6 +32,7 @@ public sealed class CommandVerifier : IDisposable
         _timeSync = timeSync;
         var cc = options.Value.CommandChannel;
         _maxAgeSeconds = cc.MaxCommandAgeSeconds;
+        _deviceId = options.Value.AgentId; // the enrolled device id: a version 2 signature is bound to it
 
         if (!string.IsNullOrWhiteSpace(cc.CommandSigningPublicKey))
         {
@@ -58,7 +60,7 @@ public sealed class CommandVerifier : IDisposable
 
         // Signature FIRST: only a valid server signature makes the timestamp below worth reasoning about.
         // Signature verification uses shared Contracts logic so it cannot drift from the server.
-        if (!CommandSignature.Verify(cmd, _publicKey))
+        if (!CommandSignature.Verify(cmd, _publicKey, _deviceId))
         {
             _logger.LogWarning(L.CommandVerifier_CommandSignatureIsInvalidDiscarded);
             return false;

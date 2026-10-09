@@ -58,6 +58,8 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 builder.Services.AddSingleton<CommandSigner>();
 builder.Services.AddSingleton<CertificateAuthority>();
 builder.Services.AddSingleton<SshCertificateAuthority>();
+builder.Services.AddSingleton<SshRevocationList>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SshRevocationList>());
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddSingleton<ClockSkewTracker>();   // per-device clock readings live across requests
@@ -67,6 +69,7 @@ builder.Services.AddScoped<EnrollmentService>();
 builder.Services.AddSingleton<MsiBuilder>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton<HelloChallengeStore>();
+builder.Services.AddSingleton<TotpReplayGuard>();   // an accepted TOTP code is used up
 builder.Services.AddSingleton<AccessResultStore>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddHostedService<SecretExpiryWatcher>();
@@ -218,13 +221,16 @@ app.Use(async (ctx, next) =>
 
 app.MapGet("/", () => "RemoteServer up.");
 
+// A user name longer than this is not one: refused before it is looked up or stored anywhere.
+const int MaxUsernameLength = 128;
+
 // === Sign-in / 2FA, reachable through the device SSH tunnel; endpoints validate themselves. ===
-app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IEmailSender email, IOptions<ServerOptions> opt, SshCertificateAuthority sshCa, CancellationToken ct) =>
+app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, IEmailSender email, IOptions<ServerOptions> opt, SshCertificateAuthority sshCa, TotpReplayGuard totpGuard, CancellationToken ct) =>
 {
     LoginRequest? req;
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.LoginRequest, ct); }
     catch (JsonException) { return Results.BadRequest(); }
-    if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest();
+    if (req is null || string.IsNullOrWhiteSpace(req.Username) || req.Username.Length > MaxUsernameLength) return Results.BadRequest();
 
     // Minimum-version gate: outdated clients get mandatory update info instead of a session.
     if (await ClientUpdateGateAsync(req.ClientVersion, req.Channel, opt.Value.MinClientVersion, db, ct) is { } gate)
@@ -238,7 +244,11 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
 
     var user = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
         .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
-    if (user is null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
+    // Bounded and constant-cost (see PasswordHasher.VerifyAsync): an unknown user takes as long as a wrong password.
+    var passwordOk = await PasswordHasher.VerifyAsync(req.Password ?? "", user?.PasswordHash, ct);
+    if (passwordOk is null)
+        return Results.Json(new AuthError { Error = "busy" }, AgentJsonContext.Default.AuthError, statusCode: 503);
+    if (user is null || passwordOk != true)
     {
         await RegisterLoginFailAsync(db, email, ctx, device, opIp, req.Username, "login-failed",
             user is null ? "unknown_user" : "bad_password", ct);
@@ -251,7 +261,8 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     if (user.TotpConfirmed && !deviceTrusted)
     {
         var secret = protector.TryUnprotect(user.TotpSecret);
-        if (secret is null || !TotpService.Verify(secret, req.Totp ?? ""))
+        // A code that was already accepted once is refused like a wrong one (single use within its 90 s life).
+        if (secret is null || !TotpService.Verify(secret, req.Totp ?? "", out var step) || !totpGuard.TryAccept(user.Id, step))
         {
             // Invalid TOTP counts as a failed attempt, but totp_required (no code submitted yet) does not.
             if (!string.IsNullOrWhiteSpace(req.Totp))
@@ -318,8 +329,9 @@ app.MapPost("/auth/hello/challenge", async (HttpContext ctx, HelloChallengeStore
     HelloChallengeRequest? req;
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.HelloChallengeRequest, ct); }
     catch (JsonException) { return Results.BadRequest(); }
-    if (req is null || string.IsNullOrWhiteSpace(req.Username)) return Results.BadRequest();
+    if (req is null || string.IsNullOrWhiteSpace(req.Username) || req.Username.Length > MaxUsernameLength) return Results.BadRequest();
     var nonce = challenges.Issue(req.Username.Trim());
+    if (nonce is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     return Results.Json(new HelloChallengeResponse { Challenge = Convert.ToBase64String(nonce) }, AgentJsonContext.Default.HelloChallengeResponse);
 });
 
@@ -341,8 +353,8 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
     if (device?.LoginLockedAt is not null)
         return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
 
-    var nonce = challenges.Consume(req.Username.Trim());
-    if (nonce is null) return Results.Json(new AuthError { Error = "challenge_expired" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+    if (!challenges.HasLive(req.Username.Trim()))
+        return Results.Json(new AuthError { Error = "challenge_expired" }, AgentJsonContext.Default.AuthError, statusCode: 401);
 
     var user = await db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
         .FirstOrDefaultAsync(u => u.Username == req.Username && u.IsActive, ct);
@@ -351,15 +363,19 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
     var cred = await db.HelloCredentials.FirstOrDefaultAsync(c => c.Id == req.CredentialId && c.UserId == user.Id && c.RevokedAt == null, ct);
     if (cred is null) return Results.Json(new AuthError { Error = "hello_unknown" }, AgentJsonContext.Default.AuthError, statusCode: 401);
 
-    bool ok;
-    try
+    // The challenge the signature was made over is used up; a signature that matches none uses up nothing.
+    byte[] signature;
+    try { signature = Convert.FromBase64String(req.Signature); }
+    catch (FormatException) { return Results.Json(new AuthError { Error = "hello_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 401); }
+    using var rsa = RSA.Create();
+    try { rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(cred.PublicKey), out _); }
+    catch { return Results.Json(new AuthError { Error = "hello_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 401); }
+    var nonce = challenges.Consume(req.Username.Trim(), n =>
     {
-        using var rsa = RSA.Create();
-        rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(cred.PublicKey), out _);
-        ok = rsa.VerifyData(nonce, Convert.FromBase64String(req.Signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-    }
-    catch { ok = false; }
-    if (!ok) return Results.Json(new AuthError { Error = "hello_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 401);
+        try { return rsa.VerifyData(n, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1); }
+        catch { return false; }
+    });
+    if (nonce is null) return Results.Json(new AuthError { Error = "hello_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 401);
 
     cred.LastUsedAt = DateTimeOffset.UtcNow;
     await ResetLoginFailAsync(db, device, ct); // successful Hello sign-in resets the counter
@@ -425,7 +441,7 @@ app.MapPost("/auth/hello/credentials/{id:guid}/revoke", async (Guid id, HttpCont
 });
 
 // Setup steps. Mid-setup users can call these, so validation is here instead of /admin gate.
-app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, AuthService auth, CancellationToken ct) =>
+app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, AuthService auth, IOptions<ServerOptions> opt, CancellationToken ct) =>
 {
     var v = await auth.ValidateAsync(BearerToken(ctx), ct);
     if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
@@ -437,10 +453,31 @@ app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, Au
         return Results.Json(new AuthError { Error = "weak_password" }, AgentJsonContext.Default.AuthError, statusCode: 400);
 
     var user = await db.Users.FirstAsync(u => u.Id == v.Value.User.Id, ct);
+
+    // A session alone must not be enough to take the account over: a voluntary change proves the current
+    // password. The forced change right after a temporary password is exempt, because that password was
+    // typed seconds ago at sign-in and consoles before 2.2.7 do not send it along.
+    if (!user.MustChangePassword || req.CurrentPassword is not null)
+    {
+        var ok = await PasswordHasher.VerifyAsync(req.CurrentPassword ?? "", user.PasswordHash, ct);
+        if (ok is null)
+            return Results.Json(new AuthError { Error = "busy" }, AgentJsonContext.Default.AuthError, statusCode: 503);
+        if (ok != true)
+        {
+            await AuditAsync(db, ctx, "password-change-refused", null, "current password did not match");
+            return Results.Json(new AuthError { Error = "invalid_credentials" }, AgentJsonContext.Default.AuthError, statusCode: 403);
+        }
+    }
+
+    bool wasForced = user.MustChangePassword;
     user.PasswordHash = PasswordHasher.Hash(req.NewPassword!);
     user.MustChangePassword = false;
     user.PasswordChangedAt = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync(ct);
+    // Everyone else holding this account is signed out; the console that made the change stays in.
+    await auth.RevokeOtherSessionsAsync(user.Id, v.Value.Session.Id, ct);
+    if (wasForced) FirstAdminPassword.Forget(opt.Value.FirstAdminPasswordPath, app.Logger);
+    await AuditAsync(db, ctx, "password-change", null, wasForced ? "first sign-in" : null);
     return Results.NoContent();
 });
 
@@ -515,7 +552,7 @@ app.MapPost("/auth/password/reset", async (HttpContext ctx, AppDbContext db, Aut
     return Results.NoContent();
 });
 
-app.MapPost("/auth/totp/confirm", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, CancellationToken ct) =>
+app.MapPost("/auth/totp/confirm", async (HttpContext ctx, AppDbContext db, AuthService auth, SecretProtector protector, TotpReplayGuard totpGuard, CancellationToken ct) =>
 {
     var v = await auth.ValidateAsync(BearerToken(ctx), ct);
     if (v is null) return Results.Json(new AuthError { Error = "unauthorized" }, AgentJsonContext.Default.AuthError, statusCode: 401);
@@ -526,7 +563,7 @@ app.MapPost("/auth/totp/confirm", async (HttpContext ctx, AppDbContext db, AuthS
 
     var user = await db.Users.FirstAsync(u => u.Id == v.Value.User.Id, ct);
     var secret = protector.TryUnprotect(user.TotpSecret);
-    if (secret is null || req is null || !TotpService.Verify(secret, req.Code))
+    if (secret is null || req is null || !TotpService.Verify(secret, req.Code, out var step) || !totpGuard.TryAccept(user.Id, step))
         return Results.Json(new AuthError { Error = "totp_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 400);
 
     user.TotpConfirmed = true;
@@ -567,12 +604,17 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
     }
 
     var log = lf.CreateLogger("AgentChannel");
-    var deviceId = ResolveDeviceId(ctx);
-    if (deviceId is null)
+    // Checked in a scope of its own: this request lives as long as the agent stays connected.
+    RemoteServer.Data.Entities.Device? authorized;
+    using (var scope = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>().CreateScope())
+        authorized = await AuthorizedDeviceAsync(ctx, scope.ServiceProvider.GetRequiredService<AppDbContext>(), ctx.RequestAborted);
+    if (authorized is null)
     {
         ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
         return;
     }
+    var deviceId = authorized.DeviceId;
+    var deviceKey = authorized.Id;   // what its answers are checked against: it may only answer its own commands
 
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
     registry.Register(deviceId, socket);
@@ -593,7 +635,7 @@ app.Map("/agent", async (HttpContext ctx, AgentConnectionRegistry registry, Acce
     try
     {
         var scopes = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>();
-        await PumpIncomingAsync(socket, deviceId, accessResults, scopes, log, life.Token);
+        await PumpIncomingAsync(socket, deviceId, deviceKey, accessResults, scopes, log, life.Token);
     }
     catch (OperationCanceledException) { /* shutdown/disconnect */ }
     catch (WebSocketException ex) { log.LogDebug(ex, L.Program_WSClosedDevice, deviceId); }
@@ -611,7 +653,9 @@ app.Map("/ssh", async (HttpContext ctx, Microsoft.Extensions.Options.IOptions<Se
 {
     if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = StatusCodes.Status400BadRequest; return; }
     var log = lf.CreateLogger("SshTunnel");
-    var deviceId = ResolveDeviceId(ctx);
+    string? deviceId;
+    using (var scope = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>().CreateScope())
+        deviceId = (await AuthorizedDeviceAsync(ctx, scope.ServiceProvider.GetRequiredService<AppDbContext>(), ctx.RequestAborted))?.DeviceId;
     if (deviceId is null) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
 
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
@@ -632,7 +676,11 @@ app.Map("/ssh", async (HttpContext ctx, Microsoft.Extensions.Options.IOptions<Se
 // === Telemetry ingest. Production uses mTLS behind nginx. ===
 app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink, AppDbContext db) =>
 {
-    var deviceId = ResolveDeviceId(ctx) ?? "unknown";
+    // Only a device the server knows (see AuthorizedDeviceAsync): a deleted one no longer re-creates itself, and
+    // nothing is filed under a made-up "unknown" device. Development keeps the old self-registration for local runs.
+    var deviceId = (await AuthorizedDeviceAsync(ctx, db, ctx.RequestAborted))?.DeviceId
+        ?? (ctx.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment() ? ResolveDeviceId(ctx) : null);
+    if (deviceId is null) return Results.Unauthorized();
     TelemetryPayload? payload;
     try
     {
@@ -658,8 +706,9 @@ app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink, AppDb
 // === Device reports its VNC password over mTLS into devices.vnc_secret. ===
 app.MapPost("/api/vnc-secret", async (HttpContext ctx, AppDbContext db, SecretProtector protector) =>
 {
-    var deviceId = ResolveDeviceId(ctx);
-    if (deviceId is null) return Results.Unauthorized();
+    var authorized = await AuthorizedDeviceAsync(ctx, db, ctx.RequestAborted);
+    if (authorized is null) return Results.Unauthorized();
+    var deviceId = authorized.DeviceId;
 
     VncSecretReport? report;
     try
@@ -770,6 +819,12 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         BatteryPercent = d.BatteryPercent,
         SleepAcMinutes = d.SleepAcMinutes,
         SleepDcMinutes = d.SleepDcMinutes,
+        TpmPresent = d.TpmPresent,
+        TpmVersion = d.TpmVersion,
+        TpmManufacturer = d.TpmManufacturer,
+        TpmReady = d.TpmReady,
+        TpmAttestation = d.TpmAttestation,
+        TpmVulnerableFirmware = d.TpmVulnerableFirmware,
         LoginFailCount = d.LoginFailCount,
         LoginLocked = d.LoginLockedAt is not null,
         Note = viaToken ? null : protector.TryUnprotect(d.Note),
@@ -846,12 +901,13 @@ app.MapPost("/admin/devices/notes", async (HttpContext ctx, AppDbContext db, Sec
 
 // Delete a device and its dependent rows (telemetry, commands, sessions). Audit history is kept.
 // The agent keeps its local enrollment, so to fully re-provision a device, re-enroll it afterwards.
-app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx, AppDbContext db, CancellationToken ct) =>
+app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext ctx, AppDbContext db, AgentConnectionRegistry registry, SshRevocationList revoked, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();
     var gid = device.Id;
     var host = device.Hostname;
+    var sshKey = device.SshPublicKey;
 
     // No FK cascade: these store DeviceId as a plain Guid, so remove them explicitly. History holds only
     // transitions (and is pruned at 90 days), so it stays small enough to clear in one statement - unlike
@@ -862,6 +918,11 @@ app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext c
     await db.Set<RemoteServer.Data.Entities.RemoteSession>().Where(s => s.DeviceId == gid).ExecuteDeleteAsync(ct);
     db.Devices.Remove(device);
     await db.SaveChangesAsync(ct);
+    // Deleting is revoking: the server refuses the device from now on (AuthorizedDeviceAsync), and its open
+    // command channel is ended here rather than left running until it next reconnects.
+    await registry.DisconnectAsync(deviceId);
+    // ...and at the bastion: its SSH key goes on the revocation list, which every certificate for it fails.
+    await revoked.RevokeAsync(sshKey, deviceId, host, ct);
     await AuditAsync(db, ctx, "device-delete", null, host);
     return Results.NoContent();
 });
@@ -1315,8 +1376,12 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
             return Results.Json(new AuthError { Error = "forbidden" }, AgentJsonContext.Default.AuthError, statusCode: 403);
     }
 
-    var port = remotePort is > 0 ? remotePort.Value
-             : device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback for old devices without port
+    // The reverse-tunnel port is the device's own, assigned at enrollment. A caller may name it (older
+    // consoles echo it back) but not pick another device's port: that would let one device's tunnel
+    // land where another's is expected.
+    if (remotePort is { } rp && (device.TunnelPort is null || rp != device.TunnelPort))
+        return Results.Json(new AuthError { Error = "bad_port" }, AgentJsonContext.Default.AuthError, statusCode: 400);
+    var port = device.TunnelPort ?? Random.Shared.Next(50000, 60000); // fallback for old devices without port
     // File-service forward port: deterministic per device (60000-65000, distinct from VNC's 50000-60000),
     // so a reused reverse tunnel keeps forwarding the SAME file port across sessions (a per-session random
     // port would mismatch on reuse and break the file pane). Unique for sequentially-assigned tunnel ports.
@@ -2101,12 +2166,13 @@ app.MapDelete("/admin/users/{id:guid}/grants/{grantId:guid}", async (Guid id, Gu
     return Results.NoContent();
 });
 
-// === Bootstrap roles (admin/operator) plus first admin user; temporary password goes to server log. ===
+// === Bootstrap roles (admin/operator) plus first admin user; temporary password goes to an owner-only file. ===
 await SeedAsync(app);
 
 app.Run();
 
-// Seeds the admin/operator roles and the first admin user (temp password logged). Idempotent.
+// Seeds the admin/operator roles and the first admin user. Idempotent. The temporary password is written to
+// Server:FirstAdminPasswordPath (0600) rather than logged: the log is kept for weeks and read more widely.
 static async Task SeedAsync(WebApplication a)
 {
     using var scope = a.Services.CreateScope();
@@ -2123,7 +2189,11 @@ static async Task SeedAsync(WebApplication a)
         await sdb.SaveChangesAsync();
         sdb.UserRoles.Add(new UserRole { UserId = admin.Id, RoleId = (await sdb.Roles.FirstAsync(r => r.Name == "admin")).Id });
         await sdb.SaveChangesAsync();
-        a.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedUsernameAdmin, temp);
+        var path = a.Services.GetRequiredService<IOptions<ServerOptions>>().Value.FirstAdminPasswordPath;
+        if (FirstAdminPassword.Write(path, temp, a.Logger))
+            a.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedPasswordFile, path);
+        else
+            a.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedUsernameAdmin, temp); // nowhere else to put it
     }
 }
 
@@ -2155,7 +2225,7 @@ static async Task<int> RunMintBlobAsync(WebApplication a)
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             try { adminOk = await db.Users.AnyAsync(); } catch { }
         }
-    Note(adminOk, L.Program_MintBlobAdminExists);
+    Note(adminOk, string.Format(L.Program_MintBlobAdminExists, opt.FirstAdminPasswordPath));
 
     Req(!string.IsNullOrWhiteSpace(opt.CommandSigningKeyPath) && File.Exists(opt.CommandSigningKeyPath),
         L.Program_MintBlobCommandSigningKey,
@@ -2497,12 +2567,14 @@ static async Task<bool> EmailResetCodeAsync(IEmailSender email, RemoteServer.Dat
     return ok;
 }
 
-// Resolves device ID. In production nginx validates the client cert (mTLS) and forwards
-// the CN in a header. Backend is reachable only from localhost/nginx, so headers are trusted.
-// Fallback: direct Kestrel certificate, then ?deviceId= for dev.
+// Resolves device ID. In production nginx validates the client cert (mTLS) and forwards the CN in a header.
+// Kestrel's loopback port is reachable through the bastion's forwards as well as from nginx, so the header
+// counts only on a request nginx forwarded (see FromTrustedProxy). Fallback: a certificate presented to
+// Kestrel directly; ?deviceId= only in Development.
 static string? ResolveDeviceId(HttpContext ctx)
 {
-    if (string.Equals(ctx.Request.Headers["X-Client-Verify"], "SUCCESS", StringComparison.OrdinalIgnoreCase))
+    if (FromTrustedProxy(ctx) &&
+        string.Equals(ctx.Request.Headers["X-Client-Verify"], "SUCCESS", StringComparison.OrdinalIgnoreCase))
     {
         var cn = ExtractCn(ctx.Request.Headers["X-Client-Dn"].ToString());
         if (!string.IsNullOrWhiteSpace(cn)) return cn;
@@ -2515,21 +2587,77 @@ static string? ResolveDeviceId(HttpContext ctx)
         if (!string.IsNullOrWhiteSpace(cn)) return cn;
     }
 
+    if (!ctx.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment()) return null;
     var q = ctx.Request.Query["deviceId"].ToString();
     return string.IsNullOrWhiteSpace(q) ? null : q;
 }
 
+// The device behind a device-authenticated request, or null when it may not talk to the server: no certificate
+// identity; no such device - deleting a device is how it is revoked, so a removed one stays out instead of
+// re-creating itself from its next telemetry; a rejected or revoked status; or a certificate other than the one
+// the server last issued to it. The fingerprint check needs nginx to pass X-Client-Fingerprint
+// ($ssl_client_fingerprint, the SHA-1 that CertThumbprint holds); until it does, the rest still applies.
+static async Task<Device?> AuthorizedDeviceAsync(HttpContext ctx, AppDbContext db, CancellationToken ct)
+{
+    var id = ResolveDeviceId(ctx);
+    if (id is null) return null;
+    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
+    if (device is null || device.Status is DeviceStatus.Rejected or DeviceStatus.Revoked) return null;
+
+    var fingerprint = FromTrustedProxyQuiet(ctx) ? ctx.Request.Headers["X-Client-Fingerprint"].ToString().Replace(":", "") : "";
+    if (fingerprint.Length == 0)
+    {
+        // Secret set but no fingerprint: nginx is half configured. Said once; the request still counts.
+        if (!string.IsNullOrEmpty(ctx.RequestServices.GetRequiredService<IOptions<ServerOptions>>().Value.ProxySecret) &&
+            Interlocked.Exchange(ref ProxyWarning.FingerprintLogged, 1) == 0)
+            ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ProxyTrust")
+                .LogWarning(L.Program_ProxyFingerprintMissing);
+        return device;
+    }
+    return string.IsNullOrEmpty(device.CertThumbprint) ||
+           string.Equals(fingerprint, device.CertThumbprint, StringComparison.OrdinalIgnoreCase)
+        ? device
+        : null;
+}
+
+// True when the request came through nginx: it carries Server:ProxySecret in X-RAC-Proxy. With no secret
+// configured every request counts, as before the secret existed. A request that brings identity or address
+// headers without the right secret is logged once per process - after the secret is set, that is either
+// nginx still missing the header or someone trying.
+static bool FromTrustedProxy(HttpContext ctx)
+{
+    if (FromTrustedProxyQuiet(ctx)) return true;
+
+    if ((ctx.Request.Headers.ContainsKey("X-Client-Verify") || ctx.Request.Headers.ContainsKey("X-Real-IP")) &&
+        Interlocked.Exchange(ref ProxyWarning.Logged, 1) == 0)
+        ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ProxyTrust")
+            .LogWarning(L.Program_ProxyHeadersWithoutSecret, PublicIpOf(ctx) ?? "-", ctx.Request.Path.ToString());
+    return false;
+}
+
+static bool FromTrustedProxyQuiet(HttpContext ctx)
+{
+    var secret = ctx.RequestServices.GetRequiredService<IOptions<ServerOptions>>().Value.ProxySecret;
+    if (string.IsNullOrEmpty(secret)) return true;
+    var sent = ctx.Request.Headers["X-RAC-Proxy"].ToString();
+    return sent.Length > 0 && CryptographicOperations.FixedTimeEquals(
+        System.Text.Encoding.UTF8.GetBytes(sent), System.Text.Encoding.UTF8.GetBytes(secret));
+}
+
 // Agent public IP. Production: nginx X-Real-IP ($remote_addr = direct connection source,
 // the address where the tunnel comes from). Fallback: first X-Forwarded-For value, then
-// direct Kestrel connection in dev.
+// direct Kestrel connection in dev. The headers count only on a request nginx forwarded.
 static string? PublicIpOf(HttpContext ctx)
 {
-    var real = ctx.Request.Headers["X-Real-IP"].ToString();
-    if (!string.IsNullOrWhiteSpace(real)) return real.Trim();
+    if (FromTrustedProxyQuiet(ctx))
+    {
+        var real = ctx.Request.Headers["X-Real-IP"].ToString();
+        if (!string.IsNullOrWhiteSpace(real)) return real.Trim();
 
-    var xff = ctx.Request.Headers["X-Forwarded-For"].ToString();
-    if (!string.IsNullOrWhiteSpace(xff))
-        return xff.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        var xff = ctx.Request.Headers["X-Forwarded-For"].ToString();
+        if (!string.IsNullOrWhiteSpace(xff))
+            return xff.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+    }
 
     var remote = ctx.Connection.RemoteIpAddress;
     if (remote is null) return null;
@@ -2549,8 +2677,11 @@ static string? ExtractCn(string dn)
 }
 
 // Reads incoming messages (ACKs/status). Currently logs; later can persist to commands.result.
-static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessResultStore accessResults, IServiceScopeFactory scopes, ILogger log, CancellationToken ct)
+static async Task PumpIncomingAsync(WebSocket socket, string deviceId, Guid deviceKey, AccessResultStore accessResults, IServiceScopeFactory scopes, ILogger log, CancellationToken ct)
 {
+    // An agent sends small JSON notes (an access result is a few hundred bytes). A message that never ends would
+    // otherwise grow this buffer without limit, so past the ceiling the connection is closed; the agent reconnects.
+    const int MaxMessageBytes = 64 * 1024;
     var buffer = new byte[4096];
     var message = new MemoryStream();
     while (socket.State == WebSocketState.Open && !ct.IsCancellationRequested)
@@ -2569,6 +2700,12 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                 return;
             }
             message.Write(buffer, 0, result.Count);
+            if (message.Length > MaxMessageBytes)
+            {
+                log.LogWarning(L.Program_AgentMessageTooLarge, deviceId, MaxMessageBytes);
+                await socket.CloseAsync(WebSocketCloseStatus.MessageTooBig, "message too large", ct);
+                return;
+            }
         } while (!result.EndOfMessage);
 
         // Agent-to-server message: currently tunnel open / consent result bound to nonce.
@@ -2577,8 +2714,9 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
             var msg = JsonSerializer.Deserialize(message.ToArray(), AgentJsonContext.Default.AgentUplinkMessage);
             if (msg is { Type: "access-result" } && !string.IsNullOrEmpty(msg.Nonce))
             {
-                var entry = accessResults.RecordOutcome(msg.Nonce, msg.Outcome);
+                var entry = accessResults.RecordOutcome(msg.Nonce, msg.Outcome, deviceKey);
                 log.LogInformation(L.Program_AccessResultDeviceOutcomeNonce, deviceId, msg.Outcome, msg.Nonce);
+                if (entry is null) continue;   // another device's command (or the store is full): not this device's to answer
 
                 // Audit: write the outcome as an audit row (who, which device, result). An answer that beat the
                 // request's own bookkeeping sits under a placeholder, and the request side files it once it binds
@@ -2591,7 +2729,8 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
                     var adb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                     if (entry is { Placeholder: true })
                     {
-                        var row = await adb.Commands.FirstOrDefaultAsync(c => c.Nonce == msg.Nonce, ct);
+                        // Only a command that went to this very device: a nonce is not proof of anything else.
+                        var row = await adb.Commands.FirstOrDefaultAsync(c => c.Nonce == msg.Nonce && c.DeviceId == deviceKey, ct);
                         var dev = row is null ? null : await adb.Devices.FirstOrDefaultAsync(d => d.Id == row.DeviceId, ct);
                         var who = row?.CreatedByUserId is { } uid ? await adb.Users.FirstOrDefaultAsync(u => u.Id == uid, ct) : null;
                         // Unknown here (the row is not written yet): the request side binds and audits it.
@@ -2610,3 +2749,6 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, AccessRes
         catch (JsonException) { log.LogDebug(L.Program_UnparseableAgentMessageDevice, deviceId); }
     }
 }
+
+// Process-wide flag for FromTrustedProxy's one-time warning (top-level statements cannot hold a static field).
+static class ProxyWarning { public static int Logged; public static int FingerprintLogged; }

@@ -23,6 +23,7 @@ public static class StatusClient
         {
             await using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.In, PipeOptions.Asynchronous);
             await pipe.ConnectAsync(timeoutMs, ct);
+            if (!PipePeer.IsAgentService(pipe, out _)) return null; // not the service: no status rather than a made-up one
             using var ms = new MemoryStream();
             await pipe.CopyToAsync(ms, ct);
             var report = ms.Length == 0 ? null : JsonSerializer.Deserialize(ms.ToArray(), AgentJsonContext.Default.StatusReport);

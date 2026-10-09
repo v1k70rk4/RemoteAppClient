@@ -72,6 +72,10 @@ internal static partial class Strings
     public static string BootstrapEnroller_BootstrapSelfEnrollOK => Get(nameof(BootstrapEnroller_BootstrapSelfEnrollOK));
     public static string BrokerService_ConsoleBrokerStartingPipePipe => Get(nameof(BrokerService_ConsoleBrokerStartingPipePipe));
     public static string BrokerService_BrokerPipeCreationFailedRetrying => Get(nameof(BrokerService_BrokerPipeCreationFailedRetrying));
+    public static string BrokerService_PipeNameHeldByAnotherProcess => Get(nameof(BrokerService_PipeNameHeldByAnotherProcess));
+    public static string SshLocalForward_ForwardEndedPortHeld => Get(nameof(SshLocalForward_ForwardEndedPortHeld));
+    public static string Program_InsecureServerUrlRefused => Get(nameof(Program_InsecureServerUrlRefused));
+    public static string EnrollCommand_InsecureServerUrl => Get(nameof(EnrollCommand_InsecureServerUrl));
     public static string BrokerService_BrokerAcceptError => Get(nameof(BrokerService_BrokerAcceptError));
     public static string BrokerService_BrokerClientConnected => Get(nameof(BrokerService_BrokerClientConnected));
     public static string BrokerService_BrokerForwardOKBastionRemote => Get(nameof(BrokerService_BrokerForwardOKBastionRemote));
@@ -197,4 +201,8 @@ internal static partial class Strings
     public static string DiagMode_Expired => Get(nameof(DiagMode_Expired));
     public static string DiagMode_ActiveAtStart => Get(nameof(DiagMode_ActiveAtStart));
     public static string DiagMode_Failed => Get(nameof(DiagMode_Failed));
+    public static string DataDirectory_ItemsRemoved => Get(nameof(DataDirectory_ItemsRemoved));
+    public static string DataDirectory_SecureFailed => Get(nameof(DataDirectory_SecureFailed));
+    public static string HelperUpdateWatcher_UntrustedStagingIgnored => Get(nameof(HelperUpdateWatcher_UntrustedStagingIgnored));
+    public static string HelperUpdateWatcher_NoServicePath => Get(nameof(HelperUpdateWatcher_NoServicePath));
 }

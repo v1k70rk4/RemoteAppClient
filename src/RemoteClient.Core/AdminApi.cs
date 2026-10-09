@@ -141,9 +141,11 @@ public sealed class AdminApi : IDisposable
         return (await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.LoginResponse, ct))!;
     }
 
-    public async Task ChangePasswordAsync(string newPassword, CancellationToken ct = default)
+    /// <summary>Sets a new password. <paramref name="currentPassword"/> is the one typed at sign-in; the server
+    /// insists on it for a voluntary change and accepts its absence only for the forced first change.</summary>
+    public async Task ChangePasswordAsync(string newPassword, string? currentPassword = null, CancellationToken ct = default)
     {
-        using var content = JsonContent.Create(new ChangePasswordRequest { NewPassword = newPassword }, AgentJsonContext.Default.ChangePasswordRequest);
+        using var content = JsonContent.Create(new ChangePasswordRequest { NewPassword = newPassword, CurrentPassword = currentPassword }, AgentJsonContext.Default.ChangePasswordRequest);
         using var resp = await _http.PostAsync("/auth/change-password", content, ct);
         resp.EnsureSuccessStatusCode();
     }

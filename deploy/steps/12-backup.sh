@@ -43,19 +43,30 @@ SVC_USER=remotesrv
 
 log(){ echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; }
 
+# Root working in a directory the service user owns: nothing is written or chowned through a symlink, and
+# only the fixed file names are touched (a glob would pick up whatever else was placed here).
+RESULTS=("$BKC/backup.status" "$BKC/backup.at" "$BKC/backup.log" "$BKC/backup.name" "$BKC/backup.enc")
+no_link(){ for f in "$@"; do [ -L "$f" ] && rm -f "$f"; done; return 0; }
+
 finish(){ # $1 = ok|failed
+  no_link "${RESULTS[@]}" "$TRG"
   echo "$1" > "$BKC/backup.status"
   date -Iseconds > "$BKC/backup.at"
   # The server reads these, so hand them over; the trigger must never survive (it holds the passphrase).
   shred -u "$TRG" 2>/dev/null || rm -f "$TRG"
-  chown "$SVC_USER:$SVC_USER" "$BKC"/backup.* 2>/dev/null || true
-  chmod 600 "$BKC"/backup.* 2>/dev/null || true
+  for f in "${RESULTS[@]}"; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    chown -h "$SVC_USER:$SVC_USER" "$f" 2>/dev/null || true
+    chmod 600 "$f" 2>/dev/null || true
+  done
   exit 0
 }
 
+no_link "${RESULTS[@]}"
 : > "$LOG"
 log "Console backup starting"
 
+if [ -L "$TRG" ] || [ ! -f "$TRG" ]; then log "No trigger file (or not a plain file); refusing."; finish failed; fi
 PASS="$(cat "$TRG" 2>/dev/null)"
 if [ -z "${PASS:-}" ]; then log "No passphrase in trigger; refusing to write an unencrypted archive."; finish failed; fi
 
@@ -70,9 +81,9 @@ fi
 PLAIN="$(ls -1 "$STAGE"/racd-identity-*.tar.gz 2>/dev/null | head -1)"
 if [ -z "$PLAIN" ]; then log "backup.sh produced no archive."; finish failed; fi
 
-log "Encrypting (aes-256-cbc, pbkdf2)"
+log "Encrypting (aes-256-cbc, pbkdf2, 600000 iterations)"
 rm -f "$OUT"
-if ! printf '%s' "$PASS" | openssl enc -aes-256-cbc -pbkdf2 -salt -in "$PLAIN" -out "$OUT" -pass stdin 2>>"$LOG"; then
+if ! printf '%s' "$PASS" | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -in "$PLAIN" -out "$OUT" -pass stdin 2>>"$LOG"; then
   log "Encryption failed."; rm -f "$OUT"; finish failed
 fi
 shred -u "$PLAIN" 2>/dev/null || rm -f "$PLAIN"

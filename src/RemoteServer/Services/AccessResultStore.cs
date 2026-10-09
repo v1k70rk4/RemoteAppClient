@@ -19,7 +19,13 @@ public sealed class AccessResultStore
         public bool Placeholder { get; init; }
         /// <summary>The outcome is in the audit log already; whoever binds or records next must not file it again.</summary>
         public bool Audited { get; set; }
+        /// <summary>The device that sent the outcome (its database id), when the answer came first.</summary>
+        public Guid? ReportedBy { get; init; }
     }
+
+    // Answers that arrive before their request are parked, and a device decides what it sends: without a ceiling
+    // one device could fill the server's memory with made-up nonces. Real traffic is a handful at a time.
+    private const int MaxEntries = 10_000;
 
     private readonly ConcurrentDictionary<string, Entry> _map = new();
 
@@ -34,22 +40,33 @@ public sealed class AccessResultStore
         // command answered at the next wake), and the request side's own binding then replaced that entry -
         // outcome and all - so the console polled into a timeout for an access the device had in fact granted.
         // Whatever is already known about the answer stays, whoever binds.
+        // An answer parked by a different device than the one this request went to is not the answer: dropped.
         entry = _map.AddOrUpdate(nonce, entry,
-            (_, existing) => existing.Outcome is not null
-                ? new Entry(actor, deviceId, hostname) { Outcome = existing.Outcome, Audited = existing.Audited }
+            (_, existing) => existing.Outcome is not null && (existing.ReportedBy is null || deviceId is null || existing.ReportedBy == deviceId)
+                ? new Entry(actor, deviceId, hostname) { Outcome = existing.Outcome, Audited = existing.Audited, ReportedBy = existing.ReportedBy }
                 : entry);
         Prune();
         return entry;
     }
 
-    /// <summary>Records outcome received from the agent and returns context for audit when known.</summary>
-    public Entry? RecordOutcome(string nonce, string outcome)
+    /// <summary>
+    /// Records outcome received from the agent and returns context for audit when known. <paramref name="sender"/>
+    /// is the reporting device's database id: an answer for a request that went to another device - or for a nonce
+    /// another device already answered - is ignored (null). Null sender skips that check.
+    /// </summary>
+    public Entry? RecordOutcome(string nonce, string outcome, Guid? sender = null)
     {
         if (string.IsNullOrEmpty(nonce)) return null;
-        if (_map.TryGetValue(nonce, out var e)) { e.Outcome = outcome; e.Expires = DateTimeOffset.UtcNow + Ttl; return e; }
+        if (_map.TryGetValue(nonce, out var e))
+        {
+            if (sender is not null && (e.DeviceId ?? e.ReportedBy) is { } owner && owner != sender) return null;
+            e.Outcome = outcome; e.Expires = DateTimeOffset.UtcNow + Ttl; return e;
+        }
         // No request bound yet: a device on a fast link answers before the delivery's bookkeeping is done.
         // Park the answer under a placeholder; SetPending merges it and the request side audits it.
-        var fresh = new Entry("?", null, "") { Outcome = outcome, Placeholder = true };
+        Prune();
+        if (_map.Count >= MaxEntries) return null;
+        var fresh = new Entry("?", null, "") { Outcome = outcome, Placeholder = true, ReportedBy = sender };
         _map[nonce] = fresh;
         return fresh;
     }

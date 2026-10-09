@@ -8,10 +8,11 @@ namespace RemoteAgent.Diagnostics;
 /// the agent logs at Debug into its file log and TightVNC logs at a detailed level, and it switches itself
 /// off when the time is up, restarts included.
 ///
-/// The whole state is one file, <c>diag.json</c> next to the enrollment: it carries the expiry and a
-/// <c>Logging</c> section the host reads as a reloadable configuration source, so writing or deleting the
-/// file changes the live log level without restarting the service. Nothing is cached here on purpose - the
-/// file is the truth, and it is tiny.
+/// The whole state is one file, <c>diag.json</c> next to the enrollment, carrying the expiry. The host
+/// watches it through <see cref="DiagConfigurationSource"/>, so writing or deleting the file changes the live
+/// log level without restarting the service. Only the expiry is ever read from it: the levels themselves are
+/// the fixed <see cref="LogLevelOverrides"/>, never the file's content. Nothing is cached here on purpose -
+/// the file is the truth, and it is tiny.
 /// </summary>
 public static class DiagMode
 {
@@ -20,6 +21,18 @@ public static class DiagMode
     public const int TightVncVerboseLevel = 5;
     /// <summary>TightVNC log level otherwise: errors and warnings, which is what a dying desktop server leaves behind.</summary>
     public const int TightVncNormalLevel = 2;
+
+    /// <summary>
+    /// The log levels while verbose logging is on. The Microsoft/System categories stay at Information: their
+    /// Debug output is framework noise, and the event log keeps its own Information floor from appsettings,
+    /// so only the file log gets the detail.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string?> LogLevelOverrides = new Dictionary<string, string?>
+    {
+        ["Logging:LogLevel:Default"] = "Debug",
+        ["Logging:LogLevel:Microsoft"] = "Information",
+        ["Logging:LogLevel:System"] = "Information",
+    };
 
     public static string FilePath { get; private set; } = @"C:\ProgramData\RemoteAgent\diag.json";
     public static string LogDirectory { get; private set; } = @"C:\ProgramData\RemoteAgent\logs";
@@ -54,16 +67,15 @@ public static class DiagMode
     public static DateTimeOffset Enable(int hours)
     {
         var until = DateTimeOffset.UtcNow.AddHours(Math.Clamp(hours, 1, MaxHours));
-        // The Microsoft/System categories stay at Information: their Debug output is framework noise, and the
-        // event log keeps its own Information floor from appsettings, so only the file gets the detail.
-        var json =
-            "{\n" +
-            $"  \"Diag\": {{ \"Until\": \"{until.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}\" }},\n" +
-            "  \"Logging\": { \"LogLevel\": { \"Default\": \"Debug\", \"Microsoft\": \"Information\", \"System\": \"Information\" } }\n" +
-            "}\n";
-        // Written whole, then moved into place: the configuration watcher must never read half a file.
+        var json = $"{{ \"Diag\": {{ \"Until\": \"{until.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}\" }} }}\n";
+        // Written whole, then moved into place: the watcher must never read half a file. The temporary file is
+        // always a new one this process creates, never one that was already lying there under someone else's
+        // ownership.
         var tmp = FilePath + ".tmp";
-        File.WriteAllText(tmp, json);
+        File.Delete(tmp);
+        using (var stream = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (var writer = new StreamWriter(stream))
+            writer.Write(json);
         File.Move(tmp, FilePath, overwrite: true);
         return until;
     }

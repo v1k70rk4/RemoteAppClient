@@ -7,14 +7,15 @@ the time of that release; the GitHub release pages carry the same text together 
 
 A release about seeing: what a device is doing when something is wrong, and what the server is doing when nobody
 is looking. Verbose logging on demand, a file log on every agent, a server that mails when its own checks fail,
-and the first automated tests. Every component is **2.2.7.0**. There is **no schema change**. The release also
-covers 2.2.6, which ran on the maintainer's fleet but was never tagged.
+and the first automated tests - then a security review and its fixes. Every component is **2.2.7.1**. The
+schema gains the six TPM columns (`upgrade-2.2.7-tpm.sql`). The release also covers 2.2.6, which ran on the
+maintainer's fleet but was never tagged.
 
 **Verbose logging on demand**
 - *Commands → Verbose log for 24 hours* (and *off*) in the device menu. The agent raises its live log level to
-  Debug without a restart: the switch is a small file next to the enrollment (`diag.json`) that the logging
-  configuration watches, with the expiry inside it, so it reverts by itself when the time is up, a service restart
-  included. TightVNC's own log turns detailed for the same period (its log level is part of the VNC hardening, so
+  Debug without a restart: the switch is a small file next to the enrollment (`diag.json`) that the agent watches,
+  with the expiry inside it, so it reverts by itself when the time is up, a service restart included. Only the
+  expiry is read from it; the log levels it switches to are fixed in the agent. TightVNC's own log turns detailed for the same period (its log level is part of the VNC hardening, so
   the watchdog applies it within half a minute, restarting tvnserver once) and goes back afterwards.
 - The command is queued for an offline device like any other and answered with `diag-on` / `diag-off`; the audit
   log records who switched it and for how long. Its hours are a signed field that older agents do not know, so
@@ -49,6 +50,115 @@ covers 2.2.6, which ran on the maintainer's fleet but was never tagged.
   made-up one - was tracked by neither the device lock nor the source-address lock, so its failures were never
   counted. Such requests now count against the source address, like a keyless sign-in.
 
+**Limits where anyone can knock**
+- Password checks (Argon2id, 64 MiB each) run at most a few at a time, so a burst of sign-in attempts queues
+  rather than exhausting the server's memory. When the queue is full the answer is `busy` (503). An unknown user
+  name is checked against a dummy hash, so its answer takes as long as a wrong password. User names over 128
+  characters are refused.
+- Windows Hello challenges: a user keeps a few outstanding challenges, so another request in their name no longer
+  replaces theirs. Signing in uses up only the challenge the signature matches, and the store has a ceiling.
+- The agent command channel closes a connection that sends a message over 64 KB. An access result counts only
+  from the device the command went to, and parked early answers have a ceiling.
+
+**Accounts and passwords**
+- Changing a password asks for the current one. A session on its own - a console left open, a token that leaked -
+  can no longer take an account over by setting a new password. The forced change after a temporary password is
+  exempt, since that password was typed moments earlier and consoles before 2.2.7 do not send it along; the
+  2.2.7 console sends it. After any change, the account's other sessions and its remembered devices are signed
+  out; the console that made the change stays in. Both outcomes are in the audit log.
+- An authenticator code is accepted once. The verifier tolerates a step of clock drift, which kept a code valid
+  for up to 90 seconds; a code seen once could sign in again inside that window. The server now remembers the
+  newest accepted step per user and refuses a second use.
+- The first admin's temporary password no longer goes to the server log, which is kept for weeks and shipped
+  elsewhere, but to `/var/lib/remoteserver/first-admin-password.txt` (`Server:FirstAdminPasswordPath`), readable
+  by the service user only; the file is removed once that password has been changed. `09-blob.sh` prints it from
+  there.
+- *Connect* names the device's own tunnel port or none. A caller could pass any port, including another
+  device's; the server now refuses a port that is not the device's.
+- Two commands sent to one device at the same moment (two operators, or a command racing a close frame) each took
+  the socket for themselves and one of them failed; sends to a device are now serialized.
+
+**What the consoles keep on disk**
+- The "remember this device" trust token is no longer in the clear in `config.json`: on Windows it is sealed with
+  DPAPI to the signed-in Windows user, on Linux the config file and its folder are owner-only. A config written by
+  an older console still loads, and the next save seals it.
+- The Linux console's VNC password file is created owner-only from the first byte, in a folder of the operator's
+  own, rather than written to `/tmp` and tightened a moment later.
+- The Lite and Linux consoles start `ssh` and `ssh-keygen` by their full path (the system location first), not
+  by a name the PATH resolves, so a same-named program in a user-writable folder cannot stand in for them.
+- `racctl token` reads the token from standard input, typed without echo or piped, instead of taking it as an
+  argument that lands in the shell history.
+
+**What a local user on a shared device could reach**
+- The consoles and the Helper check who serves the agent's named pipes before using them. A pipe name is first
+  come, first served: while the agent was down, any signed-in user could have created `RemoteAgent.broker` and
+  received the operator's sign-in through it. The other end must now run in session 0, which only a service
+  does; anything else counts as no agent. The agent itself claims its pipe names as first instance and logs an
+  error, retrying, when the name is already held.
+- When a console's `ssh` forward dies under a session, the agent takes its loopback port over at once and holds
+  it, answering nothing, until the session ends; before, the port was free and the console kept sending its
+  session token to whoever bound it next.
+- The file service binds its loopback port when the agent starts, not when a session first needs it, and forgets
+  its session tokens when the tunnel closes.
+
+**Commands bound to their device**
+- A command's signature now covers every field and the device it was issued for (signature version 2): the
+  file-session token and the tunnel's purpose used to ride unsigned, and a command signed for one device would
+  have verified on another. The server signs version 2 for agents from 2.2.7.1 and the original form for older
+  ones; a new agent accepts both, so a mixed fleet keeps working.
+
+**Only HTTPS**
+- The agent does not connect to a plain-HTTP server off the local machine, and enrollment refuses such an
+  address; the Lite and Linux consoles refuse it at sign-in. Plain HTTP to localhost stays for development.
+
+**The console's file copy stays in the folder you chose**
+- File names in a listing (a download's come from the device) are used only when each is one plain name. Names
+  with `..`, a drive or path, a separator, a wildcard, a control character or a Windows device name (CON, NUL…)
+  are skipped and counted. The joined path must also stay inside the destination folder. A folder copy stops
+  below 64 levels, and the console asks before overwriting what is already in the destination.
+
+**TPM telemetry**
+- The agent reports the device's TPM from `tpmtool getdeviceinformation`: present, version, manufacturer id,
+  ready for storage (keys can be created in it), ready for attestation, and whether Windows flags its firmware as
+  vulnerable. It is read once and then every six hours. The console's device details show it on a TPM row:
+  a warning for no TPM or one not ready for keys, an error for vulnerable firmware. The device key is meant to
+  move into the TPM, and this shows beforehand which devices could hold it.
+- Schema: six nullable `Devices` columns. On an existing database apply `upgrade-2.2.7-tpm.sql` (idempotent).
+  NULL means unknown (an older agent), never "no TPM".
+
+**The server believes nginx's identity headers only from nginx**
+- New setting `Server:ProxySecret`. nginx sends it in `X-RAC-Proxy`, and the device identity
+  (`X-Client-Verify`/`X-Client-Dn`) and real-address (`X-Real-IP`/`X-Forwarded-For`) headers count only on requests
+  that carry it. Kestrel's loopback port is reachable through the bastion's forwards as well. Empty (the default),
+  everything works as before. The installer (`deploy/steps/07-nginx.sh`) generates the secret and sets up both sides.
+  On an existing server, configure nginx first, then the server.
+- `?deviceId=` identifies a device only in Development, and telemetry without an identity is refused instead of
+  being filed under an "unknown" device.
+- Deleting a device revokes it. The command channel, the SSH-over-WebSocket bridge, telemetry and the VNC
+  password report now accept only a device the server still knows, with a status other than rejected or revoked.
+  A deleted device no longer re-creates itself from its next telemetry, and its open command channel is closed
+  at once. When nginx passes `X-Client-Fingerprint` (`$ssl_client_fingerprint`), the certificate must also be the
+  one the server last issued to that device. The installer sets this up; without it, the other checks still
+  apply. Update downloads (`/api/updates`) are unchanged, so consoles of every version keep updating.
+- At the bastion too: the deleted device's SSH key goes onto an OpenSSH revocation list (KRL), and every
+  certificate issued for that key is refused from then on. Nothing has to expire, and devices that sit offline
+  for months are not affected. The server keeps `/var/lib/remoteserver/ssh/revoked_keys.krl` up to date
+  (`Server:Bastion:RevokedKeysPath`), creating it empty at start. `deploy/steps/05-bastion.sh` points the agent
+  user's `Match` block at it (`RevokedKeys`), so an unreadable list could never lock out an administrator's login.
+- nginx matches `/agent`, `/ssh`, `/api/` and `/admin/` regardless of letter case, and drops identity headers a
+  client sends itself.
+
+**The agent's data folder belongs to SYSTEM and Administrators**
+- `C:\ProgramData\RemoteAgent` (and TightVNC's log folder, `C:\ProgramData\TightVNC`) used to keep the permissions
+  ProgramData hands down, which let every local user read the files and add new ones. The agent and the Helper now
+  give both folders a protected ACL when they start - SYSTEM and Administrators only, `enrollment.json` stays readable
+  for the console - and remove anything inside that neither of them created, links included.
+- The Helper replaces only the RemoteAgent service's own executable (from its registry entry), and only from staged
+  files SYSTEM or Administrators created; the agent does the same when it replaces the Helper. Update downloads are
+  always written to a new file.
+- The agent's ssh runs with `-F none`: the tunnel's options are all on its command line, and no `ssh_config` on the
+  machine can add to them.
+
 **From 2.2.6: sleeping and roaming devices**
 - An agent whose command channel dropped reset its reconnect delay only after a clean close, so a device roaming
   between networks sat silent for up to two minutes after each move. The delay now resets after any established
@@ -75,6 +185,21 @@ covers 2.2.6, which ran on the maintainer's fleet but was never tagged.
 - `deploy/KEYS.md` lists every key and certificate the server and the devices hold, what each protects, how it is
   rotated - and that device certificates expire 825 days after enrolment with no renewal yet, which the alerts
   now warn about 60 days ahead.
+- The root helpers (self-update, rollback, console backup) work in directories the service user owns, and used
+  to write, chown and shred through whatever was there - a symlink planted by a compromised service would have
+  handed it any root file. They now refuse symlinks, touch only their fixed file names, validate the backup
+  name they read, unpack the staged package without its owners, modes or device nodes, and run the staged SQL
+  in the MariaDB client's sandbox mode (10.11.7+), where a `\!` line cannot start a shell. The binaries under
+  `/opt/remoteserver` and the secrets under `/etc/remoteserver` belong to root now, readable by the service and
+  never writable by it, and the unit gets `ProtectSystem=strict` (writes only under `/var/lib/remoteserver`),
+  `PrivateDevices` and friends.
+- `setup.sh` no longer unpacks whatever sits at `/tmp/remoteserver.tar.gz`: a local package is copied into a
+  private directory first, a downloaded one is checked against the release's `SHA256SUMS`, and `schema.sql` is
+  fetched at the release's tag rather than from `master`. `RAC_GH_RELEASE` pins a release.
+- Backups: `backup.sh` works under `umask 077` from the start; the passphrase-encrypted archives use 600 000
+  PBKDF2 iterations (restore still opens older ones), and `restore.sh` no longer puts the passphrase on
+  openssl's command line.
+- CI publishes `SHA256SUMS` over every release asset; Dependabot watches the test project's packages too.
 
 **First automated tests**
 - `tests/RemoteAppClient.Tests` (xUnit, 95 tests) covers the command signature's canonical forms, the liveness
@@ -83,11 +208,18 @@ covers 2.2.6, which ran on the maintainer's fleet but was never tagged.
   languages with matching placeholders. CI runs them on every push, and a release waits for them.
 
 **Upgrading**
-- Server first: upload `RemoteServer-linux-x64.tar.gz` and *Update server*. No SQL. Set *Support e-mail* in
-  *Server settings* if it is empty, or the alerts go to the log only.
+- Server first: upload `RemoteServer-linux-x64.tar.gz` with `upgrade-2.2.7-tpm.sql` and *Update server* (or
+  apply the SQL by hand; it is idempotent). Set *Support e-mail* in *Server settings* if it is empty, or the
+  alerts go to the log only.
 - Then the agents: the first watchdog tick after the update restarts tvnserver once, for the new log settings.
-  The console needs 2.2.7 for the verbose-log menu; the updater, Lite and the Linux console carry the aligned
-  version only.
+  Agents from 2.2.7.1 get device-bound (version 2) command signatures; older ones keep the original form.
+  The console needs 2.2.7 for the verbose-log menu and the TPM row, and it sends the current password with a
+  password change; the updater, Lite and the Linux console carry the aligned version and the pipe check.
+- Existing installations: `./deploy/setup.sh 10-selfupdate 12-backup` rewrites the root helpers and their units
+  (nothing else). The ownership and unit changes are by hand: `chown -R root:remotesrv /opt/remoteserver
+  /etc/remoteserver; chmod -R u=rwX,g=rX,o= /opt/remoteserver; chmod 750 /etc/remoteserver; chmod 640
+  /etc/remoteserver/*`, then in `remoteserver.service` replace `ProtectSystem=full` with `ProtectSystem=strict`
+  plus `ReadWritePaths=/var/lib/remoteserver` and `PrivateDevices=true`, `daemon-reload`, restart.
 - Existing installations, by hand on the box: narrow the database role
   (`REVOKE ALL PRIVILEGES ON remoteserver.* FROM 'remoteserver'@'localhost'; GRANT SELECT, INSERT, UPDATE, DELETE ON
   remoteserver.* TO 'remoteserver'@'localhost'; FLUSH PRIVILEGES;`) and add

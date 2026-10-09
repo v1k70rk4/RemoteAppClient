@@ -18,6 +18,10 @@ internal static partial class Strings
         [nameof(BootstrapEnroller_BootstrapSelfEnrollOK)] = "Bootstrap self-enroll OK: {0}",
         [nameof(BrokerService_ConsoleBrokerStartingPipePipe)] = "Console broker starting (pipe: {Pipe}).",
         [nameof(BrokerService_BrokerPipeCreationFailedRetrying)] = "Broker pipe creation failed; retrying in 2s.",
+        [nameof(BrokerService_PipeNameHeldByAnotherProcess)] = "The pipe {Pipe} already exists and is not ours: another process holds the name. Consoles will not use it; retrying in 5s. ({Detail})",
+        [nameof(SshLocalForward_ForwardEndedPortHeld)] = "Broker forward ended; its local port {Port} is held until the console session closes.",
+        [nameof(Program_InsecureServerUrlRefused)] = "The enrollment names a plain-HTTP server ({Url}); the agent does not connect to it. Re-enroll with an https:// address.",
+        [nameof(EnrollCommand_InsecureServerUrl)] = "The server address must be https:// (plain http is allowed only for localhost).",
         [nameof(BrokerService_BrokerAcceptError)] = "Broker accept error.",
         [nameof(BrokerService_BrokerClientConnected)] = "Broker: client connected.",
         [nameof(BrokerService_BrokerForwardOKBastionRemote)] = "Broker forward OK: bastion {Remote} -> local {Local}.",
@@ -143,5 +147,9 @@ internal static partial class Strings
         [nameof(DiagMode_Expired)] = "Verbose logging ran out; back to the normal level.",
         [nameof(DiagMode_ActiveAtStart)] = "Verbose logging is on until {Until} (UTC).",
         [nameof(DiagMode_Failed)] = "Could not change the verbose logging switch.",
+        [nameof(DataDirectory_ItemsRemoved)] = "Data folder {Folder} secured; {Count} item(s) not created by SYSTEM or Administrators were removed.",
+        [nameof(DataDirectory_SecureFailed)] = "Could not secure the data folder {Folder}: {Reason}",
+        [nameof(HelperUpdateWatcher_UntrustedStagingIgnored)] = "Staged Helper update ignored and removed: not created by SYSTEM or Administrators.",
+        [nameof(HelperUpdateWatcher_NoServicePath)] = "Staged Helper update ignored: the Helper service's executable path could not be read.",
     };
 }

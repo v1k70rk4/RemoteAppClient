@@ -49,6 +49,7 @@ public sealed class LinuxOperatorTransport : IDisposable
         // with a "must update" response (no token/cert), which would otherwise look like a missing cert.
         clientVersion ??= System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString();
         channel ??= "rtm";
+        if (!RemoteAgent.Admin.ServerUrlPolicy.IsAllowed(serverBaseUrl)) throw new InvalidOperationException("insecure_server_url");
         var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "rac_op_" + Guid.NewGuid().ToString("N"))).FullName;
         TrySetMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         var keyPath = Path.Combine(dir, "id");
@@ -143,7 +144,7 @@ public sealed class LinuxOperatorTransport : IDisposable
         int local = FreeLocalPort();
         // CreateNoWindow hides the OpenSSH console on Windows (the Lite client shells out to ssh.exe; otherwise
         // each forward pops a black console window — two per VNC connect). No effect on Linux.
-        var psi = new ProcessStartInfo("ssh") { UseShellExecute = false, CreateNoWindow = true };
+        var psi = new ProcessStartInfo(SshLocator.Ssh()) { UseShellExecute = false, CreateNoWindow = true };
         string[] args =
         [
             "-i", _keyPath,
@@ -190,7 +191,7 @@ public sealed class LinuxOperatorTransport : IDisposable
 
     private static async Task GenerateKeyAsync(string keyPath, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo("ssh-keygen") { UseShellExecute = false, RedirectStandardError = true, CreateNoWindow = true };
+        var psi = new ProcessStartInfo(SshLocator.SshKeygen()) { UseShellExecute = false, RedirectStandardError = true, CreateNoWindow = true };
         foreach (var a in new[] { "-t", "ed25519", "-N", "", "-q", "-f", keyPath }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("ssh_keygen_failed");
         await p.WaitForExitAsync(ct);

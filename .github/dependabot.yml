@@ -14,10 +14,11 @@ updates:
       actions:
         patterns: ["*"]
 
-  # NuGet packages across every project under src/
+  # NuGet packages across every project under src/ and the test project
   - package-ecosystem: "nuget"
     directories:
       - "/src/*"
+      - "/tests/*"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

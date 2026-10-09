@@ -8,9 +8,21 @@ sudo chown "$RAC_SVC_USER:$RAC_SVC_USER" "$CA_KEY" "$CA_KEY.pub"; sudo chmod 600
 sudo cp "$CA_KEY.pub" /etc/ssh/agent_ca.pub
 sudo chown root:root /etc/ssh/agent_ca.pub; sudo chmod 644 /etc/ssh/agent_ca.pub
 
+# Deleted devices' SSH keys: the server keeps this KRL up to date (Signing/SshRevocationList), and every
+# certificate for a listed key is refused. An unreadable RevokedKeys file refuses ALL keys of the users it
+# applies to, so it is created here (empty) before sshd is told about it - and it sits inside the Match block,
+# so even then only the agent user would be affected, never an administrator's own login.
+KRL=/var/lib/remoteserver/ssh/revoked_keys.krl
+sudo mkdir -p "$(dirname "$KRL")"
+sudo test -s "$KRL" || sudo ssh-keygen -k -f "$KRL"
+sudo touch "${KRL%.krl}.txt"
+sudo chown -R "$RAC_SVC_USER:$RAC_SVC_USER" "$(dirname "$KRL")"
+sudo chmod 755 "$(dirname "$KRL")"; sudo chmod 644 "$KRL" "${KRL%.krl}.txt"
+
 sudo tee /etc/ssh/sshd_config.d/agent-bastion.conf >/dev/null <<CONF
 Match User ${RAC_AGENT_USER}
     TrustedUserCAKeys /etc/ssh/agent_ca.pub
+    RevokedKeys ${KRL}
     GatewayPorts no
     AllowTcpForwarding all
     PermitTTY no

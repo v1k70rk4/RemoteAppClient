@@ -7,15 +7,22 @@ namespace RemoteClient.Linux;
 /// Launches an external TigerVNC viewer against a local forwarded port. The device's VNC password
 /// (plaintext, from the server) is handed over via a temporary vncpasswd-format file: TigerVNC's
 /// <c>-passwd</c> reads the 8-byte fixed-key-DES obscured form, which <see cref="VncPassword.Encrypt"/>
-/// produces (the same format TightVNC uses). The file is chmod 600 and removed when the viewer exits.
+/// produces (the same format TightVNC uses). The file is created owner-only (0600) in a private folder and
+/// removed when the viewer exits.
 /// </summary>
 internal static class VncLauncher
 {
     public static void Launch(int localPort, string vncSecretPlaintext, string scale = "auto", bool color256 = true)
     {
-        var passwdFile = Path.Combine(Path.GetTempPath(), "rac_vnc_" + Guid.NewGuid().ToString("N"));
-        File.WriteAllBytes(passwdFile, VncPassword.Encrypt(vncSecretPlaintext));
-        TryChmod600(passwdFile);
+        // Owner-only from the first byte: a file created world-readable and tightened afterwards is open for a
+        // moment, and /tmp is shared. The folder is the operator's own (0700), so the name is not even listable.
+        var dir = Path.Combine(Path.GetTempPath(), "rac-vnc-" + Environment.UserName);
+        Directory.CreateDirectory(dir);
+        TryChmod(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var passwdFile = Path.Combine(dir, "passwd-" + Guid.NewGuid().ToString("N"));
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using (var f = new FileStream(passwdFile, options)) f.Write(VncPassword.Encrypt(vncSecretPlaintext));
 
         // Prefer ssvnc's "Enhanced TightVNC Viewer" (native): it has client-side scaling (-scale fit =
         // fit-to-window) and 256-color (-bgr233). Fall back to TigerVNC (no client scaling) if absent.
@@ -63,9 +70,9 @@ internal static class VncLauncher
         return null;
     }
 
-    private static void TryChmod600(string path)
+    private static void TryChmod(string path, UnixFileMode mode)
     {
         if (OperatingSystem.IsWindows()) return;
-        try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { /* best effort */ }
+        try { File.SetUnixFileMode(path, mode); } catch { /* best effort */ }
     }
 }

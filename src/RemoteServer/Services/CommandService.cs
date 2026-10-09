@@ -41,7 +41,7 @@ public sealed class CommandService(
         db.Commands.Add(entity);
         await db.SaveChangesAsync(ct);
 
-        await TryDeliverAsync(deviceId, entity, ct);
+        await TryDeliverAsync(device, entity, ct);
         return entity;
     }
 
@@ -57,16 +57,19 @@ public sealed class CommandService(
             .ToListAsync(ct);
 
         foreach (var cmd in pending)
-            await TryDeliverAsync(deviceId, cmd, ct);
+            await TryDeliverAsync(device, cmd, ct);
     }
 
-    private async Task TryDeliverAsync(string deviceId, Command entity, CancellationToken ct)
+    private async Task TryDeliverAsync(Device device, Command entity, CancellationToken ct)
     {
-        // Fresh signature at delivery time keeps the timestamp inside the replay window.
+        var deviceId = device.DeviceId;
+        // Fresh signature at delivery time keeps the timestamp inside the replay window. The form follows the
+        // agent's last reported version: the full, device-bound one for agents that check it, the original for
+        // the rest (an agent that just updated and has not reported yet still accepts the original).
         var data = entity.PayloadJson is null
             ? null
             : JsonSerializer.Deserialize(entity.PayloadJson, AgentJsonContext.Default.CommandData);
-        var signed = signer.Create(entity.Type, data);
+        var signed = signer.Create(entity.Type, data, CommandSigner.UsesV2(device.AgentVersion) ? deviceId : null);
 
         // The nonce goes on the row BEFORE the send: a device on a fast link answers within milliseconds, and
         // when nothing else remembers who asked (a queued command delivered at a sleeping device's next wake),
