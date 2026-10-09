@@ -19,6 +19,18 @@ internal static class VncLauncher
         // have been created by another user first, who would then own it), so the name is not even listable.
         var dir = Directory.CreateTempSubdirectory("rac-vnc-").FullName;
         var passwdFile = Path.Combine(dir, "passwd-" + Guid.NewGuid().ToString("N"));
+        try { LaunchIn(dir, passwdFile, localPort, vncSecretPlaintext, scale, color256); }
+        catch
+        {
+            // Nothing started: the password file must not outlive the attempt.
+            try { File.Delete(passwdFile); } catch { /* ignore */ }
+            try { Directory.Delete(dir); } catch { /* ignore */ }
+            throw;
+        }
+    }
+
+    private static void LaunchIn(string dir, string passwdFile, int localPort, string vncSecretPlaintext, string scale, bool color256)
+    {
         var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
         if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         using (var f = new FileStream(passwdFile, options)) f.Write(VncPassword.Encrypt(vncSecretPlaintext));

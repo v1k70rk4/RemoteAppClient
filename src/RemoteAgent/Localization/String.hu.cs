@@ -149,7 +149,7 @@ internal static partial class Strings
         [nameof(DiagMode_Failed)] = "A részletes naplózás kapcsolóját nem sikerült átírni.",
         [nameof(DataDirectory_ItemsRemoved)] = "Adatmappa lezárva ({Folder}); {Count} nem SYSTEM vagy rendszergazda által létrehozott elem eltávolítva.",
         [nameof(DataDirectory_SecureFailed)] = "Az adatmappát ({Folder}) nem sikerült lezárni: {Reason}",
-        [nameof(HelperUpdateWatcher_StagingNotBySystemIgnored)] = "A Helper előkészített frissítése kihagyva és törölve: nem SYSTEM vagy rendszergazda hozta létre.",
+        [nameof(HelperUpdateWatcher_StagingNotBySystemIgnored)] = "A Helper előkészített frissítése kihagyva és törölve: nem a SYSTEM vagy a rendszergazdák tulajdona.",
         [nameof(HelperUpdateWatcher_NoServicePath)] = "A Helper előkészített frissítése kihagyva: a Helper szolgáltatás exe-útvonala nem olvasható.",
     };
 }

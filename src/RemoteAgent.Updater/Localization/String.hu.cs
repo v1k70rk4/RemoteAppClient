@@ -22,7 +22,7 @@ internal static partial class Strings
         [nameof(SupervisorWorker_KillFailed)] = "Kill sikertelen.",
         [nameof(SupervisorWorker_DataDirectoryItemsRemoved)] = "Adatmappa lezárva ({Folder}); {Count} nem SYSTEM vagy rendszergazda által létrehozott elem eltávolítva.",
         [nameof(SupervisorWorker_DataDirectorySecureFailed)] = "Az adatmappát ({Folder}) nem sikerült lezárni: {Reason}",
-        [nameof(SupervisorWorker_StagingNotBySystemIgnored)] = "Az agent előkészített frissítése kihagyva és törölve: nem SYSTEM vagy rendszergazda hozta létre.",
+        [nameof(SupervisorWorker_StagingNotBySystemIgnored)] = "Az agent előkészített frissítése kihagyva és törölve: nem a SYSTEM vagy a rendszergazdák tulajdona.",
         [nameof(SupervisorWorker_NoServicePath)] = "Az agent előkészített frissítése kihagyva: a RemoteAgent szolgáltatás exe-útvonala nem olvasható.",
     };
 }
