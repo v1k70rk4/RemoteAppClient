@@ -1,0 +1,16 @@
+-- RemoteServer 2.3.0 — device key in the TPM and certificate renewal (ADR-0003).
+--
+-- Devices gain: where their key lives as the agent reports it (KeyProvider: tpm / software / file), the
+-- certificate's expiry (CertNotAfter), a certificate issued for a re-key that the device has not confirmed yet
+-- (PendingCertThumbprint / PendingCertUntil) and the retired one still accepted for a few minutes after a
+-- confirmed switch (PreviousCertThumbprint / PreviousCertValidUntil). All NULL for devices that never re-keyed.
+--
+-- Idempotent (IF NOT EXISTS) — safe to run repeatedly. Apply via the in-app
+-- "Szerver frissítés → SQL kiválasztása" upload (or racctl update --sql), or manually against the database.
+
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `CertNotAfter` datetime(6) NULL;
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `PendingCertThumbprint` longtext CHARACTER SET utf8mb4 NULL;
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `PendingCertUntil` datetime(6) NULL;
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `PreviousCertThumbprint` longtext CHARACTER SET utf8mb4 NULL;
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `PreviousCertValidUntil` datetime(6) NULL;
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `KeyProvider` longtext CHARACTER SET utf8mb4 NULL;

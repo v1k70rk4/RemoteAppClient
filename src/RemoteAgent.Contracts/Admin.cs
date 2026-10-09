@@ -164,6 +164,10 @@ public sealed class DeviceInfo
     [JsonPropertyName("tpmReady")] public bool? TpmReady { get; set; }
     [JsonPropertyName("tpmAttestation")] public bool? TpmAttestation { get; set; }
     [JsonPropertyName("tpmVulnerableFirmware")] public bool? TpmVulnerableFirmware { get; set; }
+    /// <summary>Where the device key lives: "tpm" | "software" | "file"; null = unknown (older agent).</summary>
+    [JsonPropertyName("keyProvider")] public string? KeyProvider { get; set; }
+    /// <summary>Device certificate expiry.</summary>
+    [JsonPropertyName("certNotAfter")] public DateTimeOffset? CertNotAfter { get; set; }
 
     /// <summary>Login lockout after 5 failed attempts from the device. Only an admin can unlock it.</summary>
     [JsonPropertyName("loginFailCount")] public int LoginFailCount { get; set; }

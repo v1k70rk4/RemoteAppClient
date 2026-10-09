@@ -76,6 +76,10 @@ internal static partial class Strings
     public static string SshLocalForward_ForwardEndedPortHeld => Get(nameof(SshLocalForward_ForwardEndedPortHeld));
     public static string Program_InsecureServerUrlRefused => Get(nameof(Program_InsecureServerUrlRefused));
     public static string EnrollCommand_InsecureServerUrl => Get(nameof(EnrollCommand_InsecureServerUrl));
+    public static string RekeyService_Failed => Get(nameof(RekeyService_Failed));
+    public static string RekeyService_ServerRefused => Get(nameof(RekeyService_ServerRefused));
+    public static string RekeyService_ConfirmFailed => Get(nameof(RekeyService_ConfirmFailed));
+    public static string RekeyService_Rekeyed => Get(nameof(RekeyService_Rekeyed));
     public static string BrokerService_BrokerAcceptError => Get(nameof(BrokerService_BrokerAcceptError));
     public static string BrokerService_BrokerClientConnected => Get(nameof(BrokerService_BrokerClientConnected));
     public static string BrokerService_BrokerForwardOKBastionRemote => Get(nameof(BrokerService_BrokerForwardOKBastionRemote));

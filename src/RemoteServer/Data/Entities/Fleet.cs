@@ -53,6 +53,22 @@ public sealed class Device
     /// <summary>Agent mTLS client certificate thumbprint.</summary>
     public string? CertThumbprint { get; set; }
 
+    /// <summary>When the current certificate expires; set at issue, also reported by the agent for older devices.</summary>
+    public DateTimeOffset? CertNotAfter { get; set; }
+
+    /// <summary>A re-key in progress: the certificate issued for the new key, accepted alongside the current one
+    /// until the device confirms it (then it becomes current) or <see cref="PendingCertUntil"/> passes.</summary>
+    public string? PendingCertThumbprint { get; set; }
+    public DateTimeOffset? PendingCertUntil { get; set; }
+
+    /// <summary>After a confirmed re-key: the retired certificate, still accepted for connections in flight
+    /// until <see cref="PreviousCertValidUntil"/>.</summary>
+    public string? PreviousCertThumbprint { get; set; }
+    public DateTimeOffset? PreviousCertValidUntil { get; set; }
+
+    /// <summary>Where the device key lives, as the agent reports it: "tpm" | "software" | "file"; null = unknown.</summary>
+    public string? KeyProvider { get; set; }
+
     /// <summary>Agent SSH public key for bastion authorized_keys/CA flows.</summary>
     public string? SshPublicKey { get; set; }
 

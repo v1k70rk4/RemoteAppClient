@@ -39,6 +39,7 @@ public sealed class TelemetryService(
 
         var interval = TimeSpan.FromSeconds(_opt.IntervalSeconds);
         HttpClient? http = null; // built lazily; rebuilt after cert errors, for example after enrollment
+        int builtFor = -1;       // the identity version the client was built with: a re-key makes it stale
 
         // Event-driven power: send telemetry immediately when the charger is plugged/unplugged instead of
         // waiting out the interval. PowerMonitor also provides a reliable AC state for this Session-0 service.
@@ -50,7 +51,10 @@ public sealed class TelemetryService(
         {
             try
             {
-                http ??= BuildClient(); // may throw before the cert exists; caught so host keeps running
+                // A re-key switched the certificate: the pooled connections still carry the old one, which the
+                // server stops accepting a few minutes later. Build afresh, so the next post uses the new identity.
+                if (http is not null && builtFor != RemoteAgent.Security.DeviceIdentity.Version) { http.Dispose(); http = null; }
+                if (http is null) { http = BuildClient(); builtFor = RemoteAgent.Security.DeviceIdentity.Version; } // may throw before the cert exists; caught so host keeps running
                 var payload = collector.Collect();
                 var sentAt = DateTimeOffset.UtcNow;
                 using var resp = await http.PostAsJsonAsync(
@@ -72,7 +76,12 @@ public sealed class TelemetryService(
                     logger.LogDebug(L.TelemetryService_TelemetrySent);
                 }
                 else
+                {
                     logger.LogWarning(L.TelemetryService_TelemetryRejectedHTTPCode, (int)resp.StatusCode);
+                    // Refused identity: drop the pooled connections so the next post negotiates TLS again with
+                    // whatever certificate is current (a stale one after a re-key, or a replaced enrollment).
+                    if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden) { http.Dispose(); http = null; }
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

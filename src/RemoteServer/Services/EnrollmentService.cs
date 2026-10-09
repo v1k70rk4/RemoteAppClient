@@ -48,11 +48,13 @@ public sealed class EnrollmentService(
 
         string certPem;
         string thumbprint;
+        DateTimeOffset notAfter;
         try
         {
             certPem = ca.SignClientCsr(req.Csr, deviceId);
             using var leaf = X509Certificate2.CreateFromPem(certPem);
             thumbprint = leaf.Thumbprint;
+            notAfter = new DateTimeOffset(leaf.NotAfter.ToUniversalTime());
         }
         catch (Exception ex)
         {
@@ -82,6 +84,7 @@ public sealed class EnrollmentService(
             // Admin one-time token -> Approved immediately; site/bootstrap token -> Pending approval.
             Status = token.AutoApprove ? DeviceStatus.Approved : DeviceStatus.Pending,
             CertThumbprint = thumbprint,
+            CertNotAfter = notAfter,
             SshPublicKey = req.SshPublicKey,
             TunnelPort = tunnelPort,
             EnrolledAt = DateTimeOffset.UtcNow,

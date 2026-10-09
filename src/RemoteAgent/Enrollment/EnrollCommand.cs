@@ -74,8 +74,14 @@ public static class EnrollCommand
         DataDirectorySecurity.Secure(outDir);
         Directory.CreateDirectory(outDir);
 
-        // mTLS key and CSR.
-        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        // mTLS key and CSR. The key goes into the TPM when the machine has a usable one, else into the software
+        // key storage provider (non-exportable either way); only when CNG refuses altogether is it an in-memory
+        // key saved as the DPAPI-sealed PFX, as before 2.3.
+        DeviceKeyStore.NewKey? stored = null;
+        try { stored = DeviceKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable()); }
+        catch (CryptographicException) { /* no CNG key storage on this machine: PFX below */ }
+        using var fileKey = stored is null ? ECDsa.Create(ECCurve.NamedCurves.nistP256) : null;
+        var key = stored?.Key ?? fileKey!;
         var csrRequest = new CertificateRequest("CN=enroll", key, HashAlgorithmName.SHA256);
         string csrPem = csrRequest.CreateSigningRequestPem();
 
@@ -112,16 +118,31 @@ public static class EnrollCommand
         }
 
         if (resp is null || string.IsNullOrEmpty(resp.Certificate))
+        {
+            stored?.Dispose(); if (stored is not null) DeviceKeyStore.DeleteKey(stored.KeyName);
             return new EnrollResult(false, null, null, "empty_response");
+        }
 
-        // Combine the returned cert with the local private key and save as PFX.
-        using var leaf = X509Certificate2.CreateFromPem(resp.Certificate);
-        using var withKey = leaf.CopyWithPrivateKey(key);
-
-        // Store the PFX DPAPI-protected and machine-bound, so copied blobs are unusable elsewhere.
-        File.WriteAllBytes(
-            Path.Combine(outDir, "agent.pfx.dat"),
-            Dpapi.Protect(withKey.Export(X509ContentType.Pfx)));
+        string thumbprint;
+        DateTimeOffset notAfter;
+        using (var leaf = X509Certificate2.CreateFromPem(resp.Certificate))
+            notAfter = new DateTimeOffset(leaf.NotAfter.ToUniversalTime());
+        if (stored is not null)
+        {
+            // The certificate joins its key in LocalMachine\My; nothing private is written to disk.
+            thumbprint = DeviceKeyStore.InstallCertificate(resp.Certificate, stored.Key);
+            var old = Path.Combine(outDir, "agent.pfx.dat");
+            if (File.Exists(old)) File.Delete(old);
+        }
+        else
+        {
+            // Combine the returned cert with the local private key and save as PFX,
+            // DPAPI-protected and machine-bound, so copied blobs are unusable elsewhere.
+            using var leaf = X509Certificate2.CreateFromPem(resp.Certificate);
+            using var withKey = leaf.CopyWithPrivateKey(key);
+            File.WriteAllBytes(Path.Combine(outDir, "agent.pfx.dat"), Dpapi.Protect(withKey.Export(X509ContentType.Pfx)));
+            thumbprint = withKey.Thumbprint;
+        }
         File.WriteAllText(Path.Combine(outDir, "ca.crt"), resp.CaCertificate);
 
         // Store the SSH cert next to the private key; OpenSSH also uses <key>-cert.pub.
@@ -132,7 +153,10 @@ public static class EnrollCommand
         var record = new EnrollmentRecord
         {
             DeviceId = resp.DeviceId,
-            CertThumbprint = withKey.Thumbprint,
+            CertThumbprint = thumbprint,
+            KeyProvider = stored?.Provider ?? DeviceKeyStore.File,
+            KeyName = stored?.KeyName,
+            CertNotAfterUtc = notAfter,
             CaPinSha256 = Convert.ToHexString(SHA256.HashData(caCert.GetRawCertData())),
             CommandSigningPublicKey = resp.CommandSigningPublicKey,
             ServerUrl = server,
@@ -146,8 +170,9 @@ public static class EnrollCommand
             Path.Combine(outDir, "enrollment.json"),
             JsonSerializer.Serialize(record, AgentLocalJsonContext.Default.EnrollmentRecord));
         DataDirectorySecurity.Secure(outDir);
+        stored?.Dispose();
 
-        return new EnrollResult(true, resp.DeviceId, withKey.Thumbprint, null);
+        return new EnrollResult(true, resp.DeviceId, thumbprint, null);
     }
 
     /// <summary>Generates an SSH ed25519 key pair with ssh-keygen and returns the public key.</summary>

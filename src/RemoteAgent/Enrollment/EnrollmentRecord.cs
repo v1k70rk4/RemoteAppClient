@@ -40,6 +40,19 @@ public sealed class EnrollmentRecord
 
     [JsonPropertyName("enrolledAtUtc")]
     public DateTimeOffset EnrolledAtUtc { get; set; }
+
+    /// <summary>Where the private key lives: "tpm" | "software" (named CNG key, certificate in LocalMachine\My)
+    /// or "file" (agent.pfx.dat). Missing in records from agents before 2.3 = "file".</summary>
+    [JsonPropertyName("keyProvider")]
+    public string? KeyProvider { get; set; }
+
+    /// <summary>The CNG key's name for "tpm"/"software", so a re-key can delete the old one.</summary>
+    [JsonPropertyName("keyName")]
+    public string? KeyName { get; set; }
+
+    /// <summary>Certificate expiry, kept here so it is known without loading the certificate.</summary>
+    [JsonPropertyName("certNotAfterUtc")]
+    public DateTimeOffset? CertNotAfterUtc { get; set; }
 }
 
 /// <summary>Source-generated JSON for agent-local, non-wire types without reflection.</summary>

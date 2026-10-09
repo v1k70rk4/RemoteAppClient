@@ -57,6 +57,9 @@ public static class CertHelper
     /// <summary>Loads from PFX (DPAPI-protected .dat); if no path is set, falls back to store thumbprint.</summary>
     public static X509Certificate2 ResolveClientCertificate(string? pfxPath, string? thumbprint)
     {
+        // After a re-key the running identity is the store certificate, whatever the options still say.
+        if (DeviceIdentity.Current is { InStore: true } live)
+            return LoadClientCertificate(live.Thumbprint);
         if (!string.IsNullOrWhiteSpace(pfxPath))
             return pfxPath.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)
                 ? LoadClientCertificateFromProtectedPfx(pfxPath)
