@@ -33,6 +33,9 @@ the time of that release; the GitHub release pages carry the same text together 
   *Approve* issues the certificate for the same device id - the old one is out at once - while a context-menu
   item rejects it. The device polls every minute and comes back with its id, group and notes. Every step is an
   audit row (`device-rekey-request`, `-approved`, `-rejected`).
+- Agent 2.3.0.1: on Windows 10 the Platform Crypto Provider reports a machine key as not being one, which made the
+  framework's certificate-to-key binding fail with "keyset does not exist" (the key was fine); the binding is now
+  written by hand where the framework's fails, and every binding is proven by a test signature before it counts.
 - Schema: six nullable `Devices` columns and the `RekeyRequests` table (`upgrade-2.3.0-rekey.sql`, idempotent).
 - Not in this round: TPM-backed SSH keys.
 
