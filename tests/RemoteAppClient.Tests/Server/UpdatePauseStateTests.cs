@@ -21,6 +21,16 @@ public class UpdatePauseStateTests
     }
 
     [Fact]
+    public void A_changed_report_discards_the_pause_so_returning_to_it_is_not_paused()
+    {
+        var s = new UpdatePauseState();
+        var dev = Guid.NewGuid();
+        s.Set(dev, "vnc", "2.8.89.0", "2.8.85.0");
+        Assert.False(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.87.0")); // the report moved on: pause dropped
+        Assert.False(s.IsPaused(dev, "vnc", "2.8.89.0", "2.8.85.0")); // back to the old report: a fresh attempt is due
+    }
+
+    [Fact]
     public void A_new_pause_replaces_the_old_and_clear_forgets_it()
     {
         var s = new UpdatePauseState();
