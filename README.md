@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.2.7-2ea44f" alt="version 2.2.7">
+  <img src="https://img.shields.io/badge/version-2.3.0-2ea44f" alt="version 2.3.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
   <a href="https://ko-fi.com/v1k70rk4"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
@@ -40,7 +40,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
-- [What's New in 2.2.7](#whats-new-in-227)
+- [What's New in 2.3.0](#whats-new-in-230)
 - [Changelog](CHANGELOG.md)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -58,27 +58,28 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ---
 
-## What's New in 2.2.7
+## What's New in 2.3.0
 
-A release about seeing: what a device is doing when something is wrong, and what the server is doing when nobody is
-looking. Every component is **2.2.7.0**; no schema change. It also covers 2.2.6, which ran on the maintainer's fleet
-but was never tagged.
+The device key moves into the TPM, and certificates look after themselves ([ADR-0003](docs/adr/0003-tpm-device-key.md)).
+Server, consoles and updater are **2.3.0.0**, the agent **2.3.0.1**; one schema change (`upgrade-2.3.0-rekey.sql`,
+idempotent). The release also carries 2.2.7, which ran on the maintainer's fleet but was never tagged.
 
-- **Verbose logging on demand.** *Commands → Verbose log for 24 hours* raises a device's live log level to Debug
-  without a restart and turns TightVNC's log detailed for the same period; it reverts by itself when the time is up.
-  Every agent now also keeps a daily file log under `C:\ProgramData\RemoteAgent\logs`, which the file transfer
-  downloads whole.
-- **The server mails when its own checks fail**: disk, database, the public TLS certificate, package files, a
-  rolled-back update, device certificates nearing their end, a fleet that reports while nothing is connected. On
-  change, to the support address, with a daily repeat while it lasts.
-- **Audit rows live a year** by default (`Server:AuditRetentionDays`), and a sign-in naming an unknown device id no
-  longer escapes the brute-force lock.
-- **Sleeping and roaming devices** (from 2.2.6): the agent reconnects at once when its addresses change and no longer
-  waits out a two-minute backoff; it keeps the device awake during a session; the console connects to a sleeping
-  device when it wakes; TightVNC leaves no tray icon or shortcuts behind.
-- **Deployment hardening**: a database role without schema rights, HSTS, `backup.sh --encrypt`, a read-only CI token,
-  and `deploy/KEYS.md` on every key, its lifetime and what can be rotated.
-- **First automated tests**: 95 of them, run by CI on every push.
+- **The device key is a non-exportable TPM key** (Microsoft Platform Crypto Provider; software key storage where
+  the TPM is missing, not ready or flagged for vulnerable firmware). The certificate sits in `LocalMachine\My`
+  bound to it; nothing private is written to a file any more, so neither an administrator nor a lifted disk yields
+  a usable device identity. The DPAPI-sealed PFX remains only where CNG key storage is unavailable.
+- **Devices enrolled earlier re-key by themselves**, 5–30 minutes after the new agent starts: new key, new
+  certificate, proof with the new one, only then the switch. A failure anywhere leaves the old identity in place.
+- **Certificates renew** the same way within 60 days of their end, so the 825-day certificates from 2026 renew in
+  2028 instead of expiring.
+- **A lost TPM key is recovered with one click.** After a BIOS update that cleared the TPM, the agent sends a
+  lost-key request without a certificate; the device turns yellow in the console (*KULCSKÉRÉS*) and *Approve*
+  issues the certificate for the same device id, with its group and notes intact. Nothing is issued by itself.
+- **The console shows where the key is** (*kulcs: TPM / szoftver / fájl*) and when the certificate ends;
+  *Commands → Új eszközkulcs (TPM)* re-keys a device on demand.
+- **2.2.7, in the same release**: verbose logging on demand (24-hour device log level, TightVNC detail, a daily
+  file log), the server mails when its own checks fail, audit rows live a year, sleeping and roaming devices
+  reconnect at once, deployment hardening, and the first automated tests (180 by now, run by CI on every push).
 
 Earlier releases: [CHANGELOG.md](CHANGELOG.md).
 
