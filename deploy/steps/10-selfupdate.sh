@@ -28,25 +28,28 @@ LOG="$UPD/result.log"
 TAR="$INC/server.tar.gz"
 SQL="$INC/upgrade.sql"
 
-# This runs as root inside a directory the service user owns. Every file written here is first checked not
-# to be a symlink the service user planted (which root would otherwise follow into any file on the box), and
-# the files are only ever touched by their fixed names, never through a glob. The staged package and the SQL
-# are untrusted input: unpacked without carrying their owners, modes or device nodes, and the SQL runs in the
-# client's sandbox mode where available, so a "\!" line cannot start a shell as root.
-no_link(){ for f in "$@"; do [ -L "$f" ] && rm -f "$f"; done; return 0; }
+# This runs as root inside a directory the service user owns. Nothing is written there through a path the
+# service user controls: each result file is produced in the root-only backup directory and renamed into
+# place (rename replaces a planted symlink rather than following it), and the files are only ever touched by
+# their fixed names, never through a glob. The staged package and the SQL are untrusted input: unpacked
+# without carrying their owners, modes or device nodes, and the SQL runs in the client's sandbox mode where
+# available, so a "\!" line cannot start a shell as root.
+mkdir -p "$BK"; chmod 700 "$BK"
+PLOG="$BK/result.log.current"
+put(){ # $1 = destination; content on stdin; written root-owned 0644 and renamed into place
+  local t; t="$(mktemp -p "$BK")"; cat > "$t"; chmod 644 "$t"; mv -f -T "$t" "$1"
+}
 MYSQL_OPTS=()
 mysql --help 2>/dev/null | grep -q -- '--sandbox' && MYSQL_OPTS=(--sandbox)
 mysql_db(){ mysql "${MYSQL_OPTS[@]}" remoteserver "$@"; }
 own_app(){ chown -R "root:$SVC_USER" "$OPT"; chmod -R u=rwX,g=rX,o= "$OPT"; }
 
-log(){ echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; }
+log(){ echo "[$(date +%H:%M:%S)] $*" >> "$PLOG"; put "$LOG" < "$PLOG"; }
 
 finish(){ # $1 = ok|failed
-  no_link "$UPD/result.status" "$UPD/result.at" "$LOG" "$UPD/apply.trigger"
-  echo "$1" > "$UPD/result.status"
-  date -Iseconds > "$UPD/result.at"
+  echo "$1" | put "$UPD/result.status"
+  date -Iseconds | put "$UPD/result.at"
   rm -f "$UPD/apply.trigger"
-  for f in "$UPD/result.status" "$UPD/result.at" "$LOG"; do [ -L "$f" ] || chmod 644 "$f" 2>/dev/null || true; done
   exit 0
 }
 
@@ -69,21 +72,19 @@ health(){ # 0 if the service is active and answers /health
   return 1
 }
 
-no_link "$LOG" "$UPD/last_backup"
-: > "$LOG"
+: > "$PLOG"
 log "Server update starting (ts=$TS)"
 [ -f "$TAR" ] && [ ! -L "$TAR" ] || { log "No staged server.tar.gz; nothing to do."; finish failed; }
 if [ -e "$SQL" ] && [ ! -f "$SQL" -o -L "$SQL" ]; then log "upgrade.sql is not a plain file; refusing."; finish failed; fi
 
 # 1) Backup: binaries + full DB dump.
-mkdir -p "$BK"; chmod 700 "$BK"
 log "Backing up binaries -> $BK/opt-$TS"
 cp -a "$OPT" "$BK/opt-$TS" || { log "Binary backup failed."; finish failed; }
 log "Dumping database -> $BK/db-$TS.sql.gz"
 if ! mysqldump --single-transaction --routines --events remoteserver 2>>"$LOG" | gzip > "$BK/db-$TS.sql.gz"; then
   log "Database dump failed; aborting before any change."; finish failed
 fi
-echo "$TS" > "$UPD/last_backup"; chmod 644 "$UPD/last_backup" 2>/dev/null || true
+echo "$TS" | put "$UPD/last_backup"
 # Bound disk use: keep only the newest 3 backup sets.
 ls -1dt "$BK"/opt-* 2>/dev/null | tail -n +4 | while IFS= read -r d; do rm -rf "$d"; done
 ls -1t "$BK"/db-*.sql.gz 2>/dev/null | tail -n +4 | while IFS= read -r f; do rm -f "$f"; done
@@ -147,22 +148,22 @@ SVC=remoteserver
 SVC_USER=remotesrv
 LOG="$UPD/result.log"
 
-# Same care as deploy.sh: the service user owns $UPD, so nothing here is written through a symlink, and the
-# backup name read from last_backup must look like a timestamp before it becomes part of a path.
-no_link(){ for f in "$@"; do [ -L "$f" ] && rm -f "$f"; done; return 0; }
+# Same care as deploy.sh: the service user owns $UPD, so every result file is produced in the root-only backup
+# directory and renamed into place, and the backup name read from last_backup must look like a timestamp
+# before it becomes part of a path.
+mkdir -p "$BK"; chmod 700 "$BK"
+PLOG="$BK/result.log.current"
+put(){ local t; t="$(mktemp -p "$BK")"; cat > "$t"; chmod 644 "$t"; mv -f -T "$t" "$1"; }
 MYSQL_OPTS=()
 mysql --help 2>/dev/null | grep -q -- '--sandbox' && MYSQL_OPTS=(--sandbox)
 
-log(){ echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; }
+log(){ echo "[$(date +%H:%M:%S)] $*" >> "$PLOG"; put "$LOG" < "$PLOG"; }
 finish(){
-  no_link "$UPD/result.status" "$UPD/result.at" "$LOG" "$UPD/rollback.trigger"
-  echo "$1" > "$UPD/result.status"; date -Iseconds > "$UPD/result.at"; rm -f "$UPD/rollback.trigger"
-  for f in "$UPD/result.status" "$UPD/result.at" "$LOG"; do [ -L "$f" ] || chmod 644 "$f" 2>/dev/null || true; done
+  echo "$1" | put "$UPD/result.status"; date -Iseconds | put "$UPD/result.at"; rm -f "$UPD/rollback.trigger"
   exit 0
 }
 
-no_link "$LOG"
-: > "$LOG"
+: > "$PLOG"
 TS=$([ -L "$UPD/last_backup" ] || cat "$UPD/last_backup" 2>/dev/null || true)
 if ! [[ "${TS:-}" =~ ^[0-9]{8}-[0-9]{6}$ ]] || [ ! -d "$BK/opt-$TS" ]; then log "No backup to roll back to."; finish failed; fi
 

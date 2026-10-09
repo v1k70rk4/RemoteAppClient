@@ -19,6 +19,7 @@ public static class SafeNames
     public static bool IsPlainName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name) || name is "." or "..") return false;
+        if (name.EndsWith('.') || name.EndsWith(' ')) return false; // Windows drops them: "CON " is CON, "..." is "."
         if (name.IndexOfAny(Forbidden) >= 0 || name.Any(char.IsControl)) return false;
         return !Devices.Contains(name.Split('.')[0].TrimEnd(' '));
     }

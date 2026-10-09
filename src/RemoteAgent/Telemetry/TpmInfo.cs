@@ -18,19 +18,22 @@ public static class TpmInfo
     }
 
     private static readonly TimeSpan Refresh = TimeSpan.FromHours(6);
+    private static readonly TimeSpan Retry = TimeSpan.FromMinutes(10);
     private static readonly object Gate = new();
     private static State _last = State.Unknown;
-    private static DateTimeOffset _readAt = DateTimeOffset.MinValue;
+    private static DateTimeOffset _next = DateTimeOffset.MinValue;
 
     public static State Read()
     {
         lock (Gate)
         {
-            if (DateTimeOffset.UtcNow - _readAt < Refresh) return _last;
-            _readAt = DateTimeOffset.UtcNow;
+            if (DateTimeOffset.UtcNow < _next) return _last;
             var now = Query();
-            // A one-off failure keeps the last good answer rather than blanking the console for six hours.
-            if (now is not null) _last = now;
+            // A failed or unreadable probe (tpmtool hung, odd output) keeps the last good answer rather than
+            // blanking the console, and is tried again soon instead of in six hours.
+            bool known = now is not null && now != State.Unknown;
+            if (known) _last = now!;
+            _next = DateTimeOffset.UtcNow + (known ? Refresh : Retry);
             return _last;
         }
     }

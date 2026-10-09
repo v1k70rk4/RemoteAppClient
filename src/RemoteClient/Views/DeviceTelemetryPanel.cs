@@ -121,12 +121,15 @@ public sealed class DeviceTelemetryPanel : UserControl
 
         var parts = new List<string> { d.TpmVersion ?? "?" };
         if (!string.IsNullOrWhiteSpace(d.TpmManufacturer)) parts.Add(d.TpmManufacturer!);
-        parts.Add(d.TpmReady == true ? L.DeviceTelemetryPanel_TpmReady : L.DeviceTelemetryPanel_TpmNotReady);
-        parts.Add(d.TpmAttestation == true ? L.DeviceTelemetryPanel_TpmAttestation : L.DeviceTelemetryPanel_TpmNoAttestation);
+        // null = the agent could not tell (tpmtool failed): shown as unknown, not as a confirmed "no".
+        if (d.TpmReady is { } ready) parts.Add(ready ? L.DeviceTelemetryPanel_TpmReady : L.DeviceTelemetryPanel_TpmNotReady);
+        else parts.Add(L.DeviceTelemetryPanel_TpmReadyUnknown);
+        if (d.TpmAttestation is { } att) parts.Add(att ? L.DeviceTelemetryPanel_TpmAttestation : L.DeviceTelemetryPanel_TpmNoAttestation);
+        else parts.Add(L.DeviceTelemetryPanel_TpmAttestationUnknown);
         if (d.TpmVulnerableFirmware == true) parts.Add(L.DeviceTelemetryPanel_TpmVulnerable);
 
         var color = d.TpmVulnerableFirmware == true ? ThemeManager.DangerFg
-                  : d.TpmReady != true ? ThemeManager.WarnFg
+                  : d.TpmReady == false ? ThemeManager.WarnFg
                   : ThemeManager.Text;
         return (string.Join(" · ", parts), color);
     }

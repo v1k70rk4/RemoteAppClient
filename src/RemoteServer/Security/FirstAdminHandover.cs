@@ -6,7 +6,7 @@ namespace RemoteServer.Security;
 /// The first admin's temporary password, handed over through an owner-only file instead of the server log.
 /// Written once when the database is seeded, removed as soon as that password has been changed.
 /// </summary>
-public static class FirstAdminPassword
+public static class FirstAdminHandover
 {
     /// <summary>Writes "admin / password" to <paramref name="path"/> readable by the service user only. False when
     /// the file could not be written, so the caller can fall back.</summary>
@@ -29,7 +29,7 @@ public static class FirstAdminPassword
         }
         catch (Exception ex)
         {
-            log.LogWarning(ex, L.FirstAdminPassword_CouldNotWrite, path);
+            log.LogWarning(ex, L.FirstAdminHandover_CouldNotWrite, path);
             return false;
         }
     }
@@ -38,6 +38,6 @@ public static class FirstAdminPassword
     public static void Forget(string path, ILogger log)
     {
         try { if (File.Exists(path)) File.Delete(path); }
-        catch (Exception ex) { log.LogWarning(ex, L.FirstAdminPassword_CouldNotRemove, path); }
+        catch (Exception ex) { log.LogWarning(ex, L.FirstAdminHandover_CouldNotRemove, path); }
     }
 }

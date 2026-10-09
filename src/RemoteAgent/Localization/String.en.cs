@@ -149,7 +149,7 @@ internal static partial class Strings
         [nameof(DiagMode_Failed)] = "Could not change the verbose logging switch.",
         [nameof(DataDirectory_ItemsRemoved)] = "Data folder {Folder} secured; {Count} item(s) not created by SYSTEM or Administrators were removed.",
         [nameof(DataDirectory_SecureFailed)] = "Could not secure the data folder {Folder}: {Reason}",
-        [nameof(HelperUpdateWatcher_UntrustedStagingIgnored)] = "Staged Helper update ignored and removed: not created by SYSTEM or Administrators.",
+        [nameof(HelperUpdateWatcher_StagingNotBySystemIgnored)] = "Staged Helper update ignored and removed: not created by SYSTEM or Administrators.",
         [nameof(HelperUpdateWatcher_NoServicePath)] = "Staged Helper update ignored: the Helper service's executable path could not be read.",
     };
 }

@@ -203,6 +203,6 @@ internal static partial class Strings
     public static string DiagMode_Failed => Get(nameof(DiagMode_Failed));
     public static string DataDirectory_ItemsRemoved => Get(nameof(DataDirectory_ItemsRemoved));
     public static string DataDirectory_SecureFailed => Get(nameof(DataDirectory_SecureFailed));
-    public static string HelperUpdateWatcher_UntrustedStagingIgnored => Get(nameof(HelperUpdateWatcher_UntrustedStagingIgnored));
+    public static string HelperUpdateWatcher_StagingNotBySystemIgnored => Get(nameof(HelperUpdateWatcher_StagingNotBySystemIgnored));
     public static string HelperUpdateWatcher_NoServicePath => Get(nameof(HelperUpdateWatcher_NoServicePath));
 }

@@ -112,8 +112,8 @@ internal static partial class Strings
     public static string Program_ThisIsATestEmail => Get(nameof(Program_ThisIsATestEmail));
     public static string Program_BOOTSTRAPAdminCreatedUsernameAdmin => Get(nameof(Program_BOOTSTRAPAdminCreatedUsernameAdmin));
     public static string Program_BOOTSTRAPAdminCreatedPasswordFile => Get(nameof(Program_BOOTSTRAPAdminCreatedPasswordFile));
-    public static string FirstAdminPassword_CouldNotWrite => Get(nameof(FirstAdminPassword_CouldNotWrite));
-    public static string FirstAdminPassword_CouldNotRemove => Get(nameof(FirstAdminPassword_CouldNotRemove));
+    public static string FirstAdminHandover_CouldNotWrite => Get(nameof(FirstAdminHandover_CouldNotWrite));
+    public static string FirstAdminHandover_CouldNotRemove => Get(nameof(FirstAdminHandover_CouldNotRemove));
     public static string Program_AuditWriteErrorAction => Get(nameof(Program_AuditWriteErrorAction));
     public static string Program_FailedAttemptsLast => Get(nameof(Program_FailedAttemptsLast));
     public static string Program_ThereWereFailedSignIn => Get(nameof(Program_ThereWereFailedSignIn));

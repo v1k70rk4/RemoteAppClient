@@ -22,7 +22,7 @@ internal static partial class Strings
         [nameof(SupervisorWorker_KillFailed)] = "Kill failed.",
         [nameof(SupervisorWorker_DataDirectoryItemsRemoved)] = "Data folder {Folder} secured; {Count} item(s) not created by SYSTEM or Administrators were removed.",
         [nameof(SupervisorWorker_DataDirectorySecureFailed)] = "Could not secure the data folder {Folder}: {Reason}",
-        [nameof(SupervisorWorker_UntrustedStagingIgnored)] = "Staged agent update ignored and removed: not created by SYSTEM or Administrators.",
+        [nameof(SupervisorWorker_StagingNotBySystemIgnored)] = "Staged agent update ignored and removed: not created by SYSTEM or Administrators.",
         [nameof(SupervisorWorker_NoServicePath)] = "Staged agent update ignored: the RemoteAgent service's executable path could not be read.",
     };
 }

@@ -277,6 +277,8 @@ public static partial class Strings
         [nameof(DeviceTelemetryPanel_TpmNone)] = "nincs",
         [nameof(DeviceTelemetryPanel_TpmReady)] = "kulcsra kész",
         [nameof(DeviceTelemetryPanel_TpmNotReady)] = "kulcsra NEM kész",
+        [nameof(DeviceTelemetryPanel_TpmReadyUnknown)] = "készenlét ismeretlen",
+        [nameof(DeviceTelemetryPanel_TpmAttestationUnknown)] = "attesztáció: ismeretlen",
         [nameof(DeviceTelemetryPanel_TpmAttestation)] = "attestation: igen",
         [nameof(DeviceTelemetryPanel_TpmNoAttestation)] = "attestation: nem",
         [nameof(DeviceTelemetryPanel_TpmVulnerable)] = "SÉRÜLÉKENY firmware",

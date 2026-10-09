@@ -48,7 +48,7 @@ public sealed class HelperUpdateWatcher(IOptions<AgentOptions> options, ILogger<
         if (!DataDirectorySecurity.IsOwnedBySystemOrAdministrators(marker) ||
             !DataDirectorySecurity.IsOwnedBySystemOrAdministrators(newExe))
         {
-            logger.LogWarning(L.HelperUpdateWatcher_UntrustedStagingIgnored);
+            logger.LogWarning(L.HelperUpdateWatcher_StagingNotBySystemIgnored);
             TryDelete(marker);
             TryDelete(newExe);
             return;

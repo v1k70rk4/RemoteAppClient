@@ -15,10 +15,9 @@ internal static class VncLauncher
     public static void Launch(int localPort, string vncSecretPlaintext, string scale = "auto", bool color256 = true)
     {
         // Owner-only from the first byte: a file created world-readable and tightened afterwards is open for a
-        // moment, and /tmp is shared. The folder is the operator's own (0700), so the name is not even listable.
-        var dir = Path.Combine(Path.GetTempPath(), "rac-vnc-" + Environment.UserName);
-        Directory.CreateDirectory(dir);
-        TryChmod(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        // moment, and /tmp is shared. The folder is a fresh random one created 0700 (a predictable name could
+        // have been created by another user first, who would then own it), so the name is not even listable.
+        var dir = Directory.CreateTempSubdirectory("rac-vnc-").FullName;
         var passwdFile = Path.Combine(dir, "passwd-" + Guid.NewGuid().ToString("N"));
         var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
         if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
@@ -56,6 +55,7 @@ internal static class VncLauncher
         {
             try { if (proc is not null) await proc.WaitForExitAsync(); else await Task.Delay(8000); } catch { /* ignore */ }
             try { File.Delete(passwdFile); } catch { /* ignore */ }
+            try { Directory.Delete(dir); } catch { /* ignore */ }
         });
     }
 
@@ -70,9 +70,4 @@ internal static class VncLauncher
         return null;
     }
 
-    private static void TryChmod(string path, UnixFileMode mode)
-    {
-        if (OperatingSystem.IsWindows()) return;
-        try { File.SetUnixFileMode(path, mode); } catch { /* best effort */ }
-    }
 }

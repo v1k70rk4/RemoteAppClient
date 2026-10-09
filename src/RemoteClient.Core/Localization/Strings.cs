@@ -331,6 +331,8 @@ public static partial class Strings
     public static string DeviceTelemetryPanel_TpmNone => Get(nameof(DeviceTelemetryPanel_TpmNone));
     public static string DeviceTelemetryPanel_TpmReady => Get(nameof(DeviceTelemetryPanel_TpmReady));
     public static string DeviceTelemetryPanel_TpmNotReady => Get(nameof(DeviceTelemetryPanel_TpmNotReady));
+    public static string DeviceTelemetryPanel_TpmReadyUnknown => Get(nameof(DeviceTelemetryPanel_TpmReadyUnknown));
+    public static string DeviceTelemetryPanel_TpmAttestationUnknown => Get(nameof(DeviceTelemetryPanel_TpmAttestationUnknown));
     public static string DeviceTelemetryPanel_TpmAttestation => Get(nameof(DeviceTelemetryPanel_TpmAttestation));
     public static string DeviceTelemetryPanel_TpmNoAttestation => Get(nameof(DeviceTelemetryPanel_TpmNoAttestation));
     public static string DeviceTelemetryPanel_TpmVulnerable => Get(nameof(DeviceTelemetryPanel_TpmVulnerable));

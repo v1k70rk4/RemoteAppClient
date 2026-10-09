@@ -29,5 +29,10 @@ public class SafeNamesTests
     [InlineData("nul.txt")]
     [InlineData("COM1")]
     [InlineData("lpt9.log")]
+    [InlineData("CON ")]
+    [InlineData("NUL.")]
+    [InlineData("...")]
+    [InlineData("report.pdf ")]
+    [InlineData("name.")]
     public void Anything_that_is_not_one_plain_name_is_refused(string name) => Assert.False(SafeNames.IsPlainName(name));
 }

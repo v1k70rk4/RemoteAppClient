@@ -41,29 +41,25 @@ OUT="$BKC/backup.enc"
 LOG="$BKC/backup.log"
 SVC_USER=remotesrv
 
-log(){ echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; }
+log(){ echo "[$(date +%H:%M:%S)] $*" >> "$PLOG"; put "$LOG" < "$PLOG"; }
 
-# Root working in a directory the service user owns: nothing is written or chowned through a symlink, and
-# only the fixed file names are touched (a glob would pick up whatever else was placed here).
-RESULTS=("$BKC/backup.status" "$BKC/backup.at" "$BKC/backup.log" "$BKC/backup.name" "$BKC/backup.enc")
-no_link(){ for f in "$@"; do [ -L "$f" ] && rm -f "$f"; done; return 0; }
+# Root working in a directory the service user owns: every file handed over is produced in the root-only
+# helper directory, given to the service user there, and renamed into place - rename replaces a symlink the
+# service user may have planted instead of following it - and only the fixed file names are touched.
+PRIV=/opt/remoteserver-backup
+PLOG="$PRIV/backup.log.current"
+put(){ # $1 = destination; content on stdin; owned by the service user, 0600, renamed into place
+  local t; t="$(mktemp -p "$PRIV")"; cat > "$t"; chmod 600 "$t"; chown "$SVC_USER:$SVC_USER" "$t"; mv -f -T "$t" "$1"
+}
 
 finish(){ # $1 = ok|failed
-  no_link "${RESULTS[@]}" "$TRG"
-  echo "$1" > "$BKC/backup.status"
-  date -Iseconds > "$BKC/backup.at"
-  # The server reads these, so hand them over; the trigger must never survive (it holds the passphrase).
-  shred -u "$TRG" 2>/dev/null || rm -f "$TRG"
-  for f in "${RESULTS[@]}"; do
-    [ -f "$f" ] && [ ! -L "$f" ] || continue
-    chown -h "$SVC_USER:$SVC_USER" "$f" 2>/dev/null || true
-    chmod 600 "$f" 2>/dev/null || true
-  done
+  echo "$1" | put "$BKC/backup.status"
+  date -Iseconds | put "$BKC/backup.at"
+  rm -f "$TRG"   # the trigger holds the passphrase and must never survive; a symlink is just unlinked
   exit 0
 }
 
-no_link "${RESULTS[@]}"
-: > "$LOG"
+: > "$PLOG"
 log "Console backup starting"
 
 if [ -L "$TRG" ] || [ ! -f "$TRG" ]; then log "No trigger file (or not a plain file); refusing."; finish failed; fi
@@ -83,13 +79,14 @@ if [ -z "$PLAIN" ]; then log "backup.sh produced no archive."; finish failed; fi
 
 log "Encrypting (aes-256-cbc, pbkdf2, 600000 iterations)"
 rm -f "$OUT"
-if ! printf '%s' "$PASS" | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -in "$PLAIN" -out "$OUT" -pass stdin 2>>"$LOG"; then
-  log "Encryption failed."; rm -f "$OUT"; finish failed
+if ! printf '%s' "$PASS" | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -in "$PLAIN" -out "$STAGE/backup.enc" -pass stdin 2>>"$PLOG"; then
+  log "Encryption failed."; finish failed
 fi
 shred -u "$PLAIN" 2>/dev/null || rm -f "$PLAIN"
 unset PASS
+put "$OUT" < "$STAGE/backup.enc"
 
-echo "racd-identity-$(date +%Y%m%d-%H%M%S).tar.gz.enc" > "$BKC/backup.name"
+echo "racd-identity-$(date +%Y%m%d-%H%M%S).tar.gz.enc" | put "$BKC/backup.name"
 log "Ready: $(du -h "$OUT" | cut -f1) encrypted archive."
 finish ok
 HELPER

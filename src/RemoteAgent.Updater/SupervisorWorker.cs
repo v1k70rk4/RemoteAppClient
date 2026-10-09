@@ -203,7 +203,7 @@ public sealed class SupervisorWorker(ILogger<SupervisorWorker> logger) : Backgro
         if (!RemoteAgent.Security.DataDirectorySecurity.IsOwnedBySystemOrAdministrators(marker) ||
             !RemoteAgent.Security.DataDirectorySecurity.IsOwnedBySystemOrAdministrators(newExe))
         {
-            logger.LogWarning(L.SupervisorWorker_UntrustedStagingIgnored);
+            logger.LogWarning(L.SupervisorWorker_StagingNotBySystemIgnored);
             TryDelete(marker);
             TryDelete(newExe);
             return;

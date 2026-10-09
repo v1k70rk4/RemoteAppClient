@@ -47,10 +47,13 @@ if [ "$(head -c 8 "$ARCHIVE" 2>/dev/null)" = "Salted__" ]; then
   PASS="$(ask_secret 'Backup passphrase')"
   # The passphrase goes over a private descriptor, not the command line (visible in the process list).
   # Archives from 2.2.7 on use 600000 PBKDF2 iterations; earlier ones used openssl's default, so try both.
-  decrypt(){ openssl enc -d -aes-256-cbc -pbkdf2 "$@" -in "$ARCHIVE" -pass fd:3 3< <(printf '%s\n' "$PASS") 2>/dev/null; }
-  { decrypt -iter 600000 || decrypt; } | tar -xz -C "$STAGE" \
-    || die "could not decrypt the archive - wrong passphrase?"
+  # Each attempt decrypts into its own file: a wrong key still produces bytes before openssl reports the
+  # failure, and those must never be concatenated with the next attempt into tar's input.
+  PLAIN="$STAGE/archive.tar.gz"
+  decrypt(){ rm -f "$PLAIN"; openssl enc -d -aes-256-cbc -pbkdf2 "$@" -in "$ARCHIVE" -out "$PLAIN" -pass fd:3 3< <(printf '%s\n' "$PASS") 2>/dev/null; }
+  decrypt -iter 600000 || decrypt || die "could not decrypt the archive - wrong passphrase?"
   unset PASS
+  tar -xzf "$PLAIN" -C "$STAGE" && rm -f "$PLAIN"
 else
   tar -xzf "$ARCHIVE" -C "$STAGE"
 fi

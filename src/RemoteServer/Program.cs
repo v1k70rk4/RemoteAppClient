@@ -476,7 +476,7 @@ app.MapPost("/auth/change-password", async (HttpContext ctx, AppDbContext db, Au
     await db.SaveChangesAsync(ct);
     // Everyone else holding this account is signed out; the console that made the change stays in.
     await auth.RevokeOtherSessionsAsync(user.Id, v.Value.Session.Id, ct);
-    if (wasForced) FirstAdminPassword.Forget(opt.Value.FirstAdminPasswordPath, app.Logger);
+    if (wasForced) FirstAdminHandover.Forget(opt.Value.FirstAdminPasswordPath, app.Logger);
     await AuditAsync(db, ctx, "password-change", null, wasForced ? "first sign-in" : null);
     return Results.NoContent();
 });
@@ -2190,7 +2190,7 @@ static async Task SeedAsync(WebApplication a)
         sdb.UserRoles.Add(new UserRole { UserId = admin.Id, RoleId = (await sdb.Roles.FirstAsync(r => r.Name == "admin")).Id });
         await sdb.SaveChangesAsync();
         var path = a.Services.GetRequiredService<IOptions<ServerOptions>>().Value.FirstAdminPasswordPath;
-        if (FirstAdminPassword.Write(path, temp, a.Logger))
+        if (FirstAdminHandover.Write(path, temp, a.Logger))
             a.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedPasswordFile, path);
         else
             a.Logger.LogWarning(L.Program_BOOTSTRAPAdminCreatedUsernameAdmin, temp); // nowhere else to put it

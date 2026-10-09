@@ -63,7 +63,8 @@ db_client_with() {
   cpw="${cpw//\\/\\\\}"; cpw="${cpw//\"/\\\"}"
   opt="$(mktemp)"; chmod 600 "$opt"
   printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "${ch:-localhost}" "${cp:-3306}" "$cu" "$cpw" > "$opt"
-  mariadb $(db_sandbox) --defaults-extra-file="$opt" "$@" && rc=0 || rc=$?
+  # shellcheck disable=SC2046  # db_sandbox prints one word or nothing; --defaults-extra-file must come first
+  mariadb --defaults-extra-file="$opt" $(db_sandbox) "$@" && rc=0 || rc=$?
   rm -f "$opt"
   return "$rc"
 }

@@ -277,6 +277,8 @@ public static partial class Strings
         [nameof(DeviceTelemetryPanel_TpmNone)] = "none",
         [nameof(DeviceTelemetryPanel_TpmReady)] = "ready for keys",
         [nameof(DeviceTelemetryPanel_TpmNotReady)] = "NOT ready for keys",
+        [nameof(DeviceTelemetryPanel_TpmReadyUnknown)] = "readiness unknown",
+        [nameof(DeviceTelemetryPanel_TpmAttestationUnknown)] = "attestation: unknown",
         [nameof(DeviceTelemetryPanel_TpmAttestation)] = "attestation: yes",
         [nameof(DeviceTelemetryPanel_TpmNoAttestation)] = "attestation: no",
         [nameof(DeviceTelemetryPanel_TpmVulnerable)] = "VULNERABLE firmware",
