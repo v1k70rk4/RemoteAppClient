@@ -179,6 +179,36 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
                 .OrderByDescending(p => p.UploadedAt).FirstOrDefaultAsync(ct);
             if (pkg is null || !Behind(Reported(device, comp), pkg.Version)) continue;
 
+            // An update that "succeeds" without changing what the device reports (a TightVNC whose service
+            // points at a stray copy, a locked file) would otherwise be re-sent every ten minutes forever,
+            // under the hourly breaker above. Three sends of the same package in six hours with the device
+            // still behind means it will not take; stop, and say which one on the device.
+            var sixHoursAgo = DateTimeOffset.UtcNow.AddHours(-6);
+            var same = 0;
+            foreach (var c in await db.Commands
+                .Where(c => c.DeviceId == device.Id && c.Type == CommandTypes.Update && c.CreatedAt > sixHoursAgo && c.PayloadJson != null)
+                .Select(c => c.PayloadJson!).ToListAsync(ct))
+            {
+                var cd = JsonSerializer.Deserialize(c, AgentJsonContext.Default.CommandData);
+                if (cd?.UpdateTarget == comp && cd.UpdateVersion == pkg.Version) same++;
+            }
+            if (same >= 3)
+            {
+                // The note records what the device reported when it was paused. While that is still what it
+                // reports, nothing is sent; once the device says something else (someone fixed it, a different
+                // package got in), one more attempt goes out and the note moves to the new value, so a repair
+                // is picked up without waiting the window out and a stuck device still gets no storm.
+                // The note is the memory: while it names the current report, the device is still stuck and
+                // nothing is sent. Anything else (no note yet, a different report, or another incident that
+                // overwrote the note) earns exactly one send, after which the note again names what was seen.
+                var reported = Reported(device, comp) ?? "nothing";
+                var prefix = $"auto-converge paused: {comp} {pkg.Version} does not take effect (reported ";
+                if (device.LastIncident is { } li && li.StartsWith(prefix, StringComparison.Ordinal) && li.Contains($"(reported {reported} ", StringComparison.Ordinal))
+                    return;
+                device.LastIncident = $"{prefix}{reported} after {same} attempts)";
+                await db.SaveChangesAsync(ct);
+            }
+
             var data = new CommandData
             {
                 UpdateVersion = pkg.Version, UpdateUrl = $"/api/updates/{pkg.FileName}",
