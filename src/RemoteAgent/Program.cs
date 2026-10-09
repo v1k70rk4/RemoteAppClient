@@ -150,6 +150,7 @@ builder.Services.AddSingleton<TransportState>(sp =>
 });
 builder.Services.AddSingleton<AgentStatusState>();
 builder.Services.AddSingleton<AgentUplink>();
+builder.Services.AddSingleton<ReconnectSignal>();
 builder.Services.AddSingleton<RemoteAgent.Power.SessionKeepAwake>();
 builder.Services.AddSingleton<CommandVerifier>();
 builder.Services.AddSingleton<SystemInfoCollector>();

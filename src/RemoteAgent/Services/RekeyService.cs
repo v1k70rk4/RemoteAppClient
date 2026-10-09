@@ -23,7 +23,7 @@ namespace RemoteAgent.Services;
 /// confirm call made with it → only then the agent switches, rewrites enrollment.json and deletes the old key
 /// material. The server retires the old certificate at the confirm, with a short grace for connections in flight.
 /// </summary>
-public sealed class RekeyService(IOptions<AgentOptions> options, ILogger<RekeyService> logger) : BackgroundService
+public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal reconnect, ILogger<RekeyService> logger) : BackgroundService
 {
     private readonly AgentOptions _opt = options.Value;
 
@@ -106,6 +106,7 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ILogger<RekeySe
             if (id.InStore) { DeviceKeyStore.RemoveCertificate(id.Thumbprint); DeviceKeyStore.DeleteKey(id.KeyName); }
             else if (id.PfxPath is { } pfx) { try { System.IO.File.Delete(pfx); } catch { /* best effort */ } }
             logger.LogWarning(L.RekeyService_Rekeyed, reason, fresh.Provider, resp.NotAfter);
+            reconnect.Request(); // the command channel moves to the new certificate now, not at its next drop
             return true;
         }
         catch
@@ -200,6 +201,7 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ILogger<RekeySe
                     DeviceKeyStore.RemoveCertificate(id.Thumbprint);
                     logger.LogWarning(L.RekeyService_Recovered, state.Provider, status.NotAfter);
                     key.Dispose();
+                    reconnect.Request(); // the channel has been failing without a certificate; try at once
                     return;
                 }
                 // Rejected, expired, or the server no longer knows the request: start over tomorrow.
