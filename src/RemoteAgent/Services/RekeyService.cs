@@ -407,6 +407,9 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
                 RewriteEnrollment(snapshot);
                 try { File.Delete(RecoveryPath); } catch { /* best effort */ }
                 DeviceKeyStore.RemoveCertificate(old.Thumbprint);
+                // The old key is usually gone (that is why we are here), but when only the store entry was lost the
+                // key is still there and must not stay behind unused.
+                if (old.InStore && old.KeyName != state.KeyName) DeviceKeyStore.DeleteKey(old.KeyName);
                 logger.LogWarning(L.RekeyService_Recovered, state.Provider, status.NotAfter);
                 reconnect.Request(); // the channel has been failing without a certificate; try at once
                 return PollOutcome.Recovered;
