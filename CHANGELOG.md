@@ -50,6 +50,8 @@ the time of that release; the GitHub release pages carry the same text together 
   certificate, because older agents never ask for another one.
 - A device whose certificate has expired (switched off past its end) now takes the lost-key path by itself:
   a yellow request in the console, one click, and it is back.
+- Server 2.3.0.2: a rotation that had nothing to revoke (no key on record) or whose previous key was already
+  on the list says so in the log, instead of looking like a revocation.
 - Not in this round: the SSH key itself in the TPM.
 
 **The rest of the release is about seeing**: what a device is doing when something is wrong, and what the

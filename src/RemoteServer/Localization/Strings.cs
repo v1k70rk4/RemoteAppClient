@@ -116,6 +116,8 @@ internal static partial class Strings
     public static string Program_RekeyIssued => Get(nameof(Program_RekeyIssued));
     public static string Program_RekeyConfirmed => Get(nameof(Program_RekeyConfirmed));
     public static string Program_SshCertIssued => Get(nameof(Program_SshCertIssued));
+    public static string SshRevocationList_NothingToRevoke => Get(nameof(SshRevocationList_NothingToRevoke));
+    public static string SshRevocationList_AlreadyListed => Get(nameof(SshRevocationList_AlreadyListed));
     public static string Program_SshKeyRotated => Get(nameof(Program_SshKeyRotated));
     public static string Program_SshCertRefusedRevoked => Get(nameof(Program_SshCertRefusedRevoked));
     public static string Program_RekeyRequestOpened => Get(nameof(Program_RekeyRequestOpened));

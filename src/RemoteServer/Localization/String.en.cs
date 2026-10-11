@@ -50,6 +50,8 @@ internal static partial class Strings
         [nameof(Program_RekeyIssued)] = "Re-key: new certificate issued to device {Device} ({Reason}, key in {Provider}); awaiting its confirmation",
         [nameof(Program_RekeyConfirmed)] = "Re-key: device {Device} confirmed its new certificate; the old one retires in a few minutes",
         [nameof(Program_SshCertIssued)] = "Tunnel certificate renewed for device {Device}",
+        [nameof(SshRevocationList_NothingToRevoke)] = "Device {Device} had no SSH key on record, so there was nothing to put on the bastion's revocation list",
+        [nameof(SshRevocationList_AlreadyListed)] = "The previous SSH key of device {Device} was already on the bastion's revocation list",
         [nameof(Program_SshKeyRotated)] = "Tunnel key rotated for device {Device}: the previous key is on the bastion's revocation list",
         [nameof(Program_SshCertRefusedRevoked)] = "Tunnel certificate refused for device {Device}: the offered key is on the revocation list",
         [nameof(Program_RekeyRequestOpened)] = "Lost-key request from device {Device} (reports itself as {Hostname}, from {Ip}): waiting for an administrator's decision in the console",
