@@ -27,7 +27,7 @@ namespace RemoteAgent.Services;
 ///
 /// A device whose key is gone (the TPM was cleared) has nothing to authenticate with; see <see cref="RecoverAsync"/>.
 /// </summary>
-public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal reconnect, ILogger<RekeyService> logger) : BackgroundService
+public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal reconnect, SshCertService ssh, ILogger<RekeyService> logger) : BackgroundService
 {
     private readonly AgentOptions _opt = options.Value;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -194,6 +194,7 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
         catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_OldKeyCleanupFailed); }
         logger.LogWarning(L.RekeyService_Rekeyed, reason, candidate.Provider, candidate.NotAfter);
         reconnect.Request(); // the command channel moves to the new certificate now, not at its next drop
+        ssh.RequestRotation(); // and the tunnel key follows: new key, new certificate, the old key revoked
         return true;
     }
 
@@ -263,6 +264,9 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
 
     private static bool IdentityUsable(DeviceIdentity.Snapshot id)
     {
+        // An expired certificate authenticates nothing, whatever key is behind it (a device switched off past its
+        // end): the lost-key request is the way back, approved by an administrator like any other.
+        if (id.NotAfter is { } end && end < DateTimeOffset.UtcNow) return false;
         if (!id.InStore) return true; // a PFX file: present or not, the old path handles it
         if (!DeviceKeyStore.KeyExists(id.KeyName)) return false;
         try { using var c = CertHelper.LoadClientCertificate(id.Thumbprint); return c.HasPrivateKey; }
@@ -412,6 +416,7 @@ public sealed class RekeyService(IOptions<AgentOptions> options, ReconnectSignal
                 if (old.InStore && old.KeyName != state.KeyName) DeviceKeyStore.DeleteKey(old.KeyName);
                 logger.LogWarning(L.RekeyService_Recovered, state.Provider, status.NotAfter);
                 reconnect.Request(); // the channel has been failing without a certificate; try at once
+                ssh.RequestRotation();
                 return PollOutcome.Recovered;
             }
             if (code == 200) continue; // 200 without a certificate: not a decision yet

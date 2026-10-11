@@ -82,6 +82,10 @@ internal static partial class Strings
     public static string RekeyService_Rekeyed => Get(nameof(RekeyService_Rekeyed));
     public static string RekeyService_ConfirmUnknown => Get(nameof(RekeyService_ConfirmUnknown));
     public static string RekeyService_OldKeyCleanupFailed => Get(nameof(RekeyService_OldKeyCleanupFailed));
+    public static string SshCertService_Failed => Get(nameof(SshCertService_Failed));
+    public static string SshCertService_ServerRefused => Get(nameof(SshCertService_ServerRefused));
+    public static string SshCertService_Renewed => Get(nameof(SshCertService_Renewed));
+    public static string SshCertService_Rotated => Get(nameof(SshCertService_Rotated));
     public static string RekeyService_KeyLost => Get(nameof(RekeyService_KeyLost));
     public static string RekeyService_RequestOpened => Get(nameof(RekeyService_RequestOpened));
     public static string RekeyService_RequestFailed => Get(nameof(RekeyService_RequestFailed));

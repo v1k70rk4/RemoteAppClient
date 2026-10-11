@@ -57,6 +57,30 @@ public sealed class SshRevocationList(IOptions<ServerOptions> options, ILogger<S
         finally { _gate.Release(); }
     }
 
+    /// <summary>Whether this public key is on the list. A revoked key is never adopted again, so a rotation that
+    /// went wrong halfway cannot bring a revoked key back.</summary>
+    public async Task<bool> IsRevokedAsync(string sshPublicKey, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(_krlPath) || !File.Exists(ListPath)) return false;
+        var wanted = KeyBody(sshPublicKey);
+        if (wanted is null) return false;
+        await _gate.WaitAsync(ct);
+        try
+        {
+            foreach (var line in await File.ReadAllLinesAsync(ListPath, ct))
+                if (!line.StartsWith('#') && KeyBody(line) == wanted) return true;
+            return false;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>"type base64" without the comment, so the same key matches whatever it was labelled.</summary>
+    public static string? KeyBody(string? line)
+    {
+        var parts = (line ?? "").Trim().Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? parts[0] + " " + parts[1] : null;
+    }
+
     // ssh-keygen -k -f <tmp> <list>: the whole list each time, so the KRL always matches it exactly.
     private async Task RebuildAsync(CancellationToken ct)
     {

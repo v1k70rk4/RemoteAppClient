@@ -77,6 +77,9 @@ idempotent).
   issues the certificate for the same device id, with its group and notes intact. Nothing is issued by itself.
 - **The console shows where the key is** (*kulcs: TPM / szoftver / fájl*) and when the certificate ends;
   *Commands → Új eszközkulcs (TPM)* re-keys a device on demand.
+- **The tunnel's SSH certificate lives three days** and is fetched over mTLS, so only the device with the
+  TPM-bound identity gets one; a copied key file is worthless after three days. The first run of the new agent
+  rotates the tunnel key and revokes the old one at the bastion.
 - **Also in this release**: verbose logging on demand (24-hour device log level, TightVNC detail, a daily
   file log), the server mails when its own checks fail, audit rows live a year, sleeping and roaming devices
   reconnect at once, deployment hardening, and the first automated tests (180 by now, run by CI on every push).

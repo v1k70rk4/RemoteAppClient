@@ -19,6 +19,10 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
     public Task<string?> SignAsync(string sshPublicKey, string deviceId, CancellationToken ct)
         => SignInternalAsync(sshPublicKey, deviceId, $"+{_opt.SshCertValidityDays}d", deviceId, ct);
 
+    /// <summary>Signs an agent SSH key for the short validity the agent renews by itself (/api/ssh-cert).</summary>
+    public Task<string?> SignAgentShortAsync(string sshPublicKey, string deviceId, CancellationToken ct)
+        => SignInternalAsync(sshPublicKey, deviceId, $"+{_opt.AgentSshCertValidityDays}d", deviceId, ct);
+
     /// <summary>
     /// Signs a short-lived operator SSH key for the keyless Linux console. Same "agent" principal and
     /// forwarding rights as an agent cert (so the bastion needs no change), but a short validity and an
