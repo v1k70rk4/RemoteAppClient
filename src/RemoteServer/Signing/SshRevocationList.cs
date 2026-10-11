@@ -57,7 +57,13 @@ public sealed class SshRevocationList(IOptions<ServerOptions> options, ILogger<S
             Directory.CreateDirectory(dir);
             var current = File.Exists(ListPath) ? await File.ReadAllTextAsync(ListPath, ct) : "";
             if (KeyBody(key) is { } body && current.Split('\n').Any(l => !l.StartsWith('#') && KeyBody(l) == body))
-                return File.Exists(_krlPath); // already on the list; the KRL in place carries it
+            {
+                // Already on the list. The KRL in place carries it unless an earlier update stopped between the
+                // two moves below (list published, KRL not): then the list is the newer file and the KRL is rebuilt
+                // from it now, the same repair start-up makes.
+                if (File.Exists(_krlPath) && File.GetLastWriteTimeUtc(ListPath) <= File.GetLastWriteTimeUtc(_krlPath)) return true;
+                return await RebuildAsync(ct);
+            }
 
             var label = new string((hostname ?? "").Where(c => !char.IsControl(c)).ToArray());
             var listTmp = ListPath + ".tmp";
@@ -65,8 +71,11 @@ public sealed class SshRevocationList(IOptions<ServerOptions> options, ILogger<S
                 + $"# {DateTimeOffset.UtcNow:yyyy-MM-dd'T'HH:mm:ss'Z'} {deviceId} {label}\n{key}\n", ct);
             var krlTmp = _krlPath + ".tmp";
             if (!await BuildAsync(listTmp, krlTmp, ct)) { File.Delete(listTmp); return false; }
-            File.Move(krlTmp, _krlPath, overwrite: true);
+            // The list is the source of truth and goes first: a stop between the two moves leaves a list newer
+            // than the KRL, which start-up (and the branch above) repairs by rebuilding the KRL from it. The other
+            // order could publish a KRL whose key a later rebuild from the older list would silently drop.
             File.Move(listTmp, ListPath, overwrite: true);
+            File.Move(krlTmp, _krlPath, overwrite: true);
             logger.LogInformation(L.SshRevocationList_Rebuilt, _krlPath, CountKeys());
             return true;
         }
@@ -99,7 +108,8 @@ public sealed class SshRevocationList(IOptions<ServerOptions> options, ILogger<S
     }
 
     // The KRL in place is rebuilt from the list in place (start-up, when the list is newer than the KRL).
-    private async Task RebuildAsync(CancellationToken ct)
+    // True when the KRL in place now matches the list.
+    private async Task<bool> RebuildAsync(CancellationToken ct)
     {
         try
         {
@@ -107,11 +117,12 @@ public sealed class SshRevocationList(IOptions<ServerOptions> options, ILogger<S
             Directory.CreateDirectory(dir);
             if (!File.Exists(ListPath)) await File.WriteAllTextAsync(ListPath, "", ct);
             var tmp = _krlPath + ".tmp";
-            if (!await BuildAsync(ListPath, tmp, ct)) return; // the previous KRL stays in place
+            if (!await BuildAsync(ListPath, tmp, ct)) return false; // the previous KRL stays in place
             File.Move(tmp, _krlPath, overwrite: true);
             logger.LogInformation(L.SshRevocationList_Rebuilt, _krlPath, CountKeys());
+            return true;
         }
-        catch (Exception ex) { logger.LogWarning(ex, L.SshRevocationList_BuildFailed, ex.Message); }
+        catch (Exception ex) { logger.LogWarning(ex, L.SshRevocationList_BuildFailed, ex.Message); return false; }
     }
 
     /// <summary>ssh-keygen -k -f &lt;krl&gt; &lt;list&gt;: the whole list each time, so the KRL always matches it exactly.
