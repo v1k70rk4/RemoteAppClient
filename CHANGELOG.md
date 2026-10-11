@@ -19,8 +19,9 @@ the time of that release; the GitHub release pages carry the same text together 
   (`/api/rekey/confirm`); only then does the agent switch, rewrite `enrollment.json` and delete the old key and
   file. A failure anywhere leaves the device on its old identity; the offer lapses after an hour. The retired
   certificate is accepted for ten more minutes, for connections already open. Both steps are audit rows.
-- The same path renews a certificate within 60 days of its end, so the 825-day certificates from 2026 renew
-  in 2028 instead of expiring.
+- The same path renews a certificate within 180 days of its end (agent 2.3.0.2; 60 days before), so the
+  825-day certificates from 2026 renew in 2028 instead of expiring, and a device switched off for a whole
+  summer break still has a valid certificate to renew with when it returns.
 - Telemetry reports where the key is (`tpm` / `software` / `file`) and when the certificate expires; the server
   records the expiry at issue as well.
 - The console's TPM row says where the key is (*kulcs: TPM / szoftver / fájl*, yellow when a ready TPM is not

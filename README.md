@@ -70,7 +70,7 @@ idempotent).
   a usable device identity. The DPAPI-sealed PFX remains only where CNG key storage is unavailable.
 - **Devices enrolled earlier re-key by themselves**, 5–30 minutes after the new agent starts: new key, new
   certificate, proof with the new one, only then the switch. A failure anywhere leaves the old identity in place.
-- **Certificates renew** the same way within 60 days of their end, so the 825-day certificates from 2026 renew in
+- **Certificates renew** the same way within 180 days of their end, so the 825-day certificates from 2026 renew in
   2028 instead of expiring.
 - **A lost TPM key is recovered with one click.** After a BIOS update that cleared the TPM, the agent sends a
   lost-key request without a certificate; the device turns yellow in the console (*KULCSKÉRÉS*) and *Approve*
