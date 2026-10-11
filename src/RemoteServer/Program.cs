@@ -1759,13 +1759,17 @@ app.MapPost("/api/ssh-cert", async (HttpContext ctx, AppDbContext db, SshCertifi
 
     if (rotated)
     {
-        // Adopt first, then revoke: the device holds the new certificate from this answer on, and the key it
-        // used until now stops working at the bastion with the next rebuild of the list.
+        // Revoke first, and only when that took effect adopt the new key and answer: a rotation is complete
+        // only once the bastion refuses the old key. When the revocation cannot be written the device is told
+        // so (503) and keeps its old key, which still works; it offers the same new key again later. The
+        // reverse order - adopt, then a revocation that silently failed - would have left the old key accepted
+        // while the device already believed it revoked.
         var previous = device.SshPublicKey;
+        if (!await revoked.RevokeAsync(previous, device.DeviceId, device.Hostname, ct))
+            return Results.Json(new RekeyError { Code = "revocation_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
         device.SshPublicKey = key;
         db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-ssh-key-rotated", TargetDeviceId = device.Id });
         await db.SaveChangesAsync(ct);
-        await revoked.RevokeAsync(previous, device.DeviceId, device.Hostname, ct);
         app.Logger.LogInformation(L.Program_SshKeyRotated, device.DeviceId);
     }
     else

@@ -22,6 +22,11 @@ namespace RemoteAgent.Services;
 /// certificate, the previous key on the bastion's revocation list - so copies made before this agent stop
 /// working at once. A re-key of the device certificate asks for a rotation too. ssh reads the key and the
 /// certificate when it starts a tunnel, so a running tunnel is never touched; the next one uses the new files.
+///
+/// A rotation is staged: the new key is made as <c>id_ed25519.next</c> and offered to the server; the server may
+/// have adopted it (and revoked the old key) even when its answer never arrived, so the staged key is kept and
+/// offered again until the server answers with a certificate or refuses it outright. The certificate beside
+/// the staged key is the proof of adoption; from then on the moves into place are finished whatever happens.
 /// </summary>
 public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCertService> logger) : BackgroundService
 {
@@ -37,6 +42,8 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
     private string PubPath => KeyPath + ".pub";
     private string CertPath => KeyPath + "-cert.pub";
     private string NextKeyPath => KeyPath + ".next";
+    private string NextPubPath => NextKeyPath + ".pub";
+    private string NextCertPath => NextKeyPath + "-cert.pub";
 
     /// <summary>Asks for a key rotation at the next opportunity (after a device re-key).</summary>
     public void RequestRotation()
@@ -55,8 +62,10 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
             var wait = CheckEvery;
             try
             {
-                FinishInterruptedRotation();
-                var due = _rotateRequested ? "rotate" : SshCertificate.Due(ReadCert(), DateTimeOffset.UtcNow);
+                FinishAdoptedRotation();
+                // A staged key the server may already hold comes before anything the policy says: until the server
+                // has answered for it, the key on disk may be the revoked one.
+                var due = File.Exists(NextPubPath) || _rotateRequested ? "rotate" : SshCertificate.Due(ReadCert(), DateTimeOffset.UtcNow);
                 if (due is not null && !await RunAsync(due, stoppingToken)) wait = RetryAfter;
             }
             catch (OperationCanceledException) { break; }
@@ -73,16 +82,16 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
         catch (IOException) { return null; }
     }
 
-    /// <summary>One round. True when the certificate on disk is fresh afterwards.</summary>
+    /// <summary>One round. True when the certificate on disk is fresh afterwards, or there is nothing to do.</summary>
     private async Task<bool> RunAsync(string due, CancellationToken ct)
     {
         var rotate = due == "rotate";
         string pub;
         if (rotate)
         {
-            // The new key is made beside the old one and only moves into place once the server has accepted it:
-            // until then every tunnel keeps using the old key, which the server still honours.
-            pub = GenerateKey(NextKeyPath);
+            // The staged key from an earlier round is offered again rather than replaced: the server may have
+            // adopted it already, and a second new key would revoke a key that was never in use.
+            pub = File.Exists(NextPubPath) && File.Exists(NextKeyPath) ? File.ReadAllText(NextPubPath).Trim() : GenerateKey(NextKeyPath);
         }
         else
         {
@@ -95,27 +104,27 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
             using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", new SshCertRequest { SshPublicKey = pub }, AgentJsonContext.Default.SshCertRequest, ct);
             if (!r.IsSuccessStatusCode)
             {
-                if (rotate) DeleteNext();
+                var status = (int)r.StatusCode;
+                // Only an outright refusal (4xx) says the server did not take the staged key. A 5xx or a lost
+                // answer says nothing, and the key stays staged for the next round.
+                if (rotate && status is >= 400 and < 500) DeleteStaged();
                 // A server from before this feature has no such endpoint: nothing to do until it is updated, and
                 // the long certificate from enrollment serves meanwhile. Not a retry case; the regular check returns.
-                if (r.StatusCode == System.Net.HttpStatusCode.NotFound) return true;
-                logger.LogWarning(L.SshCertService_ServerRefused, (int)r.StatusCode);
+                if (status == 404) return true;
+                logger.LogWarning(L.SshCertService_ServerRefused, status);
                 return false;
             }
             resp = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.SshCertResponse, ct);
         }
         if (resp is null || string.IsNullOrWhiteSpace(resp.Certificate) || SshCertificate.Parse(resp.Certificate) is null)
-        {
-            if (rotate) DeleteNext();
-            return false;
-        }
+            return false; // a malformed answer: the staged key, if any, is offered again next time
 
         if (rotate)
         {
-            // Certificate first, beside the new key; then the three moves. The server has already adopted the
-            // new key (and revoked the old one), so a crash between the moves is finished at the next start.
-            WriteAtomic(NextKeyPath + "-cert.pub", resp.Certificate.Trim() + "\n");
-            FinishInterruptedRotation();
+            // The certificate beside the staged key is the proof that the server adopted it; the moves follow,
+            // and a crash between them is finished at the next start.
+            WriteAtomic(NextCertPath, resp.Certificate.Trim() + "\n");
+            FinishAdoptedRotation();
             _rotateRequested = false;
             logger.LogWarning(L.SshCertService_Rotated, resp.ValidBefore);
         }
@@ -127,24 +136,19 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
         return true;
     }
 
-    /// <summary>A rotation whose certificate landed but whose moves did not all happen: complete it. The
-    /// certificate beside the next key is the proof that the server adopted that key.</summary>
-    private void FinishInterruptedRotation()
+    /// <summary>Moves an adopted rotation into place: key, public key, certificate - whichever of them is still
+    /// staged. Without a staged certificate nothing is adopted yet, and the staged key is left for the next round.</summary>
+    private void FinishAdoptedRotation()
     {
-        var nextCert = NextKeyPath + "-cert.pub";
-        if (!File.Exists(NextKeyPath) || !File.Exists(nextCert))
-        {
-            DeleteNext(); // a key without an accepted certificate: the server never adopted it
-            return;
-        }
-        File.Move(NextKeyPath, KeyPath, overwrite: true);
-        if (File.Exists(NextKeyPath + ".pub")) File.Move(NextKeyPath + ".pub", PubPath, overwrite: true);
-        File.Move(nextCert, CertPath, overwrite: true);
+        if (!File.Exists(NextCertPath)) return;
+        if (File.Exists(NextKeyPath)) File.Move(NextKeyPath, KeyPath, overwrite: true);
+        if (File.Exists(NextPubPath)) File.Move(NextPubPath, PubPath, overwrite: true);
+        File.Move(NextCertPath, CertPath, overwrite: true);
     }
 
-    private void DeleteNext()
+    private void DeleteStaged()
     {
-        foreach (var p in new[] { NextKeyPath, NextKeyPath + ".pub", NextKeyPath + "-cert.pub" })
+        foreach (var p in new[] { NextKeyPath, NextPubPath, NextCertPath })
             try { File.Delete(p); } catch { /* best effort */ }
     }
 
