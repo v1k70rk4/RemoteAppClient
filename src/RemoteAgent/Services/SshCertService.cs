@@ -95,8 +95,11 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
             using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", new SshCertRequest { SshPublicKey = pub }, AgentJsonContext.Default.SshCertRequest, ct);
             if (!r.IsSuccessStatusCode)
             {
-                logger.LogWarning(L.SshCertService_ServerRefused, (int)r.StatusCode);
                 if (rotate) DeleteNext();
+                // A server from before this feature has no such endpoint: nothing to do until it is updated, and
+                // the long certificate from enrollment serves meanwhile. Not a retry case; the regular check returns.
+                if (r.StatusCode == System.Net.HttpStatusCode.NotFound) return true;
+                logger.LogWarning(L.SshCertService_ServerRefused, (int)r.StatusCode);
                 return false;
             }
             resp = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.SshCertResponse, ct);
