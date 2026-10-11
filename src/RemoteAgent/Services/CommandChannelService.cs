@@ -24,6 +24,7 @@ public sealed class CommandChannelService(
     AgentStatusState status,
     AgentUplink uplink,
     ReconnectSignal reconnect,
+    SshCertService sshCert,
     ILogger<CommandChannelService> logger) : BackgroundService
 {
     private readonly CommandChannelOptions _opt = options.Value.CommandChannel;
@@ -158,6 +159,7 @@ public sealed class CommandChannelService(
         await ws.ConnectAsync(new Uri(_opt.Url), ct);
         _established = true;
         logger.LogInformation(L.CommandChannelService_CommandChannelIsLive);
+        sshCert.Nudge(); // the server is reachable again: a tunnel certificate that ran out meanwhile is renewed now
         status.SetC2Connected(true); // the status pipe reports this to the client
         uplink.SetSocket(ws);        // from here we can send result messages back
 

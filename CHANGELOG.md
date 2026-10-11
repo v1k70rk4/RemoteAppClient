@@ -50,6 +50,9 @@ the time of that release; the GitHub release pages carry the same text together 
   certificate, because older agents never ask for another one.
 - A device whose certificate has expired (switched off past its end) now takes the lost-key path by itself:
   a yellow request in the console, one click, and it is back.
+- Agent 2.3.0.3: the tunnel certificate is checked the moment the command channel comes up, so after a server
+  outage longer than the certificate's life the tunnel is back as soon as the server is, not at the next
+  six-hourly check.
 - Server 2.3.0.2: a rotation that had nothing to revoke (no key on record) or whose previous key was already
   on the list says so in the log, instead of looking like a revocation.
 - Not in this round: the SSH key itself in the TPM.
