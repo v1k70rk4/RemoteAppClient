@@ -57,7 +57,9 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
     /// nothing is due - a file read and a date comparison.</summary>
     public void Nudge()
     {
-        if (_wake.CurrentCount == 0) _wake.Release();
+        // Two callers (the channel, a re-key) may nudge at once; a wake already pending is all either wanted.
+        try { _wake.Release(); }
+        catch (SemaphoreFullException) { /* already pending */ }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
