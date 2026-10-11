@@ -97,8 +97,12 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
     {
         var rotate = due == "rotate";
         string pub;
+        string? previous = null, proof = null;
         if (rotate)
         {
+            // The key in use until now: the server revokes it even when its own record of this device has none,
+            // but only against a signature made with it over the new key - its word alone revokes nothing.
+            try { previous = File.Exists(PubPath) ? File.ReadAllText(PubPath).Trim() : null; } catch (IOException) { }
             // The staged key from an earlier round is offered again rather than replaced: the server may have
             // adopted it already, and a second new key would revoke a key that was never in use.
             pub = File.Exists(NextPubPath) && File.Exists(NextKeyPath) ? File.ReadAllText(NextPubPath).Trim() : GenerateKey(NextKeyPath);
@@ -107,11 +111,13 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
         {
             pub = File.ReadAllText(PubPath).Trim();
         }
+        if (previous is not null && SshCertificate.KeyBody(pub) is { } newBody)
+            proof = SignWithKey(KeyPath, newBody);
 
         SshCertResponse? resp;
         using (var http = BuildClient())
         {
-            using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", new SshCertRequest { SshPublicKey = pub }, AgentJsonContext.Default.SshCertRequest, ct);
+            using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", new SshCertRequest { SshPublicKey = pub, PreviousSshPublicKey = previous, PreviousKeyProof = proof }, AgentJsonContext.Default.SshCertRequest, ct);
             if (!r.IsSuccessStatusCode)
             {
                 var status = (int)r.StatusCode;
@@ -179,6 +185,30 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
             throw new InvalidOperationException(L.EnrollCommand_SshKeygenFailedSSHKey);
         EnrollCommand.TightenAcl(keyPath);
         return File.ReadAllText(keyPath + ".pub").Trim();
+    }
+
+    /// <summary>ssh-keygen -Y sign with the key on disk, namespace "remoteagent-rotation", over the message plus a
+    /// newline. Null when the installed ssh-keygen cannot sign (older builds): then the previous key simply is not
+    /// offered, as before.</summary>
+    private static string? SignWithKey(string keyPath, string message)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ra_rot_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var msg = Path.Combine(dir, "msg");
+            File.WriteAllText(msg, message + "\n");
+            var psi = new ProcessStartInfo(SshTools.ResolveSshKeygen()) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+            psi.ArgumentList.Add("-Y"); psi.ArgumentList.Add("sign");
+            psi.ArgumentList.Add("-f"); psi.ArgumentList.Add(keyPath);
+            psi.ArgumentList.Add("-n"); psi.ArgumentList.Add("remoteagent-rotation");
+            psi.ArgumentList.Add(msg);
+            using var proc = Process.Start(psi)!;
+            proc.WaitForExit(15000);
+            return proc.HasExited && proc.ExitCode == 0 && File.Exists(msg + ".sig") ? File.ReadAllText(msg + ".sig") : null;
+        }
+        catch { return null; }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ } }
     }
 
     private static void WriteAtomic(string path, string text)

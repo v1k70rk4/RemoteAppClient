@@ -12,6 +12,16 @@ public sealed class SshCertRequest
 {
     /// <summary>The public key to certify, one line in OpenSSH form ("ssh-ed25519 AAAA... comment").</summary>
     [JsonPropertyName("sshPublicKey")] public string SshPublicKey { get; set; } = string.Empty;
+
+    /// <summary>On a rotation, the key the device used until now, so the server can revoke it even when its own
+    /// record of the device has none. Honoured only together with <see cref="PreviousKeyProof"/>.</summary>
+    [JsonPropertyName("previousSshPublicKey")] public string? PreviousSshPublicKey { get; set; }
+
+    /// <summary>Proof that the device holds the previous key: an OpenSSH signature (<c>ssh-keygen -Y sign</c>,
+    /// namespace <c>remoteagent-rotation</c>) made with it over the new key's "type base64" body plus a newline.
+    /// Without a valid proof the server revokes nothing on the device's word, so a device can never have another
+    /// device's key revoked.</summary>
+    [JsonPropertyName("previousKeyProof")] public string? PreviousKeyProof { get; set; }
 }
 
 public sealed class SshCertResponse
