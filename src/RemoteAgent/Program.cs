@@ -168,6 +168,8 @@ builder.Services.AddHostedService<HelperUpdateWatcher>();
 builder.Services.AddHostedService<BrokerService>();
 builder.Services.AddHostedService<StatusPipeService>();
 builder.Services.AddHostedService<RemoteAgent.Diagnostics.DiagModeService>();
+builder.Services.AddSingleton<SshCertService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SshCertService>());
 builder.Services.AddSingleton<RekeyService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RekeyService>());
 

@@ -70,13 +70,16 @@ idempotent).
   a usable device identity. The DPAPI-sealed PFX remains only where CNG key storage is unavailable.
 - **Devices enrolled earlier re-key by themselves**, 5–30 minutes after the new agent starts: new key, new
   certificate, proof with the new one, only then the switch. A failure anywhere leaves the old identity in place.
-- **Certificates renew** the same way within 60 days of their end, so the 825-day certificates from 2026 renew in
+- **Certificates renew** the same way within 180 days of their end, so the 825-day certificates from 2026 renew in
   2028 instead of expiring.
 - **A lost TPM key is recovered with one click.** After a BIOS update that cleared the TPM, the agent sends a
   lost-key request without a certificate; the device turns yellow in the console (*KULCSKÉRÉS*) and *Approve*
   issues the certificate for the same device id, with its group and notes intact. Nothing is issued by itself.
 - **The console shows where the key is** (*kulcs: TPM / szoftver / fájl*) and when the certificate ends;
   *Commands → Új eszközkulcs (TPM)* re-keys a device on demand.
+- **The tunnel's SSH certificate lives three days** and is fetched over mTLS, so only the device with the
+  TPM-bound identity gets one; a copied key file is worthless after three days. The first run of the new agent
+  rotates the tunnel key and revokes the old one at the bastion.
 - **Also in this release**: verbose logging on demand (24-hour device log level, TightVNC detail, a daily
   file log), the server mails when its own checks fail, audit rows live a year, sleeping and roaming devices
   reconnect at once, deployment hardening, and the first automated tests (180 by now, run by CI on every push).

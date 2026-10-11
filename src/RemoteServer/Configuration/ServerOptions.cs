@@ -145,8 +145,13 @@ public sealed class BastionOptions
     /// </summary>
     public string RevokedKeysPath { get; set; } = "/var/lib/remoteserver/ssh/revoked_keys.krl";
 
-    /// <summary>Validity of issued SSH certificates in days.</summary>
+    /// <summary>Validity (days) of the SSH certificate issued at enrollment. Long, because an agent from before
+    /// 2.3.0.2 never asks for another one; a newer agent replaces it with a short-lived one on its first run.</summary>
     public int SshCertValidityDays { get; set; } = 825;
+
+    /// <summary>Validity (days) of the SSH certificates agents fetch for themselves over mTLS (<c>/api/ssh-cert</c>);
+    /// the agent renews at half of it. Days, not weeks: a copy of the key file is worth nothing after this.</summary>
+    public int AgentSshCertValidityDays { get; set; } = 3;
 
     /// <summary>Validity (hours) of short-lived operator SSH certificates minted on login for the keyless
     /// Linux operator console. Matches the session lifetime so the cert and session expire together.</summary>

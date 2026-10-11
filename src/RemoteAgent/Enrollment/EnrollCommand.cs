@@ -211,7 +211,7 @@ public static class EnrollCommand
     /// considered foreign under the SYSTEM service, causing "too open" and key rejection.
     /// Uses .NET FileSecurity instead of icacls to avoid localization and leftover ACE issues.
     /// </summary>
-    private static void TightenAcl(string path)
+    internal static void TightenAcl(string path)
     {
         try
         {

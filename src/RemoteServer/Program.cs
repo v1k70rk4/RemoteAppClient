@@ -1729,6 +1729,56 @@ app.MapPost("/api/rekey/confirm", async (HttpContext ctx, AppDbContext db, Cance
     return Results.NoContent();
 });
 
+// === Short-lived SSH certificates for the tunnel key. The device's own key on record is signed for days; a
+// different key is a rotation: adopted, and the previous one put on the bastion's revocation list. ===
+app.MapPost("/api/ssh-cert", async (HttpContext ctx, AppDbContext db, SshCertificateAuthority sshCa, SshRevocationList revoked, IOptions<ServerOptions> serverOptions, CancellationToken ct) =>
+{
+    var device = await AuthorizedDeviceAsync(ctx, db, ct);
+    if (device is null) return Results.Json(new RekeyError { Code = "unauthorized" }, AgentJsonContext.Default.RekeyError, statusCode: 401);
+    if (device.Status != DeviceStatus.Approved) return Results.Json(new RekeyError { Code = "not_approved" }, AgentJsonContext.Default.RekeyError, statusCode: 403);
+
+    SshCertRequest? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.SshCertRequest, ct); }
+    catch (JsonException) { return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
+    var key = req?.SshPublicKey?.Trim();
+    if (key is null || key.Length > 4096 || key.Contains('\n') || key.Contains('\r') || SshRevocationList.KeyBody(key) is not { } body
+        || !(body.StartsWith("ssh-ed25519 ", StringComparison.Ordinal) || body.StartsWith("ssh-rsa ", StringComparison.Ordinal) || body.StartsWith("ecdsa-sha2-", StringComparison.Ordinal)))
+        return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400);
+
+    var rotated = SshRevocationList.KeyBody(device.SshPublicKey) != body;
+    if (rotated && await revoked.IsRevokedAsync(key, ct))
+    {
+        app.Logger.LogWarning(L.Program_SshCertRefusedRevoked, device.DeviceId);
+        return Results.Json(new RekeyError { Code = "revoked_key" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+    }
+
+    var cert = await sshCa.SignAgentShortAsync(key, device.DeviceId, ct);
+    if (cert is null)
+        return Results.Json(new RekeyError { Code = "sign_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
+    var validBefore = DateTimeOffset.UtcNow.AddDays(Math.Max(1, serverOptions.Value.Bastion.AgentSshCertValidityDays));
+
+    if (rotated)
+    {
+        // Revoke first, and only when that took effect adopt the new key and answer: a rotation is complete
+        // only once the bastion refuses the old key. When the revocation cannot be written the device is told
+        // so (503) and keeps its old key, which still works; it offers the same new key again later. The
+        // reverse order - adopt, then a revocation that silently failed - would have left the old key accepted
+        // while the device already believed it revoked.
+        var previous = device.SshPublicKey;
+        if (!await revoked.RevokeAsync(previous, device.DeviceId, device.Hostname, ct))
+            return Results.Json(new RekeyError { Code = "revocation_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
+        device.SshPublicKey = key;
+        db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-ssh-key-rotated", TargetDeviceId = device.Id });
+        await db.SaveChangesAsync(ct);
+        app.Logger.LogInformation(L.Program_SshKeyRotated, device.DeviceId);
+    }
+    else
+    {
+        app.Logger.LogDebug(L.Program_SshCertIssued, device.DeviceId);
+    }
+    return Results.Json(new SshCertResponse { Certificate = cert, ValidBefore = validBefore, Rotated = rotated }, AgentJsonContext.Default.SshCertResponse);
+});
+
 // === Lost-key recovery. A device whose TPM lost its key has nothing to authenticate with; it asks here, with
 // no certificate, and nothing is issued until an administrator approves the request in the console (the row
 // turns yellow). One pending request per device, seven days, rate-limited per source. Under /enroll because

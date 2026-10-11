@@ -17,11 +17,11 @@ public class RekeyPolicyTests
         Assert.Equal(expected, RekeyPolicy.Reason(provider, tpmUsable, Now.AddDays(400), Now));
 
     [Fact]
-    public void Renews_inside_the_last_sixty_days()
+    public void Renews_inside_the_last_half_year()
     {
-        Assert.Equal("renewal", RekeyPolicy.Reason("tpm", true, Now.AddDays(59), Now));
+        Assert.Equal("renewal", RekeyPolicy.Reason("tpm", true, Now.AddDays(179), Now));
         Assert.Equal("renewal", RekeyPolicy.Reason("tpm", true, Now.AddDays(-1), Now)); // already expired: still try
-        Assert.Null(RekeyPolicy.Reason("tpm", true, Now.AddDays(61), Now));
+        Assert.Null(RekeyPolicy.Reason("tpm", true, Now.AddDays(181), Now));
         Assert.Null(RekeyPolicy.Reason("tpm", true, null, Now)); // unknown expiry: nothing to act on
     }
 

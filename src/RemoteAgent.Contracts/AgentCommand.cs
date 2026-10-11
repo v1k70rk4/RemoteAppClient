@@ -141,6 +141,8 @@ public static class CommandTypes
 [JsonSerializable(typeof(Enrollment.EnrollResponse))]
 [JsonSerializable(typeof(Enrollment.EnrollError))]
 [JsonSerializable(typeof(Enrollment.RekeyRequest))]
+[JsonSerializable(typeof(Enrollment.SshCertRequest))]
+[JsonSerializable(typeof(Enrollment.SshCertResponse))]
 [JsonSerializable(typeof(Enrollment.RekeyResponse))]
 [JsonSerializable(typeof(Enrollment.RekeyError))]
 [JsonSerializable(typeof(Enrollment.RekeyRequestOpen))]

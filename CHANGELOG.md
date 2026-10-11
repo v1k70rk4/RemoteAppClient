@@ -19,8 +19,9 @@ the time of that release; the GitHub release pages carry the same text together 
   (`/api/rekey/confirm`); only then does the agent switch, rewrite `enrollment.json` and delete the old key and
   file. A failure anywhere leaves the device on its old identity; the offer lapses after an hour. The retired
   certificate is accepted for ten more minutes, for connections already open. Both steps are audit rows.
-- The same path renews a certificate within 60 days of its end, so the 825-day certificates from 2026 renew
-  in 2028 instead of expiring.
+- The same path renews a certificate within 180 days of its end (agent 2.3.0.2; 60 days before), so the
+  825-day certificates from 2026 renew in 2028 instead of expiring, and a device switched off for a whole
+  summer break still has a valid certificate to renew with when it returns.
 - Telemetry reports where the key is (`tpm` / `software` / `file`) and when the certificate expires; the server
   records the expiry at issue as well.
 - The console's TPM row says where the key is (*kulcs: TPM / szoftver / fájl*, yellow when a ready TPM is not
@@ -36,9 +37,20 @@ the time of that release; the GitHub release pages carry the same text together 
 - Agent 2.3.0.1: on Windows 10 the Platform Crypto Provider reports a machine key as not being one, which made the
   framework's certificate-to-key binding fail with "keyset does not exist" (the key was fine); the binding is now
   written by hand where the framework's fails, and every binding is proven by a test signature before it counts.
-- Not in this round: TPM-backed SSH keys.
 - Agent 2.3.0.2 / server 2.3.0.1 (post-release review): a lost-key recovery deletes the previous key as well
   when it is still in the key store, and the server's lost-key log line names the device by its id.
+- **The tunnel's SSH certificate is short-lived** (agent 2.3.0.2, server 2.3.0.1). The SSH key stays a file,
+  but its certificate now lives three days (`Server:Bastion:AgentSshCertValidityDays`), and the agent fetches
+  a new one over mTLS (`POST /api/ssh-cert`) - that is, only the device holding the TPM-bound client certificate
+  gets one. A copy of the key file is worth nothing after three days, and a device switched off for months simply
+  asks for a fresh certificate when it returns. The first time the new agent sees its 825-day certificate from
+  enrollment it rotates the key instead: new key, new certificate, the previous key on the bastion's revocation
+  list (audit row `device-ssh-key-rotated`), so copies made before this agent stop working at once; a device
+  re-key rotates the tunnel key too. Running tunnels are never touched. Enrollment keeps issuing the long
+  certificate, because older agents never ask for another one.
+- A device whose certificate has expired (switched off past its end) now takes the lost-key path by itself:
+  a yellow request in the console, one click, and it is back.
+- Not in this round: the SSH key itself in the TPM.
 
 **The rest of the release is about seeing**: what a device is doing when something is wrong, and what the
 server is doing when nobody is looking. Verbose logging on demand, a file log on every agent, a server that
