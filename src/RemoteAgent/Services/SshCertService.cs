@@ -97,8 +97,11 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
     {
         var rotate = due == "rotate";
         string pub;
+        string? previous = null;
         if (rotate)
         {
+            // The key in use until now: the server revokes it even when its own record of this device has none.
+            try { previous = File.Exists(PubPath) ? File.ReadAllText(PubPath).Trim() : null; } catch (IOException) { }
             // The staged key from an earlier round is offered again rather than replaced: the server may have
             // adopted it already, and a second new key would revoke a key that was never in use.
             pub = File.Exists(NextPubPath) && File.Exists(NextKeyPath) ? File.ReadAllText(NextPubPath).Trim() : GenerateKey(NextKeyPath);
@@ -111,7 +114,7 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
         SshCertResponse? resp;
         using (var http = BuildClient())
         {
-            using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", new SshCertRequest { SshPublicKey = pub }, AgentJsonContext.Default.SshCertRequest, ct);
+            using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", new SshCertRequest { SshPublicKey = pub, PreviousSshPublicKey = previous }, AgentJsonContext.Default.SshCertRequest, ct);
             if (!r.IsSuccessStatusCode)
             {
                 var status = (int)r.StatusCode;

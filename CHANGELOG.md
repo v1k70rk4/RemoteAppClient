@@ -50,6 +50,9 @@ the time of that release; the GitHub release pages carry the same text together 
   certificate, because older agents never ask for another one.
 - A device whose certificate has expired (switched off past its end) now takes the lost-key path by itself:
   a yellow request in the console, one click, and it is back.
+- Agent 2.3.0.4 / server 2.3.0.3: on a rotation the agent also reports the key it used until now, and the server
+  revokes it when its own record of the device has none (a few early enrollment rows had no key on record), but
+  only if no device lives on that key, so a device can never have another's key revoked.
 - Agent 2.3.0.3: the tunnel certificate is checked the moment the command channel comes up, so after a server
   outage longer than the certificate's life the tunnel is back as soon as the server is, not at the next
   six-hourly check.

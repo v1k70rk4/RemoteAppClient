@@ -50,6 +50,8 @@ internal static partial class Strings
         [nameof(Program_RekeyIssued)] = "Kulcscsere: új tanúsítvány kiadva a(z) {Device} eszköznek ({Reason}, kulcs: {Provider}); megerősítésre vár",
         [nameof(Program_RekeyConfirmed)] = "Kulcscsere: a(z) {Device} eszköz megerősítette az új tanúsítványt; a régi néhány perc múlva lejár",
         [nameof(Program_SshCertIssued)] = "Alagút-tanúsítvány megújítva: {Device} eszköz",
+        [nameof(Program_SshPreviousKeyFromDevice)] = "A(z) {Device} eszköznek nem volt SSH-kulcsa a nyilvántartásban; az általa eddig használtként jelentett kulcsot vonjuk vissza",
+        [nameof(Program_SshPreviousKeyRefused)] = "A(z) {Device} eszköznek nem volt SSH-kulcsa a nyilvántartásban, és olyan korábbi kulcsot jelentett, amelyen egy másik eszköz él; nem vonjuk vissza",
         [nameof(SshRevocationList_NothingToRevoke)] = "A(z) {Device} eszköznek nem volt használható SSH-kulcsa a nyilvántartásban (hiányzik vagy nem egysoros), így nem volt mit a bastion visszavonási listájára tenni",
         [nameof(SshRevocationList_AlreadyListed)] = "A(z) {Device} eszköz korábbi SSH-kulcsa már rajta volt a bastion visszavonási listáján",
         [nameof(Program_SshKeyRotated)] = "Alagút-kulcs lecserélve: {Device} eszköz; a korábbi kulcs a bastion visszavonási listáján",

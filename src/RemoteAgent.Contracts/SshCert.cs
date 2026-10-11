@@ -12,6 +12,11 @@ public sealed class SshCertRequest
 {
     /// <summary>The public key to certify, one line in OpenSSH form ("ssh-ed25519 AAAA... comment").</summary>
     [JsonPropertyName("sshPublicKey")] public string SshPublicKey { get; set; } = string.Empty;
+
+    /// <summary>On a rotation, the key the device used until now, so the server can revoke it even when its own
+    /// record of the device has none. Honoured only when the record is empty and no device has this key on
+    /// record, so a device can never have another device's live key revoked.</summary>
+    [JsonPropertyName("previousSshPublicKey")] public string? PreviousSshPublicKey { get; set; }
 }
 
 public sealed class SshCertResponse
