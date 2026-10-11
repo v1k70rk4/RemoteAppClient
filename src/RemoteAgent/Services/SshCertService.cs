@@ -105,9 +105,10 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
             if (!r.IsSuccessStatusCode)
             {
                 var status = (int)r.StatusCode;
-                // Only an outright refusal (4xx) says the server did not take the staged key. A 5xx or a lost
-                // answer says nothing, and the key stays staged for the next round.
-                if (rotate && status is >= 400 and < 500) DeleteStaged();
+                // Only the server's own refusals say it did not take the staged key: a bad request, an unknown or
+                // unapproved device, a missing endpoint, a revoked key. A 5xx, a proxy's 408/429 or a lost answer
+                // says nothing, and the key stays staged for the next round.
+                if (rotate && status is 400 or 401 or 403 or 404 or 409) DeleteStaged();
                 // A server from before this feature has no such endpoint: nothing to do until it is updated, and
                 // the long certificate from enrollment serves meanwhile. Not a retry case; the regular check returns.
                 if (status == 404) return true;
