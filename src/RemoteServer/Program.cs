@@ -1794,7 +1794,7 @@ app.MapPost("/enroll/rekey", async (HttpContext ctx, AppDbContext db, RequestLim
     db.RekeyRequests.Add(rr);
     db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-rekey-request", TargetDeviceId = device.Id, DetailJson = JsonSerializer.Serialize(new { hostname, ip, provider, fingerprint }) });
     await db.SaveChangesAsync(ct);
-    app.Logger.LogWarning(L.Program_RekeyRequestOpened, device.Hostname, hostname, ip);
+    app.Logger.LogWarning(L.Program_RekeyRequestOpened, device.DeviceId, hostname, ip);
     return Results.Json(new RekeyRequestOpened { RequestId = rr.Id, Token = raw }, AgentJsonContext.Default.RekeyRequestOpened);
 });
 

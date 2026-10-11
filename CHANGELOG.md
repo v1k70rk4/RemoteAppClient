@@ -37,6 +37,8 @@ the time of that release; the GitHub release pages carry the same text together 
   framework's certificate-to-key binding fail with "keyset does not exist" (the key was fine); the binding is now
   written by hand where the framework's fails, and every binding is proven by a test signature before it counts.
 - Not in this round: TPM-backed SSH keys.
+- Agent 2.3.0.2 / server 2.3.0.1 (post-release review): a lost-key recovery deletes the previous key as well
+  when it is still in the key store, and the server's lost-key log line names the device by its id.
 
 **The rest of the release is about seeing**: what a device is doing when something is wrong, and what the
 server is doing when nobody is looking. Verbose logging on demand, a file log on every agent, a server that
