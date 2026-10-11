@@ -31,6 +31,44 @@ public sealed class SshCertificateAuthority(IOptions<ServerOptions> options, ILo
     public Task<string?> SignOperatorAsync(string sshPublicKey, string username, CancellationToken ct)
         => SignInternalAsync(sshPublicKey, "operator:" + username, $"+{_opt.OperatorCertValidityHours}h", username, ct);
 
+    /// <summary>
+    /// Whether <paramref name="signature"/> (an OpenSSH signature, namespace "remoteagent-rotation") was made with
+    /// <paramref name="publicKey"/> over <paramref name="message"/> plus a newline: ssh-keygen -Y verify against
+    /// a one-line allowed-signers file. False on any doubt.
+    /// </summary>
+    public async Task<bool> VerifyPossessionAsync(string publicKey, string message, string signature, CancellationToken ct)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ra_pop_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var allowed = Path.Combine(dir, "allowed");
+            var sig = Path.Combine(dir, "msg.sig");
+            await File.WriteAllTextAsync(allowed, "rotation " + publicKey.Trim() + "\n", ct);
+            await File.WriteAllTextAsync(sig, signature.Trim() + "\n", ct);
+            var psi = new ProcessStartInfo("ssh-keygen") { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.ArgumentList.Add("-Y"); psi.ArgumentList.Add("verify");
+            psi.ArgumentList.Add("-f"); psi.ArgumentList.Add(allowed);
+            psi.ArgumentList.Add("-I"); psi.ArgumentList.Add("rotation");
+            psi.ArgumentList.Add("-n"); psi.ArgumentList.Add("remoteagent-rotation");
+            psi.ArgumentList.Add("-s"); psi.ArgumentList.Add(sig);
+            using var proc = Process.Start(psi)!;
+            await proc.StandardInput.WriteAsync(message + "\n");
+            proc.StandardInput.Close();
+            await proc.WaitForExitAsync(ct);
+            return proc.ExitCode == 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, L.SshCertificateAuthority_VerifyFailed);
+            return false;
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     private async Task<string?> SignInternalAsync(string sshPublicKey, string keyId, string validity, string logId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(sshPublicKey))

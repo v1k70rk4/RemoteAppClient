@@ -1768,10 +1768,13 @@ app.MapPost("/api/ssh-cert", async (HttpContext ctx, AppDbContext db, SshCertifi
         if (string.IsNullOrWhiteSpace(previous) && req!.PreviousSshPublicKey?.Trim() is { Length: > 0 and <= 4096 } offered
             && !offered.Contains('\n') && !offered.Contains('\r') && SshRevocationList.KeyBody(offered) is { } offeredBody && offeredBody != body)
         {
-            // Nothing on record (an old enrollment row): take the device's word for the key it used until now, but
-            // only if no device lives on that key - a device must never be able to have another's key revoked.
+            // Nothing on record (an old enrollment row). The device's word alone revokes nothing: it must prove it
+            // holds the key it names, with a signature made by that key over the new key's body - which is exactly
+            // what a device rotating away from its own key can do and a device naming someone else's key cannot.
+            // The ownership check on top keeps a key any record lives on out of reach even so.
+            var proven = req.PreviousKeyProof is { Length: > 0 and <= 8192 } proof && await sshCa.VerifyPossessionAsync(offered, body, proof, ct);
             var devices = await db.Devices.Where(d => d.SshPublicKey != null && d.SshPublicKey != "").Select(d => d.SshPublicKey!).ToListAsync(ct);
-            if (devices.All(k => SshRevocationList.KeyBody(k) != offeredBody))
+            if (proven && devices.All(k => SshRevocationList.KeyBody(k) != offeredBody))
             {
                 previous = offered;
                 app.Logger.LogInformation(L.Program_SshPreviousKeyFromDevice, device.DeviceId);

@@ -35,6 +35,14 @@ public static class SshCertificate
         return null;
     }
 
+    /// <summary>"type base64" of a public key or certificate line, without the comment; what a proof of
+    /// possession is made over, so both sides sign and verify the very same bytes.</summary>
+    public static string? KeyBody(string? line)
+    {
+        var parts = (line ?? "").Trim().Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? parts[0] + " " + parts[1] : null;
+    }
+
     /// <summary>Parses the one-line public form ("type base64 comment"). Null when it is not a certificate this
     /// understands. OpenSSH's format: type, nonce, the public key's own fields (one for ed25519, two for RSA
     /// and ECDSA), serial, cert type, key id, principals, valid_after, valid_before, ...</summary>
