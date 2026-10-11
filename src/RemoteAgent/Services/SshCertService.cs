@@ -49,7 +49,17 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
     public void RequestRotation()
     {
         _rotateRequested = true;
-        if (_wake.CurrentCount == 0) _wake.Release();
+        Nudge();
+    }
+
+    /// <summary>Brings the next check forward (the command channel just came up: after a server outage the
+    /// certificate may have run out, and the tunnel should not wait hours for the regular check). Cheap when
+    /// nothing is due - a file read and a date comparison.</summary>
+    public void Nudge()
+    {
+        // Two callers (the channel, a re-key) may nudge at once; a wake already pending is all either wanted.
+        try { _wake.Release(); }
+        catch (SemaphoreFullException) { /* already pending */ }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

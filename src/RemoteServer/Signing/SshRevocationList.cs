@@ -48,7 +48,11 @@ public sealed class SshRevocationList(IOptions<ServerOptions> options, ILogger<S
     {
         if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(_krlPath)) return true;
         var key = sshPublicKey?.Trim();
-        if (string.IsNullOrEmpty(key) || key.Contains('\n') || key.Contains('\r')) return true; // nothing to revoke
+        if (string.IsNullOrEmpty(key) || key.Contains('\n') || key.Contains('\r'))
+        {
+            logger.LogWarning(L.SshRevocationList_NothingToRevoke, deviceId); // no key on record: nothing the bastion could refuse
+            return true;
+        }
 
         await _gate.WaitAsync(ct);
         try
@@ -61,6 +65,7 @@ public sealed class SshRevocationList(IOptions<ServerOptions> options, ILogger<S
                 // Already on the list. The KRL in place carries it unless an earlier update stopped between the
                 // two moves below (list published, KRL not): then the list is the newer file and the KRL is rebuilt
                 // from it now, the same repair start-up makes.
+                logger.LogInformation(L.SshRevocationList_AlreadyListed, deviceId);
                 if (File.Exists(_krlPath) && File.GetLastWriteTimeUtc(ListPath) <= File.GetLastWriteTimeUtc(_krlPath)) return true;
                 return await RebuildAsync(ct);
             }
