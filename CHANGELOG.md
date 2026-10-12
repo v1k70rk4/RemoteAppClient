@@ -21,6 +21,9 @@ the time of that release; the GitHub release pages carry the same text together 
 - Telemetry reports where the tunnel key is, and the console's TPM row shows it (*alagút-kulcs: TPM / szoftver
   / fájl*), yellow on a ready TPM that does not hold it yet.
 - Schema: `Devices.SshKeyProvider`, `PendingSshPublicKey`, `PendingSshUntil`.
+- Server 2.3.1.1: the diagnostics (`/admin/server/diag`, `proxyTrust`) and a line at every start say whether the
+  proxy secret is enforced and whether nginx's fingerprint header is arriving, so the state of the proxy trust
+  is readable without a shell on the box.
 
 ## What's New in 2.3.0
 

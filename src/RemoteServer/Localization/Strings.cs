@@ -143,6 +143,8 @@ internal static partial class Strings
     public static string Program_AuditWriteAccessFailed => Get(nameof(Program_AuditWriteAccessFailed));
     public static string Program_ProxyHeadersWithoutSecret => Get(nameof(Program_ProxyHeadersWithoutSecret));
     public static string Program_ProxyFingerprintMissing => Get(nameof(Program_ProxyFingerprintMissing));
+    public static string Program_ProxySecretEnforced => Get(nameof(Program_ProxySecretEnforced));
+    public static string Program_ProxySecretNotSet => Get(nameof(Program_ProxySecretNotSet));
     public static string Program_AgentMessageTooLarge => Get(nameof(Program_AgentMessageTooLarge));
     public static string SshRevocationList_UpdateFailed => Get(nameof(SshRevocationList_UpdateFailed));
     public static string SshRevocationList_BuildFailed => Get(nameof(SshRevocationList_BuildFailed));
