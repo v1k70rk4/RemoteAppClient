@@ -14,7 +14,7 @@ lives, what happens when it is lost, and how (or whether) it can be replaced.
 |---|---|---|---|---|
 | Client CA key + certificate | `/etc/remoteserver/ca.key`, `ca.crt`; nginx trusts a copy at `/etc/nginx/client-ca.crt` | Issues every device's client certificate; nginx admits `/agent`, `/ssh` and `/api/` only with a certificate from this CA | CA: as created by setup; device certificates: `Server:ClientCertValidityDays` (825 days) from enrolment | **Not in place** - see *Fleet identity* |
 | Command signing key | `/etc/remoteserver/cmd_signing.key` (ECDSA P-256) | Signs every command; the public key sits in each device's `enrollment.json`, an unsigned command is dropped | Unlimited | **Not in place** |
-| Agent SSH CA | `/etc/remoteserver/agent_ca`, `agent_ca.pub`; sshd trusts `/etc/ssh/agent_ca.pub` | Signs the devices' SSH certificates for the reverse tunnels | At enrolment: `Server:Bastion:SshCertValidityDays` (825 days, for agents that never renew); from agent 2.3.0.2 the agent fetches a certificate of `Server:Bastion:AgentSshCertValidityDays` (3 days) over mTLS and renews it at half-time | **Not in place** |
+| Agent SSH CA | `/etc/remoteserver/agent_ca`, `agent_ca.pub`; sshd trusts `/etc/ssh/agent_ca.pub` | Signs the devices' SSH certificates for the reverse tunnels | At enrolment: `Server:Bastion:SshCertValidityDays` (825 days, for agents that never renew); from 3.0.0 the agent fetches a certificate of `Server:Bastion:AgentSshCertValidityDays` (3 days) over mTLS and renews it at half-time | **Not in place** |
 | Bastion host key | `/etc/ssh/ssh_host_ed25519_key` | Devices pin it (`bastionHostKey` in `enrollment.json`); a different key means every tunnel refuses to connect | Unlimited | **Not in place** |
 | Secret key | `/etc/remoteserver/secret.key` (32 random bytes, AES-256-GCM) | Encrypts what the database holds for you: VNC passwords, device notes, TOTP secrets | Unlimited | **Not supported yet** - see below |
 | Database password | `/etc/remoteserver/db.env` | The server's MariaDB login (DML only since the role split) | Unlimited | Yes, any time |
@@ -39,7 +39,7 @@ lives, what happens when it is lost, and how (or whether) it can be replaced.
 |---|---|
 | `enrollment.json` | Server URL, bastion host and host key, the command signing public key, the device id |
 | `agent.pfx.dat` | The device's client certificate and private key, DPAPI-protected (machine scope) |
-| `id_ecdsa.pub`, `id_ecdsa-cert.pub` (from 2.3.1; `id_ed25519` and its `-cert.pub` on older enrollments) | The tunnel key's public half and its SSH certificate from the agent CA. From 2.3.1 the private key is a named CNG key (TPM or software provider) served by the agent's own ssh-agent, never a file; the certificate is three days, renewed over mTLS; the key is rotated and the old one revoked after a proven switch, and after every device re-key |
+| `id_ecdsa.pub`, `id_ecdsa-cert.pub` (from 3.0.0; `id_ed25519` and its `-cert.pub` on older enrollments) | The tunnel key's public half and its SSH certificate from the agent CA. From 3.0.0 the private key is a named CNG key (TPM or software provider) served by the agent's own ssh-agent, never a file; the certificate is three days, renewed over mTLS; the key is rotated and the old one revoked after a proven switch, and after every device re-key |
 | `vnc.secret` | The device's VNC password, DPAPI-protected; the server holds the same value encrypted with `secret.key` |
 | `diag.json` | Present only while verbose logging is switched on |
 
@@ -78,10 +78,10 @@ box gives no root to anyone who does not need it, and the files are readable by 
 
 ## Expiry you have to plan for
 
-**Device certificates expire 825 days after enrolment; from 2.3.0 the agent renews them** 180 days before the
-end (`/api/rekey`, with the still-valid certificate), and from 2.3.0.2 the SSH certificate is a three-day one it
+**Device certificates expire 825 days after enrolment; from 3.0.0 the agent renews them** 180 days before the
+end (`/api/rekey`, with the still-valid certificate), and from 3.0.0 the SSH certificate is a three-day one it
 renews over mTLS. A device switched off past its certificate's end takes the lost-key path (a yellow request in
-the console, one click). Agents older than 2.3.0 never renew: when their certificates run out, nginx answers
+the console, one click). Agents older than 3.0.0 never renew: when their certificates run out, nginx answers
 with 403 and sshd refuses the tunnel, and the device stays offline until it is re-enrolled (run the MSI or the
 bootstrap blob on it again).
 

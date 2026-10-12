@@ -3,34 +3,14 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
-## What's New in 2.3.1
+## What's New in 3.0.0
 
-**The tunnel key lives in the TPM too** ([ADR-0004](docs/adr/0004-tpm-ssh-key.md)). Agent, server and console are all
-**2.3.1.0**; one schema change (`upgrade-2.3.1.sql`, idempotent).
-- The SSH key the agent opens its tunnels with is now a named, non-exportable CNG key like the device key: in
-  the TPM where it is usable, in the software key storage provider otherwise. No private key file exists any
-  longer; ssh.exe gets the public half from a file and the signatures from an ssh-agent built into the agent
-  service (a named pipe only SYSTEM may open, named through SSH_AUTH_SOCK). P-256, which TPMs and OpenSSH
-  agree on; the ed25519 file keys of older enrollments are replaced.
-- Devices move over by themselves: the agent makes the new key beside the current one, the server issues a
-  three-day certificate but keeps the current key on record, the agent opens a real connection to the bastion
-  with the new key, and only after that confirmation does the server revoke the previous key and adopt the new
-  one. A failure anywhere leaves the current key in use; a key the bastion refused is not tried again for a
-  day. Agents before 2.3.1 keep the immediate switch. Running tunnels are never touched.
-- New enrollments create the key in CNG from the start; a machine without CNG key storage keeps the key file.
-- Telemetry reports where the tunnel key is, and the console's TPM row shows it (*alagút-kulcs: TPM / szoftver
-  / fájl*), yellow on a ready TPM that does not hold it yet.
-- Schema: `Devices.SshKeyProvider`, `PendingSshPublicKey`, `PendingSshUntil`.
-- Server 2.3.1.1: the diagnostics (`/admin/server/diag`, `proxyTrust`) and a line at every start say whether the
-  proxy secret is enforced and whether nginx's fingerprint header is arriving, so the state of the proxy trust
-  is readable without a shell on the box.
-- Server 2.3.1.3: an uploaded package is stored under a name that carries its own hash, so uploading a version
-  again never overwrites the file a promoted channel's record still points at (devices then discarded every
-  download of that package as a hash mismatch). A component auto-converge has paused no longer holds back the
-  components after it: the agent update goes out even while the updater's package cannot be taken. Existing
-  records keep their old file names; promote a channel's package again to refresh a record whose hash went stale.
-
-## What's New in 2.3.0
+**Every key a device holds now lives in its TPM.** The device's mTLS key ([ADR-0003](docs/adr/0003-tpm-device-key.md))
+and the tunnel's SSH key ([ADR-0004](docs/adr/0004-tpm-ssh-key.md)) are named, non-exportable CNG keys - in the
+TPM where it is usable, in the software key storage provider otherwise - and no private key is written to a file
+any more. Certificates renew themselves, a lost TPM key is recovered with one click, and a security review's
+findings are fixed across the stack. Every component is **3.0.0.0**; one schema change for all of it,
+`upgrade-3.0.0.sql` (idempotent).
 
 **The device key lives in the TPM, and certificates renew themselves** ([ADR-0003](docs/adr/0003-tpm-device-key.md))
 - A device's mTLS key is now a named, machine-scoped, non-exportable CNG key: in the TPM (Microsoft Platform
@@ -39,14 +19,14 @@ the time of that release; the GitHub release pages carry the same text together 
   is written to a file any more. An administrator, or a lifted disk, no longer yields a usable device identity.
   Enrollment creates the key this way; the DPAPI-sealed PFX remains only for machines where CNG key storage is
   unavailable.
-- Devices enrolled earlier move their key into the TPM by themselves: 5–30 minutes after the 2.3.0 agent starts
+- Devices enrolled earlier move their key into the TPM by themselves: 5–30 minutes after the 3.0.0 agent starts
   (randomized, so a rollout does not re-key the whole fleet in one minute) it asks the server for a certificate
   for a new TPM key (`/api/rekey`, authenticated with the current certificate). The server issues it but keeps
   the current certificate primary until the device proves the new one with a call made with it
   (`/api/rekey/confirm`); only then does the agent switch, rewrite `enrollment.json` and delete the old key and
   file. A failure anywhere leaves the device on its old identity; the offer lapses after an hour. The retired
   certificate is accepted for ten more minutes, for connections already open. Both steps are audit rows.
-- The same path renews a certificate within 180 days of its end (agent 2.3.0.2; 60 days before), so the
+- The same path renews a certificate within 180 days of its end, so the
   825-day certificates from 2026 renew in 2028 instead of expiring, and a device switched off for a whole
   summer break still has a valid certificate to renew with when it returns.
 - Telemetry reports where the key is (`tpm` / `software` / `file`) and when the certificate expires; the server
@@ -61,38 +41,52 @@ the time of that release; the GitHub release pages carry the same text together 
   *Approve* issues the certificate for the same device id - the old one is out at once - while a context-menu
   item rejects it. The device polls every minute and comes back with its id, group and notes. Every step is an
   audit row (`device-rekey-request`, `-approved`, `-rejected`).
-- Agent 2.3.0.1: on Windows 10 the Platform Crypto Provider reports a machine key as not being one, which made the
+- On Windows 10 the Platform Crypto Provider reports a machine key as not being one, which made the
   framework's certificate-to-key binding fail with "keyset does not exist" (the key was fine); the binding is now
   written by hand where the framework's fails, and every binding is proven by a test signature before it counts.
-- Agent 2.3.0.2 / server 2.3.0.1 (post-release review): a lost-key recovery deletes the previous key as well
+- A lost-key recovery deletes the previous key as well
   when it is still in the key store, and the server's lost-key log line names the device by its id.
-- **The tunnel's SSH certificate is short-lived** (agent 2.3.0.2, server 2.3.0.1). The SSH key stays a file,
-  but its certificate now lives three days (`Server:Bastion:AgentSshCertValidityDays`), and the agent fetches
+- **The tunnel's SSH certificate is short-lived.** It lives three days (`Server:Bastion:AgentSshCertValidityDays`), and the agent fetches
   a new one over mTLS (`POST /api/ssh-cert`) - that is, only the device holding the TPM-bound client certificate
   gets one. A copy of the key file is worth nothing after three days, and a device switched off for months simply
   asks for a fresh certificate when it returns. The first time the new agent sees its 825-day certificate from
   enrollment it rotates the key instead: new key, new certificate, the previous key on the bastion's revocation
-  list (audit row `device-ssh-key-rotated`), so copies made before this agent stop working at once; a device
+  list (audit row `device-ssh-key-rotated`), so copies made before this release stop working at once; a device
   re-key rotates the tunnel key too. Running tunnels are never touched. Enrollment keeps issuing the long
   certificate, because older agents never ask for another one.
 - A device whose certificate has expired (switched off past its end) now takes the lost-key path by itself:
   a yellow request in the console, one click, and it is back.
-- Agent 2.3.0.5 / server 2.3.0.5: on a rotation the agent also names the key it used until now and proves it
+- On a rotation the agent also names the key it used until now and proves it
   holds it (an OpenSSH signature with that key over the new key), and the server revokes it when its own record
   of the device has none (a few early enrollment rows had no key on record). Without a valid proof, or for a key
   any record lives on, nothing is revoked on the device's word.
-- Agent 2.3.0.3: the tunnel certificate is checked the moment the command channel comes up, so after a server
+- The tunnel certificate is checked the moment the command channel comes up, so after a server
   outage longer than the certificate's life the tunnel is back as soon as the server is, not at the next
   six-hourly check.
-- Server 2.3.0.2: a rotation that had nothing to revoke (no key on record) or whose previous key was already
+- A rotation that had nothing to revoke (no key on record) or whose previous key was already
   on the list says so in the log, instead of looking like a revocation.
-- Not in this round: the SSH key itself in the TPM.
+
+**The tunnel key lives in the TPM too** ([ADR-0004](docs/adr/0004-tpm-ssh-key.md))
+- The SSH key the agent opens its tunnels with is now a named, non-exportable CNG key like the device key: in
+  the TPM where it is usable, in the software key storage provider otherwise. No private key file exists any
+  longer; ssh.exe gets the public half from a file and the signatures from an ssh-agent built into the agent
+  service (a named pipe only SYSTEM may open, named through SSH_AUTH_SOCK). P-256, which TPMs and OpenSSH
+  agree on; the ed25519 file keys of older enrollments are replaced.
+- Devices move over by themselves: the agent makes the new key beside the current one, the server issues a
+  three-day certificate but keeps the current key on record, the agent opens a real connection to the bastion
+  with the new key, and only after that confirmation does the server revoke the previous key and adopt the new
+  one. A failure anywhere leaves the current key in use; a key the bastion refused is not tried again for a
+  day. Agents before 3.0.0 keep the immediate switch. Running tunnels are never touched.
+- New enrollments create the key in CNG from the start; a machine without CNG key storage keeps the key file.
+- Telemetry reports where the tunnel key is, and the console's TPM row shows it (*alagút-kulcs: TPM / szoftver
+  / fájl*), yellow on a ready TPM that does not hold it yet.
+- Schema: `Devices.SshKeyProvider`, `PendingSshPublicKey`, `PendingSshUntil`.
 
 **The rest of the release is about seeing**: what a device is doing when something is wrong, and what the
 server is doing when nobody is looking. Verbose logging on demand, a file log on every agent, a server that
-mails when its own checks fail, and the first automated tests - then a security review and its fixes. Server,
-consoles and updater are **2.3.0.0**, the agent **2.3.0.1**. One schema change for all of it: `upgrade-2.3.0.sql`
-(idempotent) adds the six TPM telemetry columns, the six re-key columns and the `RekeyRequests` table.
+mails when its own checks fail, and the first automated tests - then a security review and its fixes.
+`upgrade-3.0.0.sql` adds the six TPM telemetry columns, the six re-key columns, the three tunnel-key columns and
+the `RekeyRequests` table.
 
 **Verbose logging on demand**
 - *Commands → Verbose log for 24 hours* (and *off*) in the device menu. The agent raises its live log level to
@@ -137,6 +131,11 @@ consoles and updater are **2.3.0.0**, the agent **2.3.0.1**. One schema change f
   however long ago it was paused; when its report changes (the device was repaired, another package got in),
   one more attempt goes out. The pause is kept in memory on the server - a restart costs a stuck device one
   more attempt - and the note on the device survives telemetry passes that carry no incident of their own.
+- A paused component no longer holds back the components after it: the agent update goes out even while the
+  updater's package cannot be taken.
+- An uploaded package is stored under a name that carries its own hash, so uploading a version again never
+  overwrites the file a promoted channel's record still points at (devices then discarded every download of
+  that package as a hash mismatch). Promote a channel's package again to refresh a record whose hash went stale.
 
 **A sign-in lock that could be stepped around**
 - A sign-in request naming a device id the server did not know - a console on a device that had been deleted, or a
@@ -216,7 +215,7 @@ consoles and updater are **2.3.0.0**, the agent **2.3.0.1**. One schema change f
   vulnerable. It is read once and then every six hours. The console's device details show it on a TPM row:
   a warning for no TPM or one not ready for keys, an error for vulnerable firmware. The device key is meant to
   move into the TPM, and this shows beforehand which devices could hold it.
-- Schema: six nullable `Devices` columns, part of `upgrade-2.3.0.sql`. NULL means unknown (an older agent),
+- Schema: six nullable `Devices` columns, part of `upgrade-3.0.0.sql`. NULL means unknown (an older agent),
   never "no TPM".
 
 **The server believes nginx's identity headers only from nginx**
@@ -240,6 +239,9 @@ consoles and updater are **2.3.0.0**, the agent **2.3.0.1**. One schema change f
   user's `Match` block at it (`RevokedKeys`), so an unreadable list could never lock out an administrator's login.
 - nginx matches `/agent`, `/ssh`, `/api/` and `/admin/` regardless of letter case, and drops identity headers a
   client sends itself.
+- The diagnostics (`/admin/server/diag`, `proxyTrust`) and a line at every start say whether the proxy secret is
+  enforced and whether nginx's fingerprint header is arriving, so the state of the proxy trust is readable
+  without a shell on the box.
 
 **The agent's data folder belongs to SYSTEM and Administrators**
 - `C:\ProgramData\RemoteAgent` (and TightVNC's log folder, `C:\ProgramData\TightVNC`) used to keep the permissions
@@ -295,18 +297,20 @@ consoles and updater are **2.3.0.0**, the agent **2.3.0.1**. One schema change f
 - CI publishes `SHA256SUMS` over every release asset; Dependabot watches the test project's packages too.
 
 **First automated tests**
-- `tests/RemoteAppClient.Tests` (xUnit, 95 tests) covers the command signature's canonical forms, the liveness
+- `tests/RemoteAppClient.Tests` (xUnit, 201 tests by the release) covers the command signature's canonical forms, the liveness
   decision, the clock-skew tracker, the access-result store, the token gate, the log store, the password hasher,
-  the secret protector, the verbose-logging switch and file log, and that every localized string exists in both
-  languages with matching placeholders. CI runs them on every push, and a release waits for them.
+  the secret protector, the verbose-logging switch and file log, the SSH certificate and key encodings (the
+  proof of possession verified against a real ssh-keygen), the re-key policy, the package file naming, and that
+  every localized string exists in both languages with matching placeholders. CI runs them on every push, and a release waits for them.
 
 **Upgrading**
-- Server first: upload `RemoteServer-linux-x64.tar.gz` with `upgrade-2.3.0.sql` and *Update server* (or
+- Server first: upload `RemoteServer-linux-x64.tar.gz` with `upgrade-3.0.0.sql` and *Update server* (or
   apply the SQL by hand; it is idempotent). Set *Support e-mail* in *Server settings* if it is empty, or the
   alerts go to the log only.
-- Then the agents (2.3.0.1): each device re-keys into its TPM by itself 5–30 minutes after start; the first
+- Then the agents (3.0.0.0): each device re-keys into its TPM by itself 5–30 minutes after start, and moves
+  its tunnel key into the TPM by a proven rotation; the first
   watchdog tick restarts tvnserver once, for the new log settings; command signatures become device-bound
-  (version 2), older agents keep the original form. The console needs 2.3.0 for the key row, lost-key approval
+  (version 2), older agents keep the original form. The console needs 3.0.0 for the key rows, lost-key approval
   and the verbose-log menu, and it sends the current password with a password change; the updater, Lite and the
   Linux console carry the aligned version and the pipe check.
 - Existing installations: `./deploy/setup.sh 10-selfupdate 12-backup` rewrites the root helpers and their units

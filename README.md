@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-2.3.0-2ea44f" alt="version 2.3.0">
+  <img src="https://img.shields.io/badge/version-3.0.0-2ea44f" alt="version 3.0.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
   <a href="https://ko-fi.com/v1k70rk4"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
@@ -40,7 +40,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
-- [What's New in 2.3.0](#whats-new-in-230)
+- [What's New in 3.0.0](#whats-new-in-300)
 - [Changelog](CHANGELOG.md)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -58,11 +58,11 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ---
 
-## What's New in 2.3.0
+## What's New in 3.0.0
 
-The device key moves into the TPM, and certificates look after themselves ([ADR-0003](docs/adr/0003-tpm-device-key.md)).
-Server, consoles and updater are **2.3.0.0**, the agent **2.3.0.1**; one schema change (`upgrade-2.3.0.sql`,
-idempotent).
+Every key a device holds moves into its TPM, and certificates look after themselves
+([ADR-0003](docs/adr/0003-tpm-device-key.md), [ADR-0004](docs/adr/0004-tpm-ssh-key.md)). Every component is
+**3.0.0.0**; one schema change (`upgrade-3.0.0.sql`, idempotent).
 
 - **The device key is a non-exportable TPM key** (Microsoft Platform Crypto Provider; software key storage where
   the TPM is missing, not ready or flagged for vulnerable firmware). The certificate sits in `LocalMachine\My`
@@ -77,12 +77,13 @@ idempotent).
   issues the certificate for the same device id, with its group and notes intact. Nothing is issued by itself.
 - **The console shows where the key is** (*kulcs: TPM / szoftver / fájl*) and when the certificate ends;
   *Commands → Új eszközkulcs (TPM)* re-keys a device on demand.
-- **The tunnel's SSH certificate lives three days** and is fetched over mTLS, so only the device with the
-  TPM-bound identity gets one; a copied key file is worthless after three days. The first run of the new agent
-  rotates the tunnel key and revokes the old one at the bastion.
+- **The tunnel's SSH key is a TPM key as well**, served to `ssh.exe` by an ssh-agent built into the agent service;
+  no private key file exists any longer. Its certificate lives three days and is fetched over mTLS, so only the
+  device with the TPM-bound identity gets one. Devices enrolled earlier move over by a proven rotation: the new
+  key opens a real connection to the bastion before the server revokes the old one.
 - **Also in this release**: verbose logging on demand (24-hour device log level, TightVNC detail, a daily
   file log), the server mails when its own checks fail, audit rows live a year, sleeping and roaming devices
-  reconnect at once, deployment hardening, and the first automated tests (180 by now, run by CI on every push).
+  reconnect at once, deployment hardening, and the first automated tests (201 by now, run by CI on every push).
 
 Earlier releases: [CHANGELOG.md](CHANGELOG.md).
 
