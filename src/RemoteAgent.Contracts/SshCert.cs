@@ -22,6 +22,18 @@ public sealed class SshCertRequest
     /// Without a valid proof the server revokes nothing on the device's word, so a device can never have another
     /// device's key revoked.</summary>
     [JsonPropertyName("previousKeyProof")] public string? PreviousKeyProof { get; set; }
+
+    /// <summary>The agent will prove the new key at the bastion and call <c>/api/ssh-cert/confirm</c>; the server
+    /// then keeps the previous key valid until that confirmation (or a timeout) instead of revoking it at once.
+    /// Agents before 2.3.1 do not send it and get the immediate switch.</summary>
+    [JsonPropertyName("canConfirm")] public bool CanConfirm { get; set; }
+}
+
+/// <summary>The device proved the new key at the bastion: the server revokes the previous key and makes the new one
+/// current (<c>POST /api/ssh-cert/confirm</c>).</summary>
+public sealed class SshCertConfirm
+{
+    [JsonPropertyName("sshPublicKey")] public string SshPublicKey { get; set; } = string.Empty;
 }
 
 public sealed class SshCertResponse
@@ -32,6 +44,10 @@ public sealed class SshCertResponse
     /// <summary>Its end, so the agent can log it without parsing.</summary>
     [JsonPropertyName("validBefore")] public DateTimeOffset ValidBefore { get; set; }
 
-    /// <summary>True when this call replaced the device's key on record (the previous one is revoked).</summary>
+    /// <summary>True when this call concerns a key other than the one on record (a rotation).</summary>
     [JsonPropertyName("rotated")] public bool Rotated { get; set; }
+
+    /// <summary>With <see cref="Rotated"/>: the switch waits for the device's confirmation (the previous key is
+    /// still the one on record and nothing is revoked yet) - for this many minutes.</summary>
+    [JsonPropertyName("confirmWithinMinutes")] public int? ConfirmWithinMinutes { get; set; }
 }

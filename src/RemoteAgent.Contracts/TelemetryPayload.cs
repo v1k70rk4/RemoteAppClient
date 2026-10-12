@@ -111,6 +111,10 @@ public sealed class TelemetryPayload
     [JsonPropertyName("certNotAfter")]
     public DateTimeOffset? CertNotAfter { get; set; }
 
+    /// <summary>Where the tunnel (SSH) key lives: "tpm", "software" or "file". Null from agents before 2.3.1.</summary>
+    [JsonPropertyName("sshKeyProvider")]
+    public string? SshKeyProvider { get; set; }
+
     [JsonPropertyName("collectedAtUtc")]
     public DateTimeOffset CollectedAtUtc { get; set; }
 

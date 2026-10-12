@@ -39,7 +39,7 @@ lives, what happens when it is lost, and how (or whether) it can be replaced.
 |---|---|
 | `enrollment.json` | Server URL, bastion host and host key, the command signing public key, the device id |
 | `agent.pfx.dat` | The device's client certificate and private key, DPAPI-protected (machine scope) |
-| `id_ed25519`, `id_ed25519-cert.pub` | The tunnel key and its SSH certificate from the agent CA (three days from agent 2.3.0.2, renewed over mTLS; the key is rotated and the old one revoked when the agent first finds a long certificate, and after every device re-key) |
+| `id_ecdsa.pub`, `id_ecdsa-cert.pub` (from 2.3.1; `id_ed25519` and its `-cert.pub` on older enrollments) | The tunnel key's public half and its SSH certificate from the agent CA. From 2.3.1 the private key is a named CNG key (TPM or software provider) served by the agent's own ssh-agent, never a file; the certificate is three days, renewed over mTLS; the key is rotated and the old one revoked after a proven switch, and after every device re-key |
 | `vnc.secret` | The device's VNC password, DPAPI-protected; the server holds the same value encrypted with `secret.key` |
 | `diag.json` | Present only while verbose logging is switched on |
 

@@ -1,5 +1,9 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -7,28 +11,29 @@ using RemoteAgent.Commands;
 using RemoteAgent.Configuration;
 using RemoteAgent.Enrollment;
 using RemoteAgent.Security;
+using RemoteAgent.Tunnel;
 using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Services;
 
 /// <summary>
-/// Keeps the tunnel key's SSH certificate short-lived. The private key (<c>id_ed25519</c>) stays a file, but its
-/// certificate lives days, not years, and a new one is issued only over mTLS - to the device that holds the
-/// TPM-bound client certificate. A copy of the key file is therefore worth nothing once its certificate ends,
-/// and a device switched off for months simply asks for a fresh certificate when it returns.
+/// Keeps the tunnel key where it belongs and its certificate short-lived.
 ///
-/// Checked shortly after start and every few hours: a certificate near its end is renewed for the same key; a
-/// long-lived one (the 825-day certificate from enrollment) is replaced by a key rotation - new key, new
-/// certificate, the previous key on the bastion's revocation list - so copies made before this agent stop
-/// working at once. A re-key of the device certificate asks for a rotation too. ssh reads the key and the
-/// certificate when it starts a tunnel, so a running tunnel is never touched; the next one uses the new files.
+/// The key: a named CNG key (TPM when usable, software provider otherwise) served to ssh.exe by the in-process
+/// agent, so no private key file exists; a device still on an OpenSSH key file from an older enrollment is moved
+/// over by a rotation. The certificate: three days, fetched over mTLS - that is, only by the device holding the
+/// TPM-bound client certificate - and renewed at half-time; a long-lived one (825 days from an old enrollment)
+/// is replaced by a rotation too. Checked shortly after start, every six hours, and whenever the command
+/// channel comes up.
 ///
-/// A rotation is staged: the new key is made as <c>id_ed25519.next</c> and offered to the server; the server may
-/// have adopted it (and revoked the old key) even when its answer never arrived, so the staged key is kept and
-/// offered again until the server answers with a certificate or refuses it outright. The certificate beside
-/// the staged key is the proof of adoption; from then on the moves into place are finished whatever happens.
+/// A rotation is staged and proven before it counts: the new key is made beside the current one, the server
+/// issues a certificate but keeps the current key on record, the agent opens a real connection to the bastion
+/// with the new key and only then confirms - at which point the server revokes the previous key and adopts
+/// the new one, and the agent switches. A failure anywhere leaves the current key in use. The stage is on file
+/// (ssh-rotation.json), so a restart resumes it rather than making another key; a key the bastion refused is
+/// not tried again for a day. ssh reads the files when it starts a tunnel, so running tunnels are never touched.
 /// </summary>
-public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCertService> logger) : BackgroundService
+public sealed class SshCertService(IOptions<AgentOptions> options, TransportState transport, ILoggerFactory loggerFactory, ILogger<SshCertService> logger) : BackgroundService
 {
     private readonly AgentOptions _opt = options.Value;
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -36,14 +41,26 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
 
     private static readonly TimeSpan CheckEvery = TimeSpan.FromHours(6);
     private static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan FailedBackoff = TimeSpan.FromHours(24);
 
     private string BaseUrl => _opt.Telemetry.IngestUrl.Replace("/api/telemetry", "", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
-    private string KeyPath => Path.Combine(_opt.EnrollmentDir, "id_ed25519");
-    private string PubPath => KeyPath + ".pub";
-    private string CertPath => KeyPath + "-cert.pub";
-    private string NextKeyPath => KeyPath + ".next";
-    private string NextPubPath => NextKeyPath + ".pub";
-    private string NextCertPath => NextKeyPath + "-cert.pub";
+    private string Dir => _opt.EnrollmentDir;
+    private string StatePath => Path.Combine(Dir, "ssh-rotation.json");
+    private string FileKeyPath => Path.Combine(Dir, "id_ed25519");
+    private string CngPubPath => Path.Combine(Dir, SshKeyStore.PublicKeyFile);
+    private string CngCertPath => Path.Combine(Dir, SshKeyStore.CertificateFile);
+
+    /// <summary>What a rotation in progress looks like on disk.</summary>
+    public sealed class RotationState
+    {
+        public string Provider { get; set; } = "";       // tpm | software | file
+        public string? KeyName { get; set; }             // CNG key name, or null for a staged key file
+        public string PublicKeyLine { get; set; } = "";
+        public string Stage { get; set; } = "";          // requested | issued | confirmed | failed
+        public bool PendingConfirm { get; set; }         // the server holds the switch until we confirm
+        public DateTimeOffset? ValidBefore { get; set; }
+        public DateTimeOffset? FailedUtc { get; set; }
+    }
 
     /// <summary>Asks for a key rotation at the next opportunity (after a device re-key).</summary>
     public void RequestRotation()
@@ -64,7 +81,7 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (DeviceIdentity.Current is null || string.IsNullOrWhiteSpace(_opt.Telemetry.IngestUrl) || !File.Exists(KeyPath)) return;
+        if (DeviceIdentity.Current is null || SshIdentity.Current is null || string.IsNullOrWhiteSpace(_opt.Telemetry.IngestUrl)) return;
         try { await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken); } catch (OperationCanceledException) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
@@ -72,11 +89,7 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
             var wait = CheckEvery;
             try
             {
-                FinishAdoptedRotation();
-                // A staged key the server may already hold comes before anything the policy says: until the server
-                // has answered for it, the key on disk may be the revoked one.
-                var due = File.Exists(NextPubPath) || _rotateRequested ? "rotate" : SshCertificate.Due(ReadCert(), DateTimeOffset.UtcNow);
-                if (due is not null && !await RunAsync(due, stoppingToken)) wait = RetryAfter;
+                if (!await RoundAsync(stoppingToken)) wait = RetryAfter;
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex) { logger.LogWarning(ex, L.SshCertService_Failed); wait = RetryAfter; }
@@ -86,90 +99,315 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
         }
     }
 
-    private SshCertificate.Validity? ReadCert()
+    /// <summary>One round. False asks for the short retry.</summary>
+    private async Task<bool> RoundAsync(CancellationToken ct)
     {
-        try { return File.Exists(CertPath) ? SshCertificate.Parse(File.ReadAllText(CertPath)) : null; }
-        catch (IOException) { return null; }
+        var state = ReadState();
+        if (state is { Stage: "failed" })
+        {
+            // The bastion refused a new key recently: renewals only, no new key for a day.
+            if (state.FailedUtc is { } at && DateTimeOffset.UtcNow - at < FailedBackoff) return await RenewIfDueAsync(ct);
+            DeleteState(); state = null;
+        }
+        if (state is not null) return await ContinueRotationAsync(state, ct);
+
+        var id = SshIdentity.Current!;
+        var due = _rotateRequested ? "rotate" : SshCertificate.Due(ReadCert(id.CertificatePath), DateTimeOffset.UtcNow);
+        if (due is null && !id.InAgent && CngUsable()) due = "rotate"; // a key file on a machine that can hold the key in CNG
+        if (due is null) return true;
+        if (due == "renew") return await RenewAsync(id, ct);
+        var started = StartRotation(id);
+        return started is not null && await ContinueRotationAsync(started, ct);
     }
 
-    /// <summary>One round. True when the certificate on disk is fresh afterwards, or there is nothing to do.</summary>
-    private async Task<bool> RunAsync(string due, CancellationToken ct)
+    private async Task<bool> RenewIfDueAsync(CancellationToken ct)
     {
-        var rotate = due == "rotate";
-        string pub;
-        string? previous = null, proof = null;
-        if (rotate)
-        {
-            // The key in use until now: the server revokes it even when its own record of this device has none,
-            // but only against a signature made with it over the new key - its word alone revokes nothing.
-            try { previous = File.Exists(PubPath) ? File.ReadAllText(PubPath).Trim() : null; } catch (IOException) { }
-            // The staged key from an earlier round is offered again rather than replaced: the server may have
-            // adopted it already, and a second new key would revoke a key that was never in use.
-            pub = File.Exists(NextPubPath) && File.Exists(NextKeyPath) ? File.ReadAllText(NextPubPath).Trim() : GenerateKey(NextKeyPath);
-        }
-        else
-        {
-            pub = File.ReadAllText(PubPath).Trim();
-        }
-        if (previous is not null && SshCertificate.KeyBody(pub) is { } newBody)
-            proof = SignWithKey(KeyPath, newBody);
+        var id = SshIdentity.Current!;
+        return SshCertificate.Due(ReadCert(id.CertificatePath), DateTimeOffset.UtcNow) == "renew" ? await RenewAsync(id, ct) : true;
+    }
 
-        SshCertResponse? resp;
-        using (var http = BuildClient())
-        {
-            using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", new SshCertRequest { SshPublicKey = pub, PreviousSshPublicKey = previous, PreviousKeyProof = proof }, AgentJsonContext.Default.SshCertRequest, ct);
-            if (!r.IsSuccessStatusCode)
-            {
-                var status = (int)r.StatusCode;
-                // Only the server's own refusals say it did not take the staged key: a bad request, an unknown or
-                // unapproved device, a missing endpoint, a revoked key. A 5xx, a proxy's 408/429 or a lost answer
-                // says nothing, and the key stays staged for the next round.
-                if (rotate && status is 400 or 401 or 403 or 404 or 409) DeleteStaged();
-                // A server from before this feature has no such endpoint: nothing to do until it is updated, and
-                // the long certificate from enrollment serves meanwhile. Not a retry case; the regular check returns.
-                if (status == 404) return true;
-                logger.LogWarning(L.SshCertService_ServerRefused, status);
-                return false;
-            }
-            resp = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.SshCertResponse, ct);
-        }
-        if (resp is null || string.IsNullOrWhiteSpace(resp.Certificate) || SshCertificate.Parse(resp.Certificate) is null)
-            return false; // a malformed answer: the staged key, if any, is offered again next time
+    // ---- renewal: same key, fresh certificate ----------------------------------------------------------
 
-        if (rotate)
+    private async Task<bool> RenewAsync(SshIdentity.Snapshot id, CancellationToken ct)
+    {
+        var pub = File.ReadAllText(id.PublicKeyPath).Trim();
+        var (resp, status) = await RequestCertAsync(new SshCertRequest { SshPublicKey = pub }, ct);
+        if (resp is null)
         {
-            // The certificate beside the staged key is the proof that the server adopted it; the moves follow,
-            // and a crash between them is finished at the next start.
-            WriteAtomic(NextCertPath, resp.Certificate.Trim() + "\n");
-            FinishAdoptedRotation();
-            _rotateRequested = false;
-            logger.LogWarning(L.SshCertService_Rotated, resp.ValidBefore);
+            if (status == 404) return true; // a server from before this feature: nothing to do until it is updated
+            if (status > 0) logger.LogWarning(L.SshCertService_ServerRefused, status);
+            return false;
         }
-        else
-        {
-            WriteAtomic(CertPath, resp.Certificate.Trim() + "\n");
-            logger.LogInformation(L.SshCertService_Renewed, resp.ValidBefore);
-        }
+        WriteAtomic(id.CertificatePath, resp.Certificate.Trim() + "\n");
+        logger.LogInformation(L.SshCertService_Renewed, resp.ValidBefore);
         return true;
     }
 
-    /// <summary>Moves an adopted rotation into place: key, public key, certificate - whichever of them is still
-    /// staged. Without a staged certificate nothing is adopted yet, and the staged key is left for the next round.</summary>
-    private void FinishAdoptedRotation()
+    // ---- rotation ------------------------------------------------------------------------------------
+
+    /// <summary>Makes the new key beside the current one and records it. CNG when it can; a key file otherwise.</summary>
+    private RotationState? StartRotation(SshIdentity.Snapshot current)
     {
-        if (!File.Exists(NextCertPath)) return;
-        if (File.Exists(NextKeyPath)) File.Move(NextKeyPath, KeyPath, overwrite: true);
-        if (File.Exists(NextPubPath)) File.Move(NextPubPath, PubPath, overwrite: true);
-        File.Move(NextCertPath, CertPath, overwrite: true);
+        RotationState state;
+        try
+        {
+            using var k = SshKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable());
+            state = new RotationState { Provider = k.Provider, KeyName = k.KeyName, PublicKeyLine = k.PublicKeyLine, Stage = "requested" };
+            WriteAtomic(NextPub(state), k.PublicKeyLine + "\n");
+        }
+        catch (CryptographicException)
+        {
+            if (current.InAgent) return null; // CNG worked before and refuses now: not a day to move anything
+            var pub = GenerateKeyFile(FileKeyPath + ".next");
+            state = new RotationState { Provider = DeviceKeyStore.File, PublicKeyLine = pub, Stage = "requested" };
+        }
+        WriteState(state);
+        return state;
     }
 
-    private void DeleteStaged()
+    private async Task<bool> ContinueRotationAsync(RotationState state, CancellationToken ct)
     {
-        foreach (var p in new[] { NextKeyPath, NextPubPath, NextCertPath })
+        var current = SshIdentity.Current!;
+        if (state.Stage == "requested")
+        {
+            var req = new SshCertRequest { SshPublicKey = state.PublicKeyLine, CanConfirm = true };
+            // The key in use until now, with proof of holding it: the server revokes it even when its own record
+            // of this device has none. Its word alone revokes nothing.
+            if (SshCertificate.KeyBody(state.PublicKeyLine) is { } newBody && Previous(current, newBody) is var (prevKey, proof) && prevKey is not null)
+            {
+                req.PreviousSshPublicKey = prevKey;
+                req.PreviousKeyProof = proof;
+            }
+            var (resp, status) = await RequestCertAsync(req, ct);
+            if (resp is null)
+            {
+                // Only the server's own refusals say it did not take the key: a bad request, an unknown or
+                // unapproved device, a missing endpoint, a revoked key. A 5xx or a lost answer says nothing.
+                if (status is 400 or 401 or 403 or 404 or 409) { DeleteStaged(state); DeleteState(); }
+                if (status == 404) return true;
+                if (status > 0) logger.LogWarning(L.SshCertService_ServerRefused, status);
+                return false;
+            }
+            WriteAtomic(NextCert(state), resp.Certificate.Trim() + "\n");
+            state.Stage = "issued";
+            state.ValidBefore = resp.ValidBefore;
+            state.PendingConfirm = resp.Rotated && resp.ConfirmWithinMinutes is > 0;
+            WriteState(state);
+        }
+
+        if (state.Stage == "confirmed") { Finalize(state, current); return true; } // the server has switched: finish ours
+        if (state.Stage != "issued") return true;
+        if (!state.PendingConfirm)
+        {
+            // An older server adopted the key and revoked the previous one on the request itself.
+            state.Stage = "confirmed"; WriteState(state);
+            Finalize(state, current);
+            return true;
+        }
+
+        // Prove the key where it matters before anything is revoked: a real connection to the bastion.
+        var staged = StagedSnapshot(state);
+        switch (await ProbeAsync(staged, ct))
+        {
+            case Probe.Ok:
+                break;
+            case Probe.Refused:
+                logger.LogWarning(L.SshCertService_ProbeFailed, state.Provider);
+                DeleteStaged(state);
+                WriteState(new RotationState { Stage = "failed", FailedUtc = DateTimeOffset.UtcNow, Provider = state.Provider });
+                return true;
+            default:
+                logger.LogInformation(L.SshCertService_ProbeInconclusive);
+                return false;
+        }
+
+        var confirm = await ConfirmAsync(state.PublicKeyLine, ct);
+        if (confirm == 0)
+        {
+            // From here the server has revoked the previous key: the switch on this side must complete, whatever
+            // happens in between, so the stage is on file before any file moves.
+            state.Stage = "confirmed"; WriteState(state);
+            Finalize(state, current);
+            return true;
+        }
+        if (confirm == 409) { state.Stage = "requested"; WriteState(state); return false; } // the offer lapsed: ask again
+        if (confirm is >= 400 and < 500) { logger.LogWarning(L.SshCertService_ConfirmRefused, confirm); DeleteStaged(state); DeleteState(); return false; }
+        return false; // 5xx or no answer: the offer may still stand, try again soon
+    }
+
+    /// <summary>The switch: files into place, the live identity, enrollment.json, the old key gone. Resumable: a
+    /// file already moved is skipped, so a stop after any step is finished at the next round from the
+    /// "confirmed" stage, and enrollment.json is rewritten last of the things that matter.</summary>
+    private void Finalize(RotationState state, SshIdentity.Snapshot previous)
+    {
+        static void MoveIfStaged(string from, string to) { if (File.Exists(from)) File.Move(from, to, overwrite: true); }
+        SshIdentity.Snapshot next;
+        if (state.KeyName is not null)
+        {
+            MoveIfStaged(NextPub(state), CngPubPath);
+            MoveIfStaged(NextCert(state), CngCertPath);
+            next = new SshIdentity.Snapshot(state.Provider, state.KeyName, CngPubPath, CngCertPath, null);
+        }
+        else
+        {
+            MoveIfStaged(FileKeyPath + ".next", FileKeyPath);
+            MoveIfStaged(FileKeyPath + ".next.pub", FileKeyPath + ".pub");
+            MoveIfStaged(FileKeyPath + ".next-cert.pub", FileKeyPath + "-cert.pub");
+            next = new SshIdentity.Snapshot(DeviceKeyStore.File, null, FileKeyPath + ".pub", FileKeyPath + "-cert.pub", FileKeyPath);
+        }
+        SshIdentity.Set(next);
+        RewriteEnrollment(next);
+        DeleteState();
+        _rotateRequested = false;
+
+        // The previous key material, best effort: a failure here must not undo the switch.
+        try
+        {
+            if (previous.InAgent && previous.KeyName != next.KeyName) SshKeyStore.Delete(previous.KeyName);
+            if (!previous.InAgent && next.InAgent)
+                foreach (var p in new[] { FileKeyPath, FileKeyPath + ".pub", FileKeyPath + "-cert.pub" }) if (File.Exists(p)) File.Delete(p);
+            if (previous.InAgent && !next.InAgent)
+                foreach (var p in new[] { CngPubPath, CngCertPath }) if (File.Exists(p)) File.Delete(p);
+        }
+        catch (Exception ex) { logger.LogWarning(ex, L.RekeyService_OldKeyCleanupFailed); }
+
+        if (next.InAgent && !previous.InAgent) logger.LogWarning(L.SshCertService_MovedToTpm, next.Provider, state.ValidBefore ?? DateTimeOffset.UtcNow);
+        else logger.LogWarning(L.SshCertService_Rotated, state.ValidBefore ?? DateTimeOffset.UtcNow);
+    }
+
+    private enum Probe { Ok, Refused, Inconclusive }
+
+    /// <summary>A real reverse connection with the staged key (a throwaway forward, -R 0). Refused = the bastion
+    /// answered the key with "Permission denied"; anything else that went wrong (not reached, a bridge or mux
+    /// down, a timeout, a forward conflict) is inconclusive and tried again later.</summary>
+    private async Task<Probe> ProbeAsync(SshIdentity.Snapshot staged, CancellationToken ct)
+    {
+        if (!await BastionReachableAsync(ct)) return Probe.Inconclusive;
+        SshIdentity.Staged = staged; // the agent serves it for the probe
+        try
+        {
+            await using var probe = new SshReverseTunnel(_opt.Tunnel, transport, loggerFactory.CreateLogger<SshReverseTunnel>()) { IdentityOverride = staged };
+            await probe.StartAsync(0, 0, ct);
+            var ok = probe.IsRunning;
+            var rejected = probe.AuthRejected;
+            await probe.StopAsync();
+            return ok ? Probe.Ok : rejected ? Probe.Refused : Probe.Inconclusive;
+        }
+        finally { SshIdentity.Staged = null; }
+    }
+
+    private async Task<bool> BastionReachableAsync(CancellationToken ct)
+    {
+        foreach (var port in new[] { 443, _opt.Tunnel.BastionPort }.Distinct())
+        {
+            try
+            {
+                using var c = new TcpClient();
+                using var t = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                t.CancelAfter(TimeSpan.FromSeconds(5));
+                await c.ConnectAsync(_opt.Tunnel.BastionHost, port, t.Token);
+                return true;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+            catch (SocketException) { }
+        }
+        return false;
+    }
+
+    /// <summary>The key in use until now and the proof of holding it (a signature with it over the new key's body):
+    /// ssh-keygen for a key file, our own SSHSIG for a CNG key.</summary>
+    private (string? Key, string? Proof) Previous(SshIdentity.Snapshot current, string newBody)
+    {
+        string? prev = null;
+        try { prev = File.Exists(current.PublicKeyPath) ? File.ReadAllText(current.PublicKeyPath).Trim() : null; } catch (IOException) { }
+        if (prev is null) return (null, null);
+        var message = Encoding.UTF8.GetBytes(newBody + "\n");
+        if (current.InAgent)
+        {
+            try
+            {
+                using var key = SshKeyStore.Open(current.KeyName);
+                if (key is null) return (prev, null);
+                var proof = SshKeyEncoding.SshSig(SshKeyStore.PublicKeyBlob(key), "remoteagent-rotation", message, toSign => SshKeyStore.SignRs(key, toSign));
+                return (prev, proof);
+            }
+            catch (CryptographicException) { return (prev, null); }
+        }
+        return (prev, current.PrivateKeyPath is { } kp ? SignWithKeyFile(kp, newBody) : null);
+    }
+
+    // ---- server calls --------------------------------------------------------------------------------
+
+    private async Task<(SshCertResponse? Resp, int Status)> RequestCertAsync(SshCertRequest req, CancellationToken ct)
+    {
+        using var http = BuildClient();
+        using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert", req, AgentJsonContext.Default.SshCertRequest, ct);
+        if (!r.IsSuccessStatusCode) return (null, (int)r.StatusCode);
+        var resp = await r.Content.ReadFromJsonAsync(AgentJsonContext.Default.SshCertResponse, ct);
+        if (resp is null || string.IsNullOrWhiteSpace(resp.Certificate) || SshCertificate.Parse(resp.Certificate) is null) return (null, 0);
+        return (resp, 200);
+    }
+
+    /// <summary>0 on success, else the status (0 also for a transport failure is avoided: -1).</summary>
+    private async Task<int> ConfirmAsync(string pub, CancellationToken ct)
+    {
+        try
+        {
+            using var http = BuildClient();
+            using var r = await http.PostAsJsonAsync($"{BaseUrl}/api/ssh-cert/confirm", new SshCertConfirm { SshPublicKey = pub }, AgentJsonContext.Default.SshCertConfirm, ct);
+            return r.IsSuccessStatusCode ? 0 : (int)r.StatusCode;
+        }
+        catch (HttpRequestException) { return -1; }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return -1; }
+    }
+
+    // ---- state and files -----------------------------------------------------------------------------
+
+    private string NextPub(RotationState s) => s.KeyName is not null ? Path.Combine(Dir, "id_ecdsa.next.pub") : FileKeyPath + ".next.pub";
+    private string NextCert(RotationState s) => s.KeyName is not null ? Path.Combine(Dir, "id_ecdsa.next-cert.pub") : FileKeyPath + ".next-cert.pub";
+
+    private SshIdentity.Snapshot StagedSnapshot(RotationState s) => s.KeyName is not null
+        ? new SshIdentity.Snapshot(s.Provider, s.KeyName, NextPub(s), NextCert(s), null)
+        : new SshIdentity.Snapshot(DeviceKeyStore.File, null, NextPub(s), NextCert(s), FileKeyPath + ".next");
+
+    private void DeleteStaged(RotationState s)
+    {
+        if (s.KeyName is not null) SshKeyStore.Delete(s.KeyName);
+        foreach (var p in new[] { NextPub(s), NextCert(s), FileKeyPath + ".next" })
             try { File.Delete(p); } catch { /* best effort */ }
     }
 
-    private static string GenerateKey(string keyPath)
+    private RotationState? ReadState()
+    {
+        try { return File.Exists(StatePath) ? JsonSerializer.Deserialize(File.ReadAllText(StatePath), AgentLocalJsonContext.Default.RotationState) : null; }
+        catch (Exception) { return null; }
+    }
+
+    private void WriteState(RotationState s) => WriteAtomic(StatePath, JsonSerializer.Serialize(s, AgentLocalJsonContext.Default.RotationState));
+    private void DeleteState() { try { File.Delete(StatePath); } catch { /* best effort */ } }
+
+    private static SshCertificate.Validity? ReadCert(string path)
+    {
+        try { return File.Exists(path) ? SshCertificate.Parse(File.ReadAllText(path)) : null; }
+        catch (IOException) { return null; }
+    }
+
+    private static bool CngUsable()
+    {
+        try { using var k = SshKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable()); SshKeyStore.Delete(k.KeyName); return true; }
+        catch (CryptographicException) { return false; }
+    }
+
+    private void RewriteEnrollment(SshIdentity.Snapshot s)
+    {
+        var path = Path.Combine(Dir, "enrollment.json");
+        var rec = JsonSerializer.Deserialize(File.ReadAllText(path), AgentLocalJsonContext.Default.EnrollmentRecord)!;
+        rec.SshKeyProvider = s.Provider;
+        rec.SshKeyName = s.KeyName;
+        WriteAtomic(path, JsonSerializer.Serialize(rec, AgentLocalJsonContext.Default.EnrollmentRecord));
+    }
+
+    private static string GenerateKeyFile(string keyPath)
     {
         foreach (var p in new[] { keyPath, keyPath + ".pub", keyPath + "-cert.pub" })
             if (File.Exists(p)) File.Delete(p);
@@ -187,10 +425,10 @@ public sealed class SshCertService(IOptions<AgentOptions> options, ILogger<SshCe
         return File.ReadAllText(keyPath + ".pub").Trim();
     }
 
-    /// <summary>ssh-keygen -Y sign with the key on disk, namespace "remoteagent-rotation", over the message plus a
+    /// <summary>ssh-keygen -Y sign with a key file, namespace "remoteagent-rotation", over the message plus a
     /// newline. Null when the installed ssh-keygen cannot sign (older builds): then the previous key simply is not
-    /// offered, as before.</summary>
-    private static string? SignWithKey(string keyPath, string message)
+    /// proven, as before.</summary>
+    private static string? SignWithKeyFile(string keyPath, string message)
     {
         var dir = Path.Combine(Path.GetTempPath(), "ra_rot_" + Guid.NewGuid().ToString("N"));
         try

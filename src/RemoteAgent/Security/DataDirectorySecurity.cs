@@ -39,6 +39,8 @@ public static class DataDirectorySecurity
     private static readonly HashSet<string> EnrollmentFiles = new(StringComparer.OrdinalIgnoreCase)
     {
         "enrollment.json", "agent.pfx.dat", "ca.crt", "id_ed25519", "id_ed25519.pub", "id_ed25519-cert.pub", "vnc.secret",
+        "id_ecdsa.pub", "id_ecdsa-cert.pub", "ssh-rotation.json",
+        "id_ecdsa.next.pub", "id_ecdsa.next-cert.pub", "id_ed25519.next", "id_ed25519.next.pub", "id_ed25519.next-cert.pub",
     };
 
     private static readonly SecurityIdentifier LocalSystem = new(WellKnownSidType.LocalSystemSid, null);

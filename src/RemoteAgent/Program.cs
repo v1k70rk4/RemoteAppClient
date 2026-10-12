@@ -136,6 +136,13 @@ builder.Services.PostConfigure<AgentOptions>(opt =>
         opt.Tunnel.BastionHostKey = rec.BastionHostKey;
         opt.Tunnel.PrivateKeyPath = Path.Combine(opt.EnrollmentDir, "id_ed25519");
         opt.Tunnel.CertificatePath = Path.Combine(opt.EnrollmentDir, "id_ed25519-cert.pub");
+        var sshProvider = rec.SshKeyProvider ?? RemoteAgent.Security.DeviceKeyStore.File;
+        RemoteAgent.Security.SshIdentity.Set(sshProvider is RemoteAgent.Security.DeviceKeyStore.Tpm or RemoteAgent.Security.DeviceKeyStore.Software
+            ? new RemoteAgent.Security.SshIdentity.Snapshot(sshProvider, rec.SshKeyName,
+                Path.Combine(opt.EnrollmentDir, RemoteAgent.Security.SshKeyStore.PublicKeyFile),
+                Path.Combine(opt.EnrollmentDir, RemoteAgent.Security.SshKeyStore.CertificateFile), null)
+            : new RemoteAgent.Security.SshIdentity.Snapshot(RemoteAgent.Security.DeviceKeyStore.File, null,
+                opt.Tunnel.PrivateKeyPath + ".pub", opt.Tunnel.CertificatePath, opt.Tunnel.PrivateKeyPath));
     }
 });
 
@@ -168,6 +175,7 @@ builder.Services.AddHostedService<HelperUpdateWatcher>();
 builder.Services.AddHostedService<BrokerService>();
 builder.Services.AddHostedService<StatusPipeService>();
 builder.Services.AddHostedService<RemoteAgent.Diagnostics.DiagModeService>();
+builder.Services.AddHostedService<SshAgentService>();
 builder.Services.AddSingleton<SshCertService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SshCertService>());
 builder.Services.AddSingleton<RekeyService>();
