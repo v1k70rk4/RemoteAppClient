@@ -2976,7 +2976,8 @@ static bool FromTrustedProxy(HttpContext ctx)
 {
     if (FromTrustedProxyQuiet(ctx)) return true;
 
-    if (ctx.Request.Headers.ContainsKey("X-Client-Verify") || ctx.Request.Headers.ContainsKey("X-Real-IP"))
+    var h = ctx.Request.Headers;
+    if (h.ContainsKey("X-Client-Verify") || h.ContainsKey("X-Client-Dn") || h.ContainsKey("X-Client-Fingerprint") || h.ContainsKey("X-Real-IP") || h.ContainsKey("X-Forwarded-For"))
     {
         Interlocked.Increment(ref ProxyWarning.WithoutSecret);
         if (Interlocked.Exchange(ref ProxyWarning.Logged, 1) == 0)
