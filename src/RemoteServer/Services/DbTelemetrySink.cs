@@ -193,8 +193,11 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
             // reported when it was paused, gets nothing more - however long ago that was. Once its report
             // changes (repaired, or another package got in) it is no longer paused and gets one attempt;
             // three sends of the same package in six hours with the device still behind pause it again.
+            // A pause is for one component: the components after it in the order are still offered, so a
+            // package the device cannot take (a hash that no longer matches its file, a locked exe) never holds
+            // back the agent update behind it.
             var reported = Reported(device, comp) ?? "nothing";
-            if (pauses.IsPaused(device.Id, comp, pkg.Version, reported)) return;
+            if (pauses.IsPaused(device.Id, comp, pkg.Version, reported)) continue;
             var sixHoursAgo = DateTimeOffset.UtcNow.AddHours(-6);
             var same = 0;
             foreach (var c in await db.Commands
@@ -209,7 +212,7 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
                 pauses.Set(device.Id, comp, pkg.Version, reported);
                 device.LastIncident = $"{PauseNotePrefix}{comp} {pkg.Version} does not take effect (reported {reported} after {same} attempts)";
                 await db.SaveChangesAsync(ct);
-                return;
+                continue;
             }
 
             var data = new CommandData

@@ -24,6 +24,11 @@ the time of that release; the GitHub release pages carry the same text together 
 - Server 2.3.1.1: the diagnostics (`/admin/server/diag`, `proxyTrust`) and a line at every start say whether the
   proxy secret is enforced and whether nginx's fingerprint header is arriving, so the state of the proxy trust
   is readable without a shell on the box.
+- Server 2.3.1.3: an uploaded package is stored under a name that carries its own hash, so uploading a version
+  again never overwrites the file a promoted channel's record still points at (devices then discarded every
+  download of that package as a hash mismatch). A component auto-converge has paused no longer holds back the
+  components after it: the agent update goes out even while the updater's package cannot be taken. Existing
+  records keep their old file names; promote a channel's package again to refresh a record whose hash went stale.
 
 ## What's New in 2.3.0
 
