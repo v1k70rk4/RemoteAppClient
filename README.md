@@ -60,8 +60,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## What's New in 3.0.0
 
-Every key a device holds moves into its TPM, and certificates look after themselves
-([ADR-0003](docs/adr/0003-tpm-device-key.md), [ADR-0004](docs/adr/0004-tpm-ssh-key.md)). Every component is
+Every key a device holds moves into its TPM, and certificates look after themselves. Every component is
 **3.0.0.0**; one schema change (`upgrade-3.0.0.sql`, idempotent).
 
 - **The device key is a non-exportable TPM key** (Microsoft Platform Crypto Provider; software key storage where

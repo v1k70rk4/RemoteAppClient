@@ -5,14 +5,14 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.0
 
-**Every key a device holds now lives in its TPM.** The device's mTLS key ([ADR-0003](docs/adr/0003-tpm-device-key.md))
-and the tunnel's SSH key ([ADR-0004](docs/adr/0004-tpm-ssh-key.md)) are named, non-exportable CNG keys - in the
+**Every key a device holds now lives in its TPM.** The device's mTLS key and the tunnel's SSH key are named,
+non-exportable CNG keys - in the
 TPM where it is usable, in the software key storage provider otherwise - and no private key is written to a file
 any more. Certificates renew themselves, a lost TPM key is recovered with one click, and a security review's
 findings are fixed across the stack. Every component is **3.0.0.0**; one schema change for all of it,
 `upgrade-3.0.0.sql` (idempotent).
 
-**The device key lives in the TPM, and certificates renew themselves** ([ADR-0003](docs/adr/0003-tpm-device-key.md))
+**The device key lives in the TPM, and certificates renew themselves**
 - A device's mTLS key is now a named, machine-scoped, non-exportable CNG key: in the TPM (Microsoft Platform
   Crypto Provider) when the machine has one that is ready and not flagged for vulnerable firmware, otherwise in
   the software key storage provider. The certificate sits in `LocalMachine\My` bound to the key; nothing private
@@ -66,7 +66,7 @@ findings are fixed across the stack. Every component is **3.0.0.0**; one schema 
 - A rotation that had nothing to revoke (no key on record) or whose previous key was already
   on the list says so in the log, instead of looking like a revocation.
 
-**The tunnel key lives in the TPM too** ([ADR-0004](docs/adr/0004-tpm-ssh-key.md))
+**The tunnel key lives in the TPM too**
 - The SSH key the agent opens its tunnels with is now a named, non-exportable CNG key like the device key: in
   the TPM where it is usable, in the software key storage provider otherwise. No private key file exists any
   longer; ssh.exe gets the public half from a file and the signatures from an ssh-agent built into the agent
