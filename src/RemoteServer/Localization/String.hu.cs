@@ -78,6 +78,8 @@ internal static partial class Strings
         [nameof(SshRevocationList_BuildFailed)] = "A bastion SSH-visszavonási listáját nem sikerült újragenerálni, az előző marad érvényben: {Error}",
         [nameof(SshRevocationList_Rebuilt)] = "A bastion SSH-visszavonási listája ({Path}) újragenerálva: {Count} visszavont kulcs.",
         [nameof(Program_AgentMessageTooLarge)] = "A(z) {Device} eszköz {Max} bájtnál nagyobb üzenetet küldött a parancscsatornán; a kapcsolat bontva.",
+        [nameof(Program_ProxySecretEnforced)] = "Proxy-titok érvényben: az azonossági és cím-fejlécek csak X-RAC-Proxy fejlécet hozó kérésen számítanak.",
+        [nameof(Program_ProxySecretNotSet)] = "A Server:ProxySecret nincs beállítva: az azonossági és cím-fejlécek minden kérésen elfogadottak, mint a titok bevezetése előtt.",
         [nameof(Program_ProxyFingerprintMissing)] = "Az nginx küldi a proxy-titkot, de az X-Client-Fingerprint fejlécet nem: az eszköz-tanúsítványok nincsenek összevetve a legutóbb kiadottal. Újraindításig csak egyszer jelenik meg.",
         [nameof(Program_ProxyHeadersWithoutSecret)] = "Azonossági vagy cím-fejlécek figyelmen kívül hagyva egy proxy-titok nélküli kérésen ({Ip}, {Path}). Ha az agenteket elutasítja a szerver, az nginx még nem küldi az X-RAC-Proxy fejlécet. Újraindításig csak egyszer jelenik meg.",
         [nameof(Program_UnparseableAgentMessageDevice)] = "Értelmezhetetlen agent-üzenet {Device}.",

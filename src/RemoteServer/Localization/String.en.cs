@@ -78,6 +78,8 @@ internal static partial class Strings
         [nameof(SshRevocationList_BuildFailed)] = "Could not rebuild the bastion's SSH revocation list; the previous one stays in place: {Error}",
         [nameof(SshRevocationList_Rebuilt)] = "Bastion SSH revocation list {Path} rebuilt: {Count} revoked key(s).",
         [nameof(Program_AgentMessageTooLarge)] = "Device {Device} sent a message over {Max} bytes on its command channel; the connection was closed.",
+        [nameof(Program_ProxySecretEnforced)] = "Proxy secret enforced: identity and address headers count only on requests that carry X-RAC-Proxy.",
+        [nameof(Program_ProxySecretNotSet)] = "Server:ProxySecret is not set: identity and address headers are trusted on every request, as before the secret existed.",
         [nameof(Program_ProxyFingerprintMissing)] = "nginx sends the proxy secret but not X-Client-Fingerprint: device certificates are not compared with the one last issued. Shown once until the server restarts.",
         [nameof(Program_ProxyHeadersWithoutSecret)] = "Identity or address headers ignored on a request without the proxy secret (from {Ip}, {Path}). If agents are being turned away, nginx is not sending X-RAC-Proxy yet. Shown once until the server restarts.",
         [nameof(Program_UnparseableAgentMessageDevice)] = "Unparseable agent message {Device}.",

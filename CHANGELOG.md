@@ -50,6 +50,9 @@ the time of that release; the GitHub release pages carry the same text together 
   certificate, because older agents never ask for another one.
 - A device whose certificate has expired (switched off past its end) now takes the lost-key path by itself:
   a yellow request in the console, one click, and it is back.
+- Server 2.3.0.6: the diagnostics (`/admin/server/diag`, `proxyTrust`) and a line at every start say whether the
+  proxy secret is enforced and whether nginx's fingerprint header is arriving, so the state of the proxy trust
+  is readable without a shell on the box.
 - Agent 2.3.0.5 / server 2.3.0.5: on a rotation the agent also names the key it used until now and proves it
   holds it (an OpenSSH signature with that key over the new key), and the server revokes it when its own record
   of the device has none (a few early enrollment rows had no key on record). Without a valid proof, or for a key

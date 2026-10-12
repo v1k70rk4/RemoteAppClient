@@ -640,6 +640,21 @@ public sealed class ServerDiag
     [JsonPropertyName("update")] public ServerUpdateStatus? Update { get; set; }
     /// <summary>"session" or "token:&lt;name&gt;" - how this snapshot was requested.</summary>
     [JsonPropertyName("requestVia")] public string RequestVia { get; set; } = string.Empty;
+    /// <summary>Whether the proxy secret is enforced and nginx's identity headers are arriving. Null on a server
+    /// that predates the field.</summary>
+    [JsonPropertyName("proxyTrust")] public ServerDiagProxy? ProxyTrust { get; set; }
+}
+
+public sealed class ServerDiagProxy
+{
+    /// <summary>Server:ProxySecret is set: identity and address headers count only on requests carrying it.</summary>
+    [JsonPropertyName("secretConfigured")] public bool SecretConfigured { get; set; }
+    /// <summary>When a device request last carried X-Client-Fingerprint (through the trusted proxy); null since start.</summary>
+    [JsonPropertyName("fingerprintLastSeen")] public DateTimeOffset? FingerprintLastSeen { get; set; }
+    /// <summary>When a trusted-proxy request last arrived at all (the secret matched, or no secret is set).</summary>
+    [JsonPropertyName("trustedRequestLastSeen")] public DateTimeOffset? TrustedRequestLastSeen { get; set; }
+    /// <summary>Requests since start that brought identity or address headers without the right secret.</summary>
+    [JsonPropertyName("requestsWithoutSecret")] public long RequestsWithoutSecret { get; set; }
 }
 
 public sealed class ServerDiagDisk

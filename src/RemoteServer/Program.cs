@@ -89,6 +89,13 @@ app.Lifetime.ApplicationStopped.Register(logStore.Dispose);
 // Started: say it out loud when a channel's current package has no file behind it. The package directory is
 // not part of the fleet backup, so this is exactly the state a server is in after a restore onto a new box -
 // and until the files are uploaded again, updates cannot be downloaded and MSIs cannot be built.
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    // Said at every start, so the log answers whether the proxy secret is enforced on this server.
+    var secretSet = !string.IsNullOrEmpty(app.Services.GetRequiredService<IOptions<ServerOptions>>().Value.ProxySecret);
+    if (secretSet) app.Logger.LogInformation(L.Program_ProxySecretEnforced);
+    else app.Logger.LogWarning(L.Program_ProxySecretNotSet);
+});
 app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
 {
     try
@@ -1269,6 +1276,13 @@ app.MapGet("/admin/server/diag", async (HttpContext ctx, AppDbContext db, AgentC
 {
     var via = ctx.Items["apiToken"] is ApiToken t ? $"token:{t.Name} ({t.Scope})" : "session";
     var diag = await ServerDiagnostics.CollectAsync(db, registry, logs, opt.Value, ServerUpdateStatusOf(opt.Value), via, ct);
+    diag.ProxyTrust = new ServerDiagProxy
+    {
+        SecretConfigured = !string.IsNullOrEmpty(opt.Value.ProxySecret),
+        FingerprintLastSeen = ProxyWarning.At(Interlocked.Read(ref ProxyWarning.FingerprintSeenTicks)),
+        TrustedRequestLastSeen = ProxyWarning.At(Interlocked.Read(ref ProxyWarning.TrustedSeenTicks)),
+        RequestsWithoutSecret = Interlocked.Read(ref ProxyWarning.WithoutSecret),
+    };
     return Results.Json(diag, AgentJsonContext.Default.ServerDiag);
 });
 
@@ -2929,6 +2943,7 @@ static async Task<Device?> AuthorizedDeviceAsync(HttpContext ctx, AppDbContext d
     if (device is null || device.Status is DeviceStatus.Rejected or DeviceStatus.Revoked) return null;
 
     var fingerprint = FromTrustedProxyQuiet(ctx) ? ctx.Request.Headers["X-Client-Fingerprint"].ToString().Replace(":", "") : "";
+    if (fingerprint.Length > 0) Interlocked.Exchange(ref ProxyWarning.FingerprintSeenTicks, DateTimeOffset.UtcNow.UtcTicks);
     if (fingerprint.Length == 0)
     {
         // Secret set but no fingerprint: nginx is half configured. Said once; the request still counts.
@@ -2961,20 +2976,29 @@ static bool FromTrustedProxy(HttpContext ctx)
 {
     if (FromTrustedProxyQuiet(ctx)) return true;
 
-    if ((ctx.Request.Headers.ContainsKey("X-Client-Verify") || ctx.Request.Headers.ContainsKey("X-Real-IP")) &&
-        Interlocked.Exchange(ref ProxyWarning.Logged, 1) == 0)
-        ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ProxyTrust")
-            .LogWarning(L.Program_ProxyHeadersWithoutSecret, PublicIpOf(ctx) ?? "-", ctx.Request.Path.ToString());
+    if (ctx.Request.Headers.ContainsKey("X-Client-Verify") || ctx.Request.Headers.ContainsKey("X-Real-IP"))
+    {
+        Interlocked.Increment(ref ProxyWarning.WithoutSecret);
+        if (Interlocked.Exchange(ref ProxyWarning.Logged, 1) == 0)
+            ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ProxyTrust")
+                .LogWarning(L.Program_ProxyHeadersWithoutSecret, PublicIpOf(ctx) ?? "-", ctx.Request.Path.ToString());
+    }
     return false;
 }
 
 static bool FromTrustedProxyQuiet(HttpContext ctx)
 {
     var secret = ctx.RequestServices.GetRequiredService<IOptions<ServerOptions>>().Value.ProxySecret;
-    if (string.IsNullOrEmpty(secret)) return true;
-    var sent = ctx.Request.Headers["X-RAC-Proxy"].ToString();
-    return sent.Length > 0 && CryptographicOperations.FixedTimeEquals(
-        System.Text.Encoding.UTF8.GetBytes(sent), System.Text.Encoding.UTF8.GetBytes(secret));
+    bool trusted;
+    if (string.IsNullOrEmpty(secret)) trusted = true;
+    else
+    {
+        var sent = ctx.Request.Headers["X-RAC-Proxy"].ToString();
+        trusted = sent.Length > 0 && CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(sent), System.Text.Encoding.UTF8.GetBytes(secret));
+    }
+    if (trusted) Interlocked.Exchange(ref ProxyWarning.TrustedSeenTicks, DateTimeOffset.UtcNow.UtcTicks);
+    return trusted;
 }
 
 // Agent public IP. Production: nginx X-Real-IP ($remote_addr = direct connection source,
@@ -3084,4 +3108,9 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, Guid devi
 }
 
 // Process-wide flag for FromTrustedProxy's one-time warning (top-level statements cannot hold a static field).
-static class ProxyWarning { public static int Logged; public static int FingerprintLogged; }
+static class ProxyWarning
+{
+    public static int Logged; public static int FingerprintLogged;
+    public static long FingerprintSeenTicks; public static long TrustedSeenTicks; public static long WithoutSecret;
+    public static DateTimeOffset? At(long ticks) => ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero);
+}
