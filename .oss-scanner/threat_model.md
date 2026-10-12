@@ -1,7 +1,6 @@
 # Threat model
 
-Read with `README.md` (*Security Model*), `deploy/KEYS.md` (every key, its lifetime, what can be rotated) and the
-ADRs in `docs/adr/`.
+Read with `README.md` (*Security Model*) and `deploy/KEYS.md` (every key, its lifetime, what can be rotated).
 
 ## What this project does and where untrusted input enters
 
@@ -37,8 +36,7 @@ Untrusted input, in the order we care about it:
    broker and status named pipes beyond what they are for, or the in-process ssh-agent pipe
    (`RemoteAgent.ssh-agent`, SYSTEM only). An administrator on the device is in the trusted computing base of
    that device: the device certificate's key and the tunnel key live in the TPM (CNG, non-exportable), so an
-   administrator can use them while on the box but not take them with them. That distinction is the point of
-   ADR-0003/0004.
+   administrator can use them while on the box but not take them with them. That distinction is deliberate.
 5. **Operators.** A signed-in operator sees only the devices and groups they were granted; keyless/Lite
    operators can only view. Operator-to-operator and operator-to-admin escalation is in scope.
 6. **The bastion.** Devices authenticate to sshd with CA-signed, short-lived SSH certificates under a restricted
@@ -81,7 +79,7 @@ Untrusted input, in the order we care about it:
 - **High:** authenticated (operator) privilege escalation beyond granted devices/groups; leaking secrets at rest
   (VNC passwords, SMTP/Graph secrets, API tokens, backup contents) to anyone but an administrator; a standard
   local user on a device reaching the agent's keys, secrets or pipes; replay of commands or tokens; a device
-  having another device's keys revoked (the revocation list is the point of attention after ADR-0004);
+  having another device's keys revoked (the revocation list is the point of attention now that the tunnel key is in the TPM);
   SQL injection anywhere; path traversal in file transfer or package handling.
 - **Medium:** denial of service that an unauthenticated party or a single device can cause to the whole server
   (not to itself); information disclosure of non-secret fleet data to the unauthenticated; weaknesses in rate
@@ -95,8 +93,8 @@ Untrusted input, in the order we care about it:
 - The constant log line in `VncProvisioningService` that static analysis flags as "cleartext storage of
   sensitive information" because the localization key contains the word *Password*: it logs a fixed sentence,
   never a secret (known false positive, repeatedly triaged).
-- A local administrator or SYSTEM on a managed device can make the TPM sign; that is the accepted model
-  (ADR-0003/0004), not a finding.
+- A local administrator or SYSTEM on a managed device can make the TPM sign; that is the accepted model, not a
+  finding.
 - The server administrator (root on the box) can read everything on the box, including the key files in
   `/etc/remoteserver`; that is the accepted model (`deploy/KEYS.md`).
 - Third-party components embedded or installed (TightVNC, OpenSSH, nginx, MariaDB) are out of scope unless we

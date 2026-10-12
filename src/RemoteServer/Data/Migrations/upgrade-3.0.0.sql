@@ -1,4 +1,4 @@
--- RemoteServer 2.3.0 — TPM telemetry, device key in the TPM and certificate renewal (ADR-0003).
+-- RemoteServer 3.0.0 — the device key and the tunnel key in the TPM, certificate renewal, lost-key recovery.
 --
 -- Devices gain the TPM telemetry the agent reports (present, version, manufacturer, ready for keys, attestation,
 -- vulnerable firmware; NULL = unknown, an older agent, never "no TPM").
@@ -7,6 +7,10 @@
 -- certificate's expiry (CertNotAfter), a certificate issued for a re-key that the device has not confirmed yet
 -- (PendingCertThumbprint / PendingCertUntil) and the retired one still accepted for a few minutes after a
 -- confirmed switch (PreviousCertThumbprint / PreviousCertValidUntil). All NULL for devices that never re-keyed.
+--
+-- Devices gain: where the tunnel key lives as the agent reports it (SshKeyProvider: tpm / software / file), and a
+-- rotation in flight (PendingSshPublicKey / PendingSshUntil): the new key the server issued a certificate for but
+-- the device has not yet proven at the bastion. All NULL for devices that never rotated this way.
 --
 -- Idempotent (IF NOT EXISTS) — safe to run repeatedly. Apply via the in-app
 -- "Szerver frissítés → SQL kiválasztása" upload (or racctl update --sql), or manually against the database.
@@ -26,7 +30,7 @@ ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `PreviousCertValidUntil` datetime
 ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `KeyProvider` longtext CHARACTER SET utf8mb4 NULL;
 
 -- Lost-key requests: a device whose TPM lost its key asks for a new certificate without one; an administrator
--- approves or rejects it in the console (ADR-0003, recovery).
+-- approves or rejects it in the console.
 CREATE TABLE IF NOT EXISTS `RekeyRequests` (
     `Id` char(36) COLLATE ascii_general_ci NOT NULL,
     `DeviceKey` char(36) COLLATE ascii_general_ci NOT NULL,
@@ -47,3 +51,7 @@ CREATE TABLE IF NOT EXISTS `RekeyRequests` (
 ) CHARACTER SET=utf8mb4;
 CREATE INDEX IF NOT EXISTS `IX_RekeyRequests_DeviceKey_State` ON `RekeyRequests` (`DeviceKey`, `State`);
 ALTER TABLE `RekeyRequests` ADD COLUMN IF NOT EXISTS `KeyFingerprint` varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT '';
+
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `SshKeyProvider` varchar(16) CHARACTER SET utf8mb4 NULL;
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `PendingSshPublicKey` longtext CHARACTER SET utf8mb4 NULL;
+ALTER TABLE `Devices` ADD COLUMN IF NOT EXISTS `PendingSshUntil` datetime(6) NULL;
