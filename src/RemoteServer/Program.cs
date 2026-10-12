@@ -1102,7 +1102,14 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
             sha = Convert.ToHexString(await SHA256.HashDataAsync(read, ctx.RequestAborted));
         }
         fileName = PackageFileName.For(component, channel, version, sha);
-        File.Move(tmp, Path.Combine(dir, fileName), overwrite: true); // the same name means the same bytes
+        var final = Path.Combine(dir, fileName);
+        try { File.Move(tmp, final); }
+        catch (IOException) when (File.Exists(final))
+        {
+            // The same name means the same bytes: the file is already there, possibly being served right now,
+            // and is left untouched.
+            File.Delete(tmp);
+        }
     }
     catch
     {

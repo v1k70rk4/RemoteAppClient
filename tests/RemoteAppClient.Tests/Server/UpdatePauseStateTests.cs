@@ -31,6 +31,20 @@ public class UpdatePauseStateTests
     }
 
     [Fact]
+    public void Components_are_paused_independently_and_clear_forgets_them_all()
+    {
+        var s = new UpdatePauseState();
+        var dev = Guid.NewGuid();
+        s.Set(dev, "updater", "2.3.0.0", "2.2.5.0");
+        s.Set(dev, "agent", "2.3.1.0", "2.3.0.4");
+        Assert.True(s.IsPaused(dev, "updater", "2.3.0.0", "2.2.5.0")); // the agent's pause did not replace it
+        Assert.True(s.IsPaused(dev, "agent", "2.3.1.0", "2.3.0.4"));
+        s.Clear(dev);
+        Assert.False(s.IsPaused(dev, "updater", "2.3.0.0", "2.2.5.0"));
+        Assert.False(s.IsPaused(dev, "agent", "2.3.1.0", "2.3.0.4"));
+    }
+
+    [Fact]
     public void A_new_pause_replaces_the_old_and_clear_forgets_it()
     {
         var s = new UpdatePauseState();
