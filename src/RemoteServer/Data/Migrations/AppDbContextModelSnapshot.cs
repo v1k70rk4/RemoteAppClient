@@ -249,6 +249,12 @@ namespace RemoteServer.Data.Migrations
                     b.Property<DateTimeOffset?>("PendingCertUntil")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("PendingSshPublicKey")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTimeOffset?>("PendingSshUntil")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("PreviousCertThumbprint")
                         .HasColumnType("longtext");
 
@@ -275,6 +281,10 @@ namespace RemoteServer.Data.Migrations
 
                     b.Property<int?>("SleepDcMinutes")
                         .HasColumnType("int");
+
+                    b.Property<string>("SshKeyProvider")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)");
 
                     b.Property<string>("SshPublicKey")
                         .HasColumnType("longtext");

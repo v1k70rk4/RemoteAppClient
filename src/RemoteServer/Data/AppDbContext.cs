@@ -104,6 +104,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.KeyProvider).HasMaxLength(16);
             e.Property(x => x.KeyFingerprint).HasMaxLength(32);
         });
+        b.Entity<Device>(e => e.Property(x => x.SshKeyProvider).HasMaxLength(16));
 
         b.Entity<Command>(e =>
         {

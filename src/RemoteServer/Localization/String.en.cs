@@ -56,6 +56,8 @@ internal static partial class Strings
         [nameof(SshRevocationList_NothingToRevoke)] = "Device {Device} had no usable SSH key on record (none, or not a single line), so there was nothing to put on the bastion's revocation list",
         [nameof(SshRevocationList_AlreadyListed)] = "The previous SSH key of device {Device} was already on the bastion's revocation list",
         [nameof(Program_SshKeyRotated)] = "Tunnel key rotated for device {Device}: the previous key is on the bastion's revocation list",
+        [nameof(Program_SshRotationPending)] = "Tunnel key rotation offered to device {Device}: the new key waits for the device to prove it at the bastion",
+        [nameof(Program_SshConfirmNothingPending)] = "Device {Device} confirmed a tunnel key that is not on offer (lapsed, or never offered); it has to ask again",
         [nameof(Program_SshCertRefusedRevoked)] = "Tunnel certificate refused for device {Device}: the offered key is on the revocation list",
         [nameof(Program_RekeyRequestOpened)] = "Lost-key request from device {Device} (reports itself as {Hostname}, from {Ip}): waiting for an administrator's decision in the console",
         [nameof(Program_RekeyRequestApproved)] = "Lost-key request of device {Device} approved by {User}: new certificate issued, the old one is out",

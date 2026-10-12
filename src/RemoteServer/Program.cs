@@ -837,6 +837,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         SleepAcMinutes = d.SleepAcMinutes,
         SleepDcMinutes = d.SleepDcMinutes,
         TpmPresent = d.TpmPresent,
+        SshKeyProvider = d.SshKeyProvider,
         TpmVersion = d.TpmVersion,
         TpmManufacturer = d.TpmManufacturer,
         TpmReady = d.TpmReady,
@@ -931,6 +932,7 @@ app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext c
     var gid = device.Id;
     var host = device.Hostname;
     var sshKey = device.SshPublicKey;
+    var pendingSshKey = device.PendingSshPublicKey;
 
     // No FK cascade: these store DeviceId as a plain Guid, so remove them explicitly. History holds only
     // transitions (and is pruned at 90 days), so it stays small enough to clear in one statement - unlike
@@ -946,6 +948,7 @@ app.MapDelete("/admin/devices/{deviceId}", async (string deviceId, HttpContext c
     await registry.DisconnectAsync(deviceId);
     // ...and at the bastion: its SSH key goes on the revocation list, which every certificate for it fails.
     await revoked.RevokeAsync(sshKey, deviceId, host, ct);
+    if (pendingSshKey is not null) await revoked.RevokeAsync(pendingSshKey, deviceId, host, ct); // a rotation in flight: that key too
     await AuditAsync(db, ctx, "device-delete", null, host);
     return Results.NoContent();
 });
@@ -1677,6 +1680,7 @@ app.MapGet("/admin/audit", async (string? action, string? actor, string? deviceI
 const int RekeyConfirmMinutes = 60;
 const int RekeyGraceMinutes = 10;
 var SshRotationGate = new SemaphoreSlim(1, 1);
+const int SshConfirmMinutes = 10;
 app.MapPost("/api/rekey", async (HttpContext ctx, AppDbContext db, CertificateAuthority ca, CancellationToken ct) =>
 {
     var device = await AuthorizedDeviceAsync(ctx, db, ct);
@@ -1744,8 +1748,11 @@ app.MapPost("/api/rekey/confirm", async (HttpContext ctx, AppDbContext db, Cance
     return Results.NoContent();
 });
 
-// === Short-lived SSH certificates for the tunnel key. The device's own key on record is signed for days; a
-// different key is a rotation: adopted, and the previous one put on the bastion's revocation list. ===
+// === Short-lived SSH certificates for the tunnel key. The device's own key on record is signed for days. A
+// different key is a rotation: with an agent that can confirm, the server issues the certificate, keeps the key
+// on record as it is and remembers the new one as pending; once the device has proven the new key at the
+// bastion it confirms, and only then is the previous key revoked and the new one adopted. An agent that cannot
+// confirm (before 2.3.1) gets the switch on the request itself. ===
 app.MapPost("/api/ssh-cert", async (HttpContext ctx, AppDbContext db, SshCertificateAuthority sshCa, SshRevocationList revoked, IOptions<ServerOptions> serverOptions, CancellationToken ct) =>
 {
     var device = await AuthorizedDeviceAsync(ctx, db, ct);
@@ -1756,8 +1763,7 @@ app.MapPost("/api/ssh-cert", async (HttpContext ctx, AppDbContext db, SshCertifi
     try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.SshCertRequest, ct); }
     catch (JsonException) { return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
     var key = req?.SshPublicKey?.Trim();
-    if (key is null || key.Length > 4096 || key.Contains('\n') || key.Contains('\r') || SshRevocationList.KeyBody(key) is not { } body
-        || !(body.StartsWith("ssh-ed25519 ", StringComparison.Ordinal) || body.StartsWith("ssh-rsa ", StringComparison.Ordinal) || body.StartsWith("ecdsa-sha2-", StringComparison.Ordinal)))
+    if (key is null || !SshKeyLineOk(key) || SshRevocationList.KeyBody(key) is not { } body)
         return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400);
 
     // One rotation at a time, fleet-wide: the revocation check, the revocation and the adoption of a key are one
@@ -1772,50 +1778,102 @@ app.MapPost("/api/ssh-cert", async (HttpContext ctx, AppDbContext db, SshCertifi
             return Results.Json(new RekeyError { Code = "revoked_key" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
         }
 
+        // A pending key of an earlier offer that this request replaces already holds a certificate: it is
+        // revoked before another one is issued, or it would stay good at the bastion for the certificate's life.
+        if (rotated && device.PendingSshPublicKey is { } stale && SshRevocationList.KeyBody(stale) != body)
+        {
+            if (!await revoked.RevokeAsync(stale, device.DeviceId, device.Hostname, ct))
+                return Results.Json(new RekeyError { Code = "revocation_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
+            device.PendingSshPublicKey = null; device.PendingSshUntil = null;
+            await db.SaveChangesAsync(ct);
+        }
+
         var cert = await sshCa.SignAgentShortAsync(key, device.DeviceId, ct);
         if (cert is null)
             return Results.Json(new RekeyError { Code = "sign_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
         var validBefore = DateTimeOffset.UtcNow.AddDays(Math.Max(1, serverOptions.Value.Bastion.AgentSshCertValidityDays));
 
-        if (rotated)
-        {
-            // Revoke first, and only when that took effect adopt the new key and answer: a rotation is complete
-            // only once the bastion refuses the old key. When the revocation cannot be written the device is told
-            // so (503) and keeps its old key, which still works; it offers the same new key again later. The
-            // reverse order - adopt, then a revocation that silently failed - would have left the old key accepted
-            // while the device already believed it revoked.
-            var previous = device.SshPublicKey;
-            if (string.IsNullOrWhiteSpace(previous) && req!.PreviousSshPublicKey?.Trim() is { Length: > 0 and <= 4096 } offered
-                && !offered.Contains('\n') && !offered.Contains('\r') && SshRevocationList.KeyBody(offered) is { } offeredBody && offeredBody != body)
-            {
-                // Nothing on record (an old enrollment row). The device's word alone revokes nothing: it must prove it
-                // holds the key it names, with a signature made by that key over the new key's body - which is exactly
-                // what a device rotating away from its own key can do and a device naming someone else's key cannot.
-                // The ownership check on top keeps a key any record lives on out of reach even so.
-                var proven = req.PreviousKeyProof is { Length: > 0 and <= 8192 } proof && await sshCa.VerifyPossessionAsync(offered, body, proof, ct);
-                var devices = await db.Devices.Where(d => d.SshPublicKey != null && d.SshPublicKey != "").Select(d => d.SshPublicKey!).ToListAsync(ct);
-                if (proven && devices.All(k => SshRevocationList.KeyBody(k) != offeredBody))
-                {
-                    previous = offered;
-                    app.Logger.LogInformation(L.Program_SshPreviousKeyFromDevice, device.DeviceId);
-                }
-                else
-                {
-                    app.Logger.LogWarning(L.Program_SshPreviousKeyRefused, device.DeviceId);
-                }
-            }
-            if (!await revoked.RevokeAsync(previous, device.DeviceId, device.Hostname, ct))
-                return Results.Json(new RekeyError { Code = "revocation_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
-            device.SshPublicKey = key;
-            db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-ssh-key-rotated", TargetDeviceId = device.Id });
-            await db.SaveChangesAsync(ct);
-            app.Logger.LogInformation(L.Program_SshKeyRotated, device.DeviceId);
-        }
-        else
+        if (!rotated)
         {
             app.Logger.LogDebug(L.Program_SshCertIssued, device.DeviceId);
+            return Results.Json(new SshCertResponse { Certificate = cert, ValidBefore = validBefore, Rotated = false }, AgentJsonContext.Default.SshCertResponse);
         }
-        return Results.Json(new SshCertResponse { Certificate = cert, ValidBefore = validBefore, Rotated = rotated }, AgentJsonContext.Default.SshCertResponse);
+
+        // Nothing on record (an old enrollment row)? The device's word alone revokes nothing: it must prove it
+        // holds the key it names, with a signature made by that key over the new key's body - which is exactly
+        // what a device rotating away from its own key can do and a device naming someone else's key cannot.
+        // A proven key becomes the key on record, so the switch below revokes it like any other.
+        if (string.IsNullOrWhiteSpace(device.SshPublicKey) && req!.PreviousSshPublicKey?.Trim() is { } offered && SshKeyLineOk(offered)
+            && SshRevocationList.KeyBody(offered) is { } offeredBody && offeredBody != body)
+        {
+            var proven = req.PreviousKeyProof is { Length: > 0 and <= 8192 } proof && await sshCa.VerifyPossessionAsync(offered, body, proof, ct);
+            var inUse = await db.Devices.Where(d => d.SshPublicKey != null && d.SshPublicKey != "").Select(d => d.SshPublicKey!).ToListAsync(ct);
+            if (proven && inUse.All(k => SshRevocationList.KeyBody(k) != offeredBody))
+            {
+                device.SshPublicKey = offered;
+                app.Logger.LogInformation(L.Program_SshPreviousKeyFromDevice, device.DeviceId);
+            }
+            else
+            {
+                app.Logger.LogWarning(L.Program_SshPreviousKeyRefused, device.DeviceId);
+            }
+        }
+
+        if (req!.CanConfirm)
+        {
+            // The switch waits for the device to prove the key at the bastion: the key on record stays, nothing is
+            // revoked yet, and the offer lapses by itself.
+            device.PendingSshPublicKey = key;
+            device.PendingSshUntil = DateTimeOffset.UtcNow.AddMinutes(SshConfirmMinutes);
+            await db.SaveChangesAsync(ct);
+            app.Logger.LogInformation(L.Program_SshRotationPending, device.DeviceId);
+            return Results.Json(new SshCertResponse { Certificate = cert, ValidBefore = validBefore, Rotated = true, ConfirmWithinMinutes = SshConfirmMinutes }, AgentJsonContext.Default.SshCertResponse);
+        }
+
+        // An agent that cannot confirm: revoke first, and only when that took effect adopt the new key and answer.
+        if (!await revoked.RevokeAsync(device.SshPublicKey, device.DeviceId, device.Hostname, ct))
+            return Results.Json(new RekeyError { Code = "revocation_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
+        device.SshPublicKey = key;
+        device.PendingSshPublicKey = null; device.PendingSshUntil = null;
+        db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-ssh-key-rotated", TargetDeviceId = device.Id });
+        await db.SaveChangesAsync(ct);
+        app.Logger.LogInformation(L.Program_SshKeyRotated, device.DeviceId);
+        return Results.Json(new SshCertResponse { Certificate = cert, ValidBefore = validBefore, Rotated = true }, AgentJsonContext.Default.SshCertResponse);
+    }
+    finally { SshRotationGate.Release(); }
+});
+
+// The device proved the pending key at the bastion: the previous key is revoked (all or nothing) and the new one
+// becomes the key on record. 409 when there is no such offer any more; the device then asks again.
+app.MapPost("/api/ssh-cert/confirm", async (HttpContext ctx, AppDbContext db, SshRevocationList revoked, CancellationToken ct) =>
+{
+    var device = await AuthorizedDeviceAsync(ctx, db, ct);
+    if (device is null) return Results.Json(new RekeyError { Code = "unauthorized" }, AgentJsonContext.Default.RekeyError, statusCode: 401);
+    if (device.Status != DeviceStatus.Approved) return Results.Json(new RekeyError { Code = "not_approved" }, AgentJsonContext.Default.RekeyError, statusCode: 403);
+
+    SshCertConfirm? req;
+    try { req = await JsonSerializer.DeserializeAsync(ctx.Request.Body, AgentJsonContext.Default.SshCertConfirm, ct); }
+    catch (JsonException) { return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400); }
+    var body = SshRevocationList.KeyBody(req?.SshPublicKey);
+    if (body is null) return Results.Json(new RekeyError { Code = "invalid_request" }, AgentJsonContext.Default.RekeyError, statusCode: 400);
+
+    await SshRotationGate.WaitAsync(ct);
+    try
+    {
+        if (SshRevocationList.KeyBody(device.SshPublicKey) == body) return Results.NoContent(); // already current: a repeated confirm
+        if (device.PendingSshPublicKey is null || SshRevocationList.KeyBody(device.PendingSshPublicKey) != body || device.PendingSshUntil < DateTimeOffset.UtcNow)
+        {
+            app.Logger.LogWarning(L.Program_SshConfirmNothingPending, device.DeviceId);
+            return Results.Json(new RekeyError { Code = "nothing_pending" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
+        }
+        if (!await revoked.RevokeAsync(device.SshPublicKey, device.DeviceId, device.Hostname, ct))
+            return Results.Json(new RekeyError { Code = "revocation_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
+        device.SshPublicKey = device.PendingSshPublicKey;
+        device.PendingSshPublicKey = null; device.PendingSshUntil = null;
+        db.AuditLogs.Add(new AuditLog { Actor = "device", Action = "device-ssh-key-rotated", TargetDeviceId = device.Id });
+        await db.SaveChangesAsync(ct);
+        app.Logger.LogInformation(L.Program_SshKeyRotated, device.DeviceId);
+        return Results.NoContent();
     }
     finally { SshRotationGate.Release(); }
 });
@@ -2965,6 +3023,11 @@ static async Task<Device?> AuthorizedDeviceAsync(HttpContext ctx, AppDbContext d
 }
 
 // The certificate the request authenticated with, when nginx forwards it (empty otherwise).
+// One public key line, of a type the bastion's CA signs.
+static bool SshKeyLineOk(string key) =>
+    key.Length <= 4096 && !key.Contains('\n') && !key.Contains('\r') && SshRevocationList.KeyBody(key) is { } b
+    && (b.StartsWith("ssh-ed25519 ", StringComparison.Ordinal) || b.StartsWith("ssh-rsa ", StringComparison.Ordinal) || b.StartsWith("ecdsa-sha2-", StringComparison.Ordinal));
+
 static string PresentedFingerprint(HttpContext ctx) =>
     FromTrustedProxyQuiet(ctx) ? ctx.Request.Headers["X-Client-Fingerprint"].ToString().Replace(":", "") : "";
 

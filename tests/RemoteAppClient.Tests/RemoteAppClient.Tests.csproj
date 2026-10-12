@@ -42,6 +42,7 @@
     <Compile Include="..\..\src\RemoteAgent\Diagnostics\FileLog.cs" Link="Agent\FileLog.cs" />
     <Compile Include="..\..\src\RemoteAgent\Security\RekeyPolicy.cs" Link="Agent\RekeyPolicy.cs" />
     <Compile Include="..\..\src\RemoteAgent\Security\SshCertificate.cs" Link="Agent\SshCertificate.cs" />
+    <Compile Include="..\..\src\RemoteAgent\Security\SshKeyEncoding.cs" Link="Agent\SshKeyEncoding.cs" />
   </ItemGroup>
 
   <ItemGroup>

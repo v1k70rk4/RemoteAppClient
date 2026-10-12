@@ -81,10 +81,7 @@ public sealed class SshLocalForward(TunnelOptions options, TransportState transp
         psi.ArgumentList.Add("-L");
         psi.ArgumentList.Add($"127.0.0.1:{LocalPort}:127.0.0.1:{remotePort}");
 
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add(options.PrivateKeyPath);
-        if (!string.IsNullOrWhiteSpace(options.CertificatePath))
-            AddOption(psi, $"CertificateFile=\"{options.CertificatePath}\"");
+        SshIdentityArgs.Apply(psi, options);
 
         AddOption(psi, "IdentitiesOnly=yes");
         AddOption(psi, "BatchMode=yes");
