@@ -159,7 +159,7 @@ public sealed class SshAgentService(ILogger<SshAgentService> logger) : Backgroun
         var sec = new PipeSecurity();
         sec.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
         return NamedPipeServerStreamAcl.Create(
-            SshKeyStore.PipeName, PipeDirection.InOut, maxNumberOfServerInstances: 8,
+            SshKeyStore.PipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, // tunnels and a probe may all be in their handshakes at once
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : PipeOptions.None),
             inBufferSize: 0, outBufferSize: 0, sec);
     }

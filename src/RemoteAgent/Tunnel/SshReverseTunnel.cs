@@ -20,6 +20,11 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
     private WsBridgeListener? _bridge;
     private int _fileRemotePort; // >0 = also reverse-forward the file service (additive to the VNC forward)
     private volatile bool _forwardConflict; // last attempt was refused because the bastion still holds the port
+    private volatile bool _authRejected;    // the bastion answered the key with "Permission denied"
+
+    /// <summary>The last start failed because the bastion refused the key - as opposed to not being reached,
+    /// a forward conflict or a timeout. What a rotation's probe needs to know.</summary>
+    public bool AuthRejected => _authRejected;
 
     public bool IsRunning => _process is { } p && !Exited(p);
 
@@ -51,6 +56,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         }
         _fileRemotePort = fileRemotePort;
 
+        _authRejected = false;
         for (int round = 0; round < ForwardRetryRounds; round++)
         {
             _forwardConflict = false;
@@ -183,6 +189,8 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
             // device's port from a session that has not timed out yet; StartAsync waits that out.
             if (e.Data.Contains("remote port forwarding failed", StringComparison.OrdinalIgnoreCase))
                 _forwardConflict = true;
+            if (e.Data.Contains("Permission denied", StringComparison.OrdinalIgnoreCase))
+                _authRejected = true;
             // ssh -v debug lines start with "debug": warnings for everything else, and the debug lines only at
             // Debug level (the 24-hour verbose log), where they show which key ssh tried and why it gave up.
             if (!e.Data.StartsWith("debug", StringComparison.OrdinalIgnoreCase))

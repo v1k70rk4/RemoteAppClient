@@ -5,11 +5,11 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 2.3.1
 
-**The tunnel key lives in the TPM too** ([ADR-0004](docs/adr/0004-tpm-ssh-key.md)). Agent, server and console
+**The tunnel key lives in the TPM too** ([ADR-0004](docs/adr/0004-tpm-ssh-key.md)). Agent, server and console are all
 **2.3.1.0**; one schema change (`upgrade-2.3.1.sql`, idempotent).
 - The SSH key the agent opens its tunnels with is now a named, non-exportable CNG key like the device key: in
   the TPM where it is usable, in the software key storage provider otherwise. No private key file exists any
-  more; ssh.exe gets the public half from a file and the signatures from an ssh-agent built into the agent
+  longer; ssh.exe gets the public half from a file and the signatures from an ssh-agent built into the agent
   service (a named pipe only SYSTEM may open, named through SSH_AUTH_SOCK). P-256, which TPMs and OpenSSH
   agree on; the ed25519 file keys of older enrollments are replaced.
 - Devices move over by themselves: the agent makes the new key beside the current one, the server issues a

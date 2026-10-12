@@ -1764,6 +1764,16 @@ app.MapPost("/api/ssh-cert", async (HttpContext ctx, AppDbContext db, SshCertifi
             return Results.Json(new RekeyError { Code = "revoked_key" }, AgentJsonContext.Default.RekeyError, statusCode: 409);
         }
 
+        // A pending key of an earlier offer that this request replaces already holds a certificate: it is
+        // revoked before another one is issued, or it would stay good at the bastion for the certificate's life.
+        if (rotated && device.PendingSshPublicKey is { } stale && SshRevocationList.KeyBody(stale) != body)
+        {
+            if (!await revoked.RevokeAsync(stale, device.DeviceId, device.Hostname, ct))
+                return Results.Json(new RekeyError { Code = "revocation_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);
+            device.PendingSshPublicKey = null; device.PendingSshUntil = null;
+            await db.SaveChangesAsync(ct);
+        }
+
         var cert = await sshCa.SignAgentShortAsync(key, device.DeviceId, ct);
         if (cert is null)
             return Results.Json(new RekeyError { Code = "sign_failed" }, AgentJsonContext.Default.RekeyError, statusCode: 503);

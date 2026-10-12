@@ -56,7 +56,7 @@ public sealed class SshCertService(IOptions<AgentOptions> options, TransportStat
         public string Provider { get; set; } = "";       // tpm | software | file
         public string? KeyName { get; set; }             // CNG key name, or null for a staged key file
         public string PublicKeyLine { get; set; } = "";
-        public string Stage { get; set; } = "";          // requested | issued | failed
+        public string Stage { get; set; } = "";          // requested | issued | confirmed | failed
         public bool PendingConfirm { get; set; }         // the server holds the switch until we confirm
         public DateTimeOffset? ValidBefore { get; set; }
         public DateTimeOffset? FailedUtc { get; set; }
@@ -195,10 +195,12 @@ public sealed class SshCertService(IOptions<AgentOptions> options, TransportStat
             WriteState(state);
         }
 
+        if (state.Stage == "confirmed") { Finalize(state, current); return true; } // the server has switched: finish ours
         if (state.Stage != "issued") return true;
         if (!state.PendingConfirm)
         {
             // An older server adopted the key and revoked the previous one on the request itself.
+            state.Stage = "confirmed"; WriteState(state);
             Finalize(state, current);
             return true;
         }
@@ -220,27 +222,37 @@ public sealed class SshCertService(IOptions<AgentOptions> options, TransportStat
         }
 
         var confirm = await ConfirmAsync(state.PublicKeyLine, ct);
-        if (confirm == 0) { Finalize(state, current); return true; }
+        if (confirm == 0)
+        {
+            // From here the server has revoked the previous key: the switch on this side must complete, whatever
+            // happens in between, so the stage is on file before any file moves.
+            state.Stage = "confirmed"; WriteState(state);
+            Finalize(state, current);
+            return true;
+        }
         if (confirm == 409) { state.Stage = "requested"; WriteState(state); return false; } // the offer lapsed: ask again
         if (confirm is >= 400 and < 500) { logger.LogWarning(L.SshCertService_ConfirmRefused, confirm); DeleteStaged(state); DeleteState(); return false; }
         return false; // 5xx or no answer: the offer may still stand, try again soon
     }
 
-    /// <summary>The switch: files into place, the live identity, enrollment.json, the old key gone.</summary>
+    /// <summary>The switch: files into place, the live identity, enrollment.json, the old key gone. Resumable: a
+    /// file already moved is skipped, so a stop after any step is finished at the next round from the
+    /// "confirmed" stage, and enrollment.json is rewritten last of the things that matter.</summary>
     private void Finalize(RotationState state, SshIdentity.Snapshot previous)
     {
+        static void MoveIfStaged(string from, string to) { if (File.Exists(from)) File.Move(from, to, overwrite: true); }
         SshIdentity.Snapshot next;
         if (state.KeyName is not null)
         {
-            File.Move(NextPub(state), CngPubPath, overwrite: true);
-            File.Move(NextCert(state), CngCertPath, overwrite: true);
+            MoveIfStaged(NextPub(state), CngPubPath);
+            MoveIfStaged(NextCert(state), CngCertPath);
             next = new SshIdentity.Snapshot(state.Provider, state.KeyName, CngPubPath, CngCertPath, null);
         }
         else
         {
-            File.Move(FileKeyPath + ".next", FileKeyPath, overwrite: true);
-            File.Move(FileKeyPath + ".next.pub", FileKeyPath + ".pub", overwrite: true);
-            File.Move(FileKeyPath + ".next-cert.pub", FileKeyPath + "-cert.pub", overwrite: true);
+            MoveIfStaged(FileKeyPath + ".next", FileKeyPath);
+            MoveIfStaged(FileKeyPath + ".next.pub", FileKeyPath + ".pub");
+            MoveIfStaged(FileKeyPath + ".next-cert.pub", FileKeyPath + "-cert.pub");
             next = new SshIdentity.Snapshot(DeviceKeyStore.File, null, FileKeyPath + ".pub", FileKeyPath + "-cert.pub", FileKeyPath);
         }
         SshIdentity.Set(next);
@@ -266,7 +278,8 @@ public sealed class SshCertService(IOptions<AgentOptions> options, TransportStat
     private enum Probe { Ok, Refused, Inconclusive }
 
     /// <summary>A real reverse connection with the staged key (a throwaway forward, -R 0). Refused = the bastion
-    /// reachable but the key not accepted; inconclusive = the bastion not reachable at all.</summary>
+    /// answered the key with "Permission denied"; anything else that went wrong (not reached, a bridge or mux
+    /// down, a timeout, a forward conflict) is inconclusive and tried again later.</summary>
     private async Task<Probe> ProbeAsync(SshIdentity.Snapshot staged, CancellationToken ct)
     {
         if (!await BastionReachableAsync(ct)) return Probe.Inconclusive;
@@ -276,8 +289,9 @@ public sealed class SshCertService(IOptions<AgentOptions> options, TransportStat
             await using var probe = new SshReverseTunnel(_opt.Tunnel, transport, loggerFactory.CreateLogger<SshReverseTunnel>()) { IdentityOverride = staged };
             await probe.StartAsync(0, 0, ct);
             var ok = probe.IsRunning;
+            var rejected = probe.AuthRejected;
             await probe.StopAsync();
-            return ok ? Probe.Ok : Probe.Refused;
+            return ok ? Probe.Ok : rejected ? Probe.Refused : Probe.Inconclusive;
         }
         finally { SshIdentity.Staged = null; }
     }
