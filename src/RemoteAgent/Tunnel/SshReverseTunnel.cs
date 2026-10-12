@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using RemoteAgent.Configuration;
+using RemoteAgent.Security;
 using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Tunnel;
@@ -21,6 +22,10 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
     private volatile bool _forwardConflict; // last attempt was refused because the bastion still holds the port
 
     public bool IsRunning => _process is { } p && !Exited(p);
+
+    /// <summary>A tunnel key to use instead of the current one: the rotation's probe of a key the bastion has
+    /// a certificate for but the agent has not switched to yet.</summary>
+    public SshIdentity.Snapshot? IdentityOverride { get; init; }
 
     /// <summary>HasExited without the InvalidOperationException a disposed Process throws: a tunnel that another
     /// task is stopping meanwhile (the idle watchdog, a close command) counts as gone, not as a fault.</summary>
@@ -128,10 +133,7 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
             psi.ArgumentList.Add($"{_fileRemotePort}:127.0.0.1:5901");
         }
 
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add(options.PrivateKeyPath);
-        if (!string.IsNullOrWhiteSpace(options.CertificatePath))
-            AddOption(psi, $"CertificateFile=\"{options.CertificatePath}\"");
+        SshIdentityArgs.Apply(psi, options, IdentityOverride);
 
         AddOption(psi, "IdentitiesOnly=yes");
         AddOption(psi, "BatchMode=yes");                       // no prompts
@@ -174,14 +176,19 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
             else if (tConnected < 0 && e.Data.Contains("Connection established", StringComparison.OrdinalIgnoreCase)) tConnected = now;
             else if (tAuthed < 0 && (e.Data.Contains("Authentication succeeded", StringComparison.OrdinalIgnoreCase)
                                   || e.Data.Contains("Authenticated to", StringComparison.OrdinalIgnoreCase))) tAuthed = now;
-            if (e.Data.Contains("Authenticat", StringComparison.OrdinalIgnoreCase)) authed = true;
+            // "Authenticated to host" (9.x) / "Authentication succeeded" (8.x) - and not "Authenticating to",
+            // which every attempt prints before the server has said anything.
+            if (e.Data.Contains("Authenticated to", StringComparison.OrdinalIgnoreCase) || e.Data.Contains("Authentication succeeded", StringComparison.OrdinalIgnoreCase)) authed = true;
             // "Warning: remote port forwarding failed for listen port N" -> the bastion still holds this
             // device's port from a session that has not timed out yet; StartAsync waits that out.
             if (e.Data.Contains("remote port forwarding failed", StringComparison.OrdinalIgnoreCase))
                 _forwardConflict = true;
-            // ssh -v debug lines start with "debug"; log only real warnings/errors to keep the EventLog clean.
+            // ssh -v debug lines start with "debug": warnings for everything else, and the debug lines only at
+            // Debug level (the 24-hour verbose log), where they show which key ssh tried and why it gave up.
             if (!e.Data.StartsWith("debug", StringComparison.OrdinalIgnoreCase))
                 logger.LogWarning("ssh: {Line}", e.Data);
+            else
+                logger.LogDebug("ssh: {Line}", e.Data);
         };
         proc.Start();
         proc.BeginErrorReadLine();

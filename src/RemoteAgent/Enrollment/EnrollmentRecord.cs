@@ -53,6 +53,15 @@ public sealed class EnrollmentRecord
     /// <summary>Certificate expiry, kept here so it is known without loading the certificate.</summary>
     [JsonPropertyName("certNotAfterUtc")]
     public DateTimeOffset? CertNotAfterUtc { get; set; }
+
+    /// <summary>Where the tunnel (SSH) key lives: "tpm" | "software" (named CNG key served by the in-process
+    /// ssh-agent; id_ecdsa.pub and id_ecdsa-cert.pub beside this file) or "file" (id_ed25519). Missing = "file".</summary>
+    [JsonPropertyName("sshKeyProvider")]
+    public string? SshKeyProvider { get; set; }
+
+    /// <summary>The CNG key's name for "tpm"/"software".</summary>
+    [JsonPropertyName("sshKeyName")]
+    public string? SshKeyName { get; set; }
 }
 
 /// <summary>Source-generated JSON for agent-local, non-wire types without reflection.</summary>
@@ -60,4 +69,5 @@ public sealed class EnrollmentRecord
 [JsonSerializable(typeof(EnrollmentRecord))]
 [JsonSerializable(typeof(RemoteAgent.Services.RekeyService.RecoveryState))]
 [JsonSerializable(typeof(RemoteAgent.Services.RekeyService.PendingCandidate))]
+[JsonSerializable(typeof(RemoteAgent.Services.SshCertService.RotationState))]
 public sealed partial class AgentLocalJsonContext : JsonSerializerContext;

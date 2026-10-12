@@ -139,6 +139,14 @@ public sealed class DeviceTelemetryPanel : UserControl
             default: parts.Add(L.DeviceTelemetryPanel_KeyUnknown); break;
         }
         if (d.CertNotAfter is { } end) parts.Add(L.Format(L.DeviceTelemetryPanel_CertUntil, end.ToLocalTime().ToString("yyyy-MM-dd")));
+        // The tunnel (SSH) key, from 2.3.1 a CNG key as well; a key file on a ready TPM is the same yellow case.
+        switch (d.SshKeyProvider)
+        {
+            case "tpm": parts.Add(L.DeviceTelemetryPanel_SshKeyTpm); break;
+            case "software": parts.Add(L.DeviceTelemetryPanel_SshKeySoftware); keyElsewhere |= d.TpmReady == true; break;
+            case "file": parts.Add(L.DeviceTelemetryPanel_SshKeyFile); keyElsewhere |= d.TpmReady == true; break;
+            default: break; // an agent before 2.3.1 says nothing about it
+        }
 
         var color = d.TpmVulnerableFirmware == true ? ThemeManager.DangerFg
                   : d.TpmReady == false || keyElsewhere ? ThemeManager.WarnFg

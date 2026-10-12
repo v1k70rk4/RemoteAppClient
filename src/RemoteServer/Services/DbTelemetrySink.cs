@@ -87,6 +87,7 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
         device.TpmAttestation = payload.TpmAttestation;
         device.TpmVulnerableFirmware = payload.TpmVulnerableFirmware;
         if (payload.KeyProvider is not null) device.KeyProvider = Short(payload.KeyProvider);
+        if (payload.SshKeyProvider is not null) device.SshKeyProvider = Short(payload.SshKeyProvider);
         if (payload.CertNotAfter is { } notAfter && device.CertNotAfter is null) device.CertNotAfter = notAfter; // devices enrolled before the column existed
         device.LastSeenAt = now;
 

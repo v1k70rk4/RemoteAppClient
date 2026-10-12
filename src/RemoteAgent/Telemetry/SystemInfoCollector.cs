@@ -54,6 +54,7 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
             TpmVulnerableFirmware = tpm.VulnerableFirmware,
             KeyProvider = RemoteAgent.Security.DeviceIdentity.Current?.Provider,
             CertNotAfter = RemoteAgent.Security.DeviceIdentity.Current?.NotAfter,
+            SshKeyProvider = RemoteAgent.Security.SshIdentity.Current?.Provider,
         };
         ReadSupervisorStatus(p);
         return p;

@@ -85,9 +85,21 @@ public static class EnrollCommand
         var csrRequest = new CertificateRequest("CN=enroll", key, HashAlgorithmName.SHA256);
         string csrPem = csrRequest.CreateSigningRequestPem();
 
-        // SSH key pair for the bastion tunnel. ssh-keygen creates it locally; private key stays on the device.
-        var sshKeyPath = Path.Combine(outDir, "id_ed25519");
-        string sshPublicKey = GenerateSshKey(sshKeyPath);
+        // Tunnel (SSH) key: a named CNG key like the device key, served to ssh.exe by the in-process agent; only
+        // when CNG refuses is it an OpenSSH key file made by ssh-keygen. The private half never leaves the device.
+        SshKeyStore.NewKey? sshStored = null;
+        try { sshStored = SshKeyStore.Create(preferTpm: DeviceKeyStore.TpmUsable()); }
+        catch (CryptographicException) { /* no CNG key storage: key file below */ }
+        var sshKeyPath = Path.Combine(outDir, sshStored is null ? "id_ed25519" : "id_ecdsa");
+        string sshPublicKey;
+        if (sshStored is not null)
+        {
+            sshPublicKey = sshStored.PublicKeyLine;
+            foreach (var p in new[] { sshKeyPath + ".pub", sshKeyPath + "-cert.pub" }) if (File.Exists(p)) File.Delete(p);
+            File.WriteAllText(sshKeyPath + ".pub", sshPublicKey + "\n");
+        }
+        else
+            sshPublicKey = GenerateSshKey(sshKeyPath);
 
         EnrollResponse? resp;
         try
@@ -120,6 +132,7 @@ public static class EnrollCommand
         if (resp is null || string.IsNullOrEmpty(resp.Certificate))
         {
             stored?.Dispose(); if (stored is not null) DeviceKeyStore.DeleteKey(stored.KeyName);
+            sshStored?.Dispose(); if (sshStored is not null) SshKeyStore.Delete(sshStored.KeyName);
             return new EnrollResult(false, null, null, "empty_response");
         }
 
@@ -157,6 +170,8 @@ public static class EnrollCommand
             KeyProvider = stored?.Provider ?? DeviceKeyStore.File,
             KeyName = stored?.KeyName,
             CertNotAfterUtc = notAfter,
+            SshKeyProvider = sshStored?.Provider ?? DeviceKeyStore.File,
+            SshKeyName = sshStored?.KeyName,
             CaPinSha256 = Convert.ToHexString(SHA256.HashData(caCert.GetRawCertData())),
             CommandSigningPublicKey = resp.CommandSigningPublicKey,
             ServerUrl = server,
@@ -171,6 +186,7 @@ public static class EnrollCommand
             JsonSerializer.Serialize(record, AgentLocalJsonContext.Default.EnrollmentRecord));
         DataDirectorySecurity.Secure(outDir);
         stored?.Dispose();
+        sshStored?.Dispose();
 
         return new EnrollResult(true, resp.DeviceId, thumbprint, null);
     }

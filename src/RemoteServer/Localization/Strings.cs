@@ -123,6 +123,8 @@ internal static partial class Strings
     public static string SshRevocationList_AlreadyListed => Get(nameof(SshRevocationList_AlreadyListed));
     public static string Program_SshKeyRotated => Get(nameof(Program_SshKeyRotated));
     public static string Program_SshCertRefusedRevoked => Get(nameof(Program_SshCertRefusedRevoked));
+    public static string Program_SshRotationPending => Get(nameof(Program_SshRotationPending));
+    public static string Program_SshConfirmNothingPending => Get(nameof(Program_SshConfirmNothingPending));
     public static string Program_RekeyRequestOpened => Get(nameof(Program_RekeyRequestOpened));
     public static string Program_RekeyRequestApproved => Get(nameof(Program_RekeyRequestApproved));
     public static string FirstAdminHandover_CouldNotWrite => Get(nameof(FirstAdminHandover_CouldNotWrite));

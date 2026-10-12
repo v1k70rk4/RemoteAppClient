@@ -56,6 +56,8 @@ internal static partial class Strings
         [nameof(SshRevocationList_NothingToRevoke)] = "A(z) {Device} eszköznek nem volt használható SSH-kulcsa a nyilvántartásban (hiányzik vagy nem egysoros), így nem volt mit a bastion visszavonási listájára tenni",
         [nameof(SshRevocationList_AlreadyListed)] = "A(z) {Device} eszköz korábbi SSH-kulcsa már rajta volt a bastion visszavonási listáján",
         [nameof(Program_SshKeyRotated)] = "Alagút-kulcs lecserélve: {Device} eszköz; a korábbi kulcs a bastion visszavonási listáján",
+        [nameof(Program_SshRotationPending)] = "Alagút-kulcscsere felajánlva: {Device} eszköz; az új kulcs arra vár, hogy az eszköz igazolja a bastionon",
+        [nameof(Program_SshConfirmNothingPending)] = "A(z) {Device} eszköz olyan alagút-kulcsot erősített meg, amely nincs felajánlva (lejárt vagy sosem volt); újra kell kérnie",
         [nameof(Program_SshCertRefusedRevoked)] = "Alagút-tanúsítvány elutasítva: a(z) {Device} eszköz visszavont kulcsot ajánlott",
         [nameof(Program_RekeyRequestOpened)] = "Elveszett kulcs: a(z) {Device} eszköz kulcscserét kér ({Hostname} néven, innen: {Ip}); rendszergazdai döntésre vár a konzolban",
         [nameof(Program_RekeyRequestApproved)] = "A(z) {Device} eszköz kulcscsere-kérését {User} jóváhagyta: új tanúsítvány kiadva, a régi érvénytelen",

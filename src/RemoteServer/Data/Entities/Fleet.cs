@@ -72,6 +72,14 @@ public sealed class Device
     /// <summary>Agent SSH public key for bastion authorized_keys/CA flows.</summary>
     public string? SshPublicKey { get; set; }
 
+    /// <summary>Where the tunnel key lives, as the agent reports it: "tpm" | "software" | "file"; null = unknown.</summary>
+    public string? SshKeyProvider { get; set; }
+
+    /// <summary>A rotation in flight: the new tunnel key the server has issued a certificate for but which the
+    /// device has not yet proven at the bastion. Adopted on confirmation, forgotten after <see cref="PendingSshUntil"/>.</summary>
+    public string? PendingSshPublicKey { get; set; }
+    public DateTimeOffset? PendingSshUntil { get; set; }
+
     /// <summary>Per-device VNC password, encrypted. With loopback-only it gates local access.</summary>
     public string? VncSecret { get; set; }
     public DateTimeOffset? VncSecretUpdatedAt { get; set; }

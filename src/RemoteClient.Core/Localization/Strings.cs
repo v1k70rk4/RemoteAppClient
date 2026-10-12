@@ -416,6 +416,9 @@ public static partial class Strings
     public static string DeviceTelemetryPanel_KeySoftware => Get(nameof(DeviceTelemetryPanel_KeySoftware));
     public static string DeviceTelemetryPanel_KeyFile => Get(nameof(DeviceTelemetryPanel_KeyFile));
     public static string DeviceTelemetryPanel_KeyUnknown => Get(nameof(DeviceTelemetryPanel_KeyUnknown));
+    public static string DeviceTelemetryPanel_SshKeyTpm => Get(nameof(DeviceTelemetryPanel_SshKeyTpm));
+    public static string DeviceTelemetryPanel_SshKeySoftware => Get(nameof(DeviceTelemetryPanel_SshKeySoftware));
+    public static string DeviceTelemetryPanel_SshKeyFile => Get(nameof(DeviceTelemetryPanel_SshKeyFile));
     public static string DeviceTelemetryPanel_CertUntil => Get(nameof(DeviceTelemetryPanel_CertUntil));
     public static string AuditText_VerboseLog => Get(nameof(AuditText_VerboseLog));
     public static string AuditText_VerboseLogOn => Get(nameof(AuditText_VerboseLogOn));

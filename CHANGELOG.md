@@ -3,6 +3,25 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
+## What's New in 2.3.1
+
+**The tunnel key lives in the TPM too** ([ADR-0004](docs/adr/0004-tpm-ssh-key.md)). Agent, server and console
+**2.3.1.0**; one schema change (`upgrade-2.3.1.sql`, idempotent).
+- The SSH key the agent opens its tunnels with is now a named, non-exportable CNG key like the device key: in
+  the TPM where it is usable, in the software key storage provider otherwise. No private key file exists any
+  more; ssh.exe gets the public half from a file and the signatures from an ssh-agent built into the agent
+  service (a named pipe only SYSTEM may open, named through SSH_AUTH_SOCK). P-256, which TPMs and OpenSSH
+  agree on; the ed25519 file keys of older enrollments are replaced.
+- Devices move over by themselves: the agent makes the new key beside the current one, the server issues a
+  three-day certificate but keeps the current key on record, the agent opens a real connection to the bastion
+  with the new key, and only after that confirmation does the server revoke the previous key and adopt the new
+  one. A failure anywhere leaves the current key in use; a key the bastion refused is not tried again for a
+  day. Agents before 2.3.1 keep the immediate switch. Running tunnels are never touched.
+- New enrollments create the key in CNG from the start; a machine without CNG key storage keeps the key file.
+- Telemetry reports where the tunnel key is, and the console's TPM row shows it (*alagút-kulcs: TPM / szoftver
+  / fájl*), yellow on a ready TPM that does not hold it yet.
+- Schema: `Devices.SshKeyProvider`, `PendingSshPublicKey`, `PendingSshUntil`.
+
 ## What's New in 2.3.0
 
 **The device key lives in the TPM, and certificates renew themselves** ([ADR-0003](docs/adr/0003-tpm-device-key.md))

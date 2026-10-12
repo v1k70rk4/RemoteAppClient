@@ -36,9 +36,12 @@ public static class DeviceKeyStore
 
     /// <summary>Creates a fresh key, in the TPM when asked and possible, otherwise in software. Throws only when
     /// even the software provider refuses (the caller then falls back to the PFX file).</summary>
-    public static NewKey Create(bool preferTpm)
+    public static NewKey Create(bool preferTpm) => CreateNamed("RemoteAgent-Device-", preferTpm);
+
+    /// <summary>The same, under another name prefix (the tunnel key lives beside the device key).</summary>
+    public static NewKey CreateNamed(string prefix, bool preferTpm)
     {
-        var name = "RemoteAgent-Device-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss") + "-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(3));
+        var name = prefix + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss") + "-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(3));
         if (preferTpm)
         {
             try { return Make(name, TpmProviderName, Tpm); }
