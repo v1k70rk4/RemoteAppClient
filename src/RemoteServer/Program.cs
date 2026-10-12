@@ -1082,24 +1082,32 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
     if (channel is not ("rtm" or "beta")) return Results.BadRequest(new { error = "bad_channel" });
     if (component is not ("agent" or "updater" or "client" or "vnc")) return Results.BadRequest(new { error = "bad_component" });
 
-    // Internal collision-free file name: {component}-{channel}-{version}.{ext}. vnc arrives as MSI.
-    var ext = component == "vnc" ? "msi" : "exe";
-    var safeVer = version.Replace('/', '_').Replace('\\', '_');
-    var fileName = $"{component}-{channel}-{safeVer}.{ext}";
-
+    // The file is named after its own hash (PackageFileName), so a re-upload of the same version never overwrites
+    // a file that another record - a promoted channel's, say - still points at with the old hash. The body lands
+    // in a temporary file first; the name is known only once it is hashed.
     var dir = opt.Value.PackagesDir;
     Directory.CreateDirectory(dir);
-    var path = Path.Combine(dir, Path.GetFileName(fileName));
-
-    await using (var fs = File.Create(path))
-        await ctx.Request.Body.CopyToAsync(fs, ctx.RequestAborted);
+    var tmp = Path.Combine(dir, $"upload-{Guid.NewGuid():N}.tmp");
 
     string sha;
     long size;
-    await using (var read = File.OpenRead(path))
+    string fileName;
+    try
     {
-        size = read.Length;
-        sha = Convert.ToHexString(await SHA256.HashDataAsync(read, ctx.RequestAborted));
+        await using (var fs = File.Create(tmp))
+            await ctx.Request.Body.CopyToAsync(fs, ctx.RequestAborted);
+        await using (var read = File.OpenRead(tmp))
+        {
+            size = read.Length;
+            sha = Convert.ToHexString(await SHA256.HashDataAsync(read, ctx.RequestAborted));
+        }
+        fileName = PackageFileName.For(component, channel, version, sha);
+        File.Move(tmp, Path.Combine(dir, fileName), overwrite: true); // the same name means the same bytes
+    }
+    catch
+    {
+        try { File.Delete(tmp); } catch { /* best effort */ }
+        throw;
     }
 
     db.ReleasePackages.Add(new ReleasePackage
