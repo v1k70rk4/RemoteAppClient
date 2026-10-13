@@ -116,6 +116,7 @@ internal static partial class Strings
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedConsentOutcome)] = "open-tunnel denied; consent: {Outcome}.",
         [nameof(TunnelOrchestratorService_TunnelIdleTimeoutIdleS)] = "Tunnel idle-timeout ({Idle}s), tearing down.",
         [nameof(TunnelOrchestratorService_UnknownCommandType)] = "Unknown command: {Type}",
+        [nameof(TunnelOrchestratorService_UpdateStartsInAMinute)] = "Update of {Target} to {Version} received; the download starts in a minute, once the connection has settled",
         [nameof(UpdateInstaller_UpdateCommandWithoutURLHash)] = "Update command without URL/hash, skipped.",
         [nameof(UpdateInstaller_CouldNotDetermineUpdaterExe)] = "Could not determine Updater exe path; skipping update.",
         [nameof(UpdateInstaller_DownloadingUpdateTargetVersionUrl)] = "Downloading update: {Target} {Version} ({Url})",

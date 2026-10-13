@@ -3,6 +3,17 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
+## What's New in 3.0.1
+
+**Updates on sleepy laptops.** Agent **3.0.0.1**, server **3.0.0.1**; no schema change.
+- The agent waits a minute after an update command before it starts the download. The command tends to arrive
+  the moment a device comes back from sleep or roams onto another network, when its link is at its flakiest, and
+  a download of tens of megabytes started right then broke more often than not.
+- A paused update is never final. When a package did not take effect after three attempts in six hours, the
+  server used to stop offering it until the device reported something else or the server restarted; a download
+  that broke on a laptop's sleepy link left that laptop behind for good. The pause now lasts six hours, then the
+  device is tried again (and paused again if it still does not take). The note on the device says when.
+
 ## What's New in 3.0.0
 
 **Every key a device holds now lives in its TPM.** The device's mTLS key and the tunnel's SSH key are named,

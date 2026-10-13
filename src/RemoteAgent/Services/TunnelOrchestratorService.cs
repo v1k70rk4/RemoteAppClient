@@ -94,6 +94,8 @@ public sealed class TunnelOrchestratorService(
     /// Runs an update off the command loop, single-flight. Downloads can take minutes, so awaiting
     /// inline would block tunnel/power/message; and only one update should run at a time.
     /// </summary>
+    private static readonly TimeSpan UpdateGrace = TimeSpan.FromMinutes(1);
+
     private void StartUpdate(AgentCommand cmd, CancellationToken ct)
     {
         if (!_updateTask.IsCompleted)
@@ -105,6 +107,11 @@ public sealed class TunnelOrchestratorService(
         {
             try
             {
+                // An update command tends to arrive the moment a device comes back (wake, reconnect), when a
+                // laptop's link is at its flakiest; a minute's grace lets the connection settle before a
+                // download of tens of megabytes starts on it.
+                logger.LogInformation(L.TunnelOrchestratorService_UpdateStartsInAMinute, cmd.Data?.UpdateTarget ?? "agent", cmd.Data?.UpdateVersion);
+                await Task.Delay(UpdateGrace, ct);
                 await updateInstaller.ApplyAsync(
                     cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
             }
