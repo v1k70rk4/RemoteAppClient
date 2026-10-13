@@ -221,6 +221,13 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
                 UpdateVersion = pkg.Version, UpdateUrl = $"/api/updates/{pkg.FileName}",
                 UpdateSha256 = pkg.Sha256, UpdateTarget = comp,
             };
+            // A new attempt is under way: a pause note from before (its pause ran out, or the report changed)
+            // would otherwise sit on the device through the attempt, since telemetry preserves it.
+            if (device.LastIncident?.StartsWith(PauseNotePrefix, StringComparison.Ordinal) == true)
+            {
+                device.LastIncident = null;
+                await db.SaveChangesAsync(ct);
+            }
             await commands.EnqueueAsync(device.DeviceId, CommandTypes.Update, data, null, ct);
             return; // one component per pass
         }
