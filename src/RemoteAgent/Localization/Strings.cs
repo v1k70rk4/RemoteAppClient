@@ -170,6 +170,7 @@ internal static partial class Strings
     public static string TunnelOrchestratorService_OpenTunnelDeniedConsentOutcome => Get(nameof(TunnelOrchestratorService_OpenTunnelDeniedConsentOutcome));
     public static string TunnelOrchestratorService_TunnelIdleTimeoutIdleS => Get(nameof(TunnelOrchestratorService_TunnelIdleTimeoutIdleS));
     public static string TunnelOrchestratorService_UnknownCommandType => Get(nameof(TunnelOrchestratorService_UnknownCommandType));
+    public static string TunnelOrchestratorService_UpdateStartsInAMinute => Get(nameof(TunnelOrchestratorService_UpdateStartsInAMinute));
     public static string UpdateInstaller_UpdateCommandWithoutURLHash => Get(nameof(UpdateInstaller_UpdateCommandWithoutURLHash));
     public static string UpdateInstaller_CouldNotDetermineUpdaterExe => Get(nameof(UpdateInstaller_CouldNotDetermineUpdaterExe));
     public static string UpdateInstaller_DownloadingUpdateTargetVersionUrl => Get(nameof(UpdateInstaller_DownloadingUpdateTargetVersionUrl));

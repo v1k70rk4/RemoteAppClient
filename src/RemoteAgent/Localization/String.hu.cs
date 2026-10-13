@@ -116,6 +116,7 @@ internal static partial class Strings
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedConsentOutcome)] = "open-tunnel elutasítva — hozzájárulás: {Outcome}.",
         [nameof(TunnelOrchestratorService_TunnelIdleTimeoutIdleS)] = "Tunnel idle-timeout ({Idle}s), lebontás.",
         [nameof(TunnelOrchestratorService_UnknownCommandType)] = "Ismeretlen parancs: {Type}",
+        [nameof(TunnelOrchestratorService_UpdateStartsInAMinute)] = "Frissítés érkezett ({Target} → {Version}); a letöltés egy perc múlva indul, ha a kapcsolat már megállapodott",
         [nameof(UpdateInstaller_UpdateCommandWithoutURLHash)] = "Update parancs URL/hash nélkül, kihagyva.",
         [nameof(UpdateInstaller_CouldNotDetermineUpdaterExe)] = "Az Updater exe útvonala nem határozható meg — frissítés kihagyva.",
         [nameof(UpdateInstaller_DownloadingUpdateTargetVersionUrl)] = "Update letöltése: {Target} {Version} ({Url})",

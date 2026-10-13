@@ -31,6 +31,21 @@ public class UpdatePauseStateTests
     }
 
     [Fact]
+    public void A_pause_runs_out_and_the_device_is_tried_again()
+    {
+        var now = new DateTimeOffset(2026, 10, 13, 6, 0, 0, TimeSpan.Zero);
+        var s = new UpdatePauseState(() => now);
+        var dev = Guid.NewGuid();
+        s.Set(dev, "agent", "3.0.0.1", "2.3.0.4");
+        Assert.True(s.IsPaused(dev, "agent", "3.0.0.1", "2.3.0.4"));
+        now += UpdatePauseState.Duration - TimeSpan.FromMinutes(1);
+        Assert.True(s.IsPaused(dev, "agent", "3.0.0.1", "2.3.0.4"));   // still inside the pause
+        now += TimeSpan.FromMinutes(2);
+        Assert.False(s.IsPaused(dev, "agent", "3.0.0.1", "2.3.0.4"));  // ran out: one more attempt is due
+        Assert.False(s.IsPaused(dev, "agent", "3.0.0.1", "2.3.0.4"));  // and it stays dropped
+    }
+
+    [Fact]
     public void Components_are_paused_independently_and_clear_forgets_them_all()
     {
         var s = new UpdatePauseState();

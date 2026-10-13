@@ -190,9 +190,10 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
             // An update that "succeeds" without changing what the device reports (a TightVNC whose service
             // points at a stray copy, a locked file) would otherwise be re-sent every ten minutes forever,
             // under the hourly breaker above. A device paused for this very package, still reporting what it
-            // reported when it was paused, gets nothing more - however long ago that was. Once its report
-            // changes (repaired, or another package got in) it is no longer paused and gets one attempt;
-            // three sends of the same package in six hours with the device still behind pause it again.
+            // reported when it was paused, gets nothing more for the pause's duration (UpdatePauseState.Duration);
+            // then, or once its report changes (repaired, or another package got in), it gets one attempt, and
+            // three sends of the same package in six hours with the device still behind pause it again. A pause
+            // is never final: a laptop whose download broke on a sleepy link is tried again later.
             // A pause is for one component: the components after it in the order are still offered, so a
             // package the device cannot take (a hash that no longer matches its file, a locked exe) never holds
             // back the agent update behind it.
@@ -210,7 +211,7 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
             if (same >= 3)
             {
                 pauses.Set(device.Id, comp, pkg.Version, reported);
-                device.LastIncident = $"{PauseNotePrefix}{comp} {pkg.Version} does not take effect (reported {reported} after {same} attempts)";
+                device.LastIncident = $"{PauseNotePrefix}{comp} {pkg.Version} does not take effect (reported {reported} after {same} attempts; next try in {UpdatePauseState.Duration.TotalHours:0} h)";
                 await db.SaveChangesAsync(ct);
                 continue;
             }
@@ -220,6 +221,13 @@ public sealed class DbTelemetrySink(AppDbContext db, CommandService commands, Cl
                 UpdateVersion = pkg.Version, UpdateUrl = $"/api/updates/{pkg.FileName}",
                 UpdateSha256 = pkg.Sha256, UpdateTarget = comp,
             };
+            // A new attempt is under way: a pause note from before (its pause ran out, or the report changed)
+            // would otherwise sit on the device through the attempt, since telemetry preserves it.
+            if (device.LastIncident?.StartsWith(PauseNotePrefix, StringComparison.Ordinal) == true)
+            {
+                device.LastIncident = null;
+                await db.SaveChangesAsync(ct);
+            }
             await commands.EnqueueAsync(device.DeviceId, CommandTypes.Update, data, null, ct);
             return; // one component per pass
         }
