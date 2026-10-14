@@ -55,6 +55,17 @@ public class ReconnectHandlerTests
     }
 
     [Fact]
+    public async Task A_get_marked_no_retry_is_not_repeated()
+    {
+        var (http, inner, dropped) = Build(failures: 1);
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/admin/server/backup/download");
+        req.Options.Set(AdminApi.ReconnectHandler.NoRetry, true);
+        await Assert.ThrowsAsync<HttpRequestException>(() => http.SendAsync(req));
+        Assert.Equal(1, inner.Calls);
+        Assert.Equal(1, dropped());
+    }
+
+    [Fact]
     public async Task A_healthy_request_touches_nothing()
     {
         var (http, inner, dropped) = Build(failures: 0);

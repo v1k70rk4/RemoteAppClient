@@ -778,7 +778,11 @@ public sealed class AdminApi : IDisposable
     /// succeeds exactly once per backup.</summary>
     public async Task<(string FileName, byte[] Data)> DownloadBackupAsync(CancellationToken ct = default)
     {
-        using var resp = await _http.GetAsync("/admin/server/backup/download", ct);
+        // A GET, but not one to repeat: the archive is gone after the first handover, and a retry would answer
+        // the operator with a 404 in place of the transport failure that actually lost the backup.
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/admin/server/backup/download");
+        req.Options.Set(ReconnectHandler.NoRetry, true);
+        using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         var name = resp.Content.Headers.ContentDisposition?.FileNameStar
                 ?? resp.Content.Headers.ContentDisposition?.FileName?.Trim('"')
@@ -802,17 +806,22 @@ public sealed class AdminApi : IDisposable
     /// connection but the link behind it was gone) once more after dropping the forward, so the retry dials a
     /// fresh ssh -L. Only GET and HEAD are repeated: they are safe to send twice, and the console's ten-second
     /// device refresh is a GET, so a dead tunnel heals in the background within seconds and a later POST finds
-    /// it working. Any other method just drops the forward and reports the failure.
+    /// it working. Any other method, and a GET marked <see cref="NoRetry"/> (one whose answer the server hands
+    /// over only once), just drops the forward and reports the failure.
     /// </summary>
     internal sealed class ReconnectHandler(HttpMessageHandler inner, Action invalidateForward) : DelegatingHandler(inner)
     {
+        public static readonly HttpRequestOptionsKey<bool> NoRetry = new("RemoteClient.NoRetry");
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             try { return await base.SendAsync(request, ct); }
             catch (Exception ex) when (ex is HttpRequestException or IOException)
             {
                 invalidateForward();
-                if (request.Method != HttpMethod.Get && request.Method != HttpMethod.Head) throw;
+                bool safeToRepeat = (request.Method == HttpMethod.Get || request.Method == HttpMethod.Head)
+                    && !(request.Options.TryGetValue(NoRetry, out var noRetry) && noRetry);
+                if (!safeToRepeat) throw;
             }
             return await base.SendAsync(request, ct);
         }
