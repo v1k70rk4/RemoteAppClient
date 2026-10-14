@@ -578,7 +578,7 @@ public sealed class DevicesView : UserControl, IContentView
         if (_sortColumn < 0) return items;
         Func<DeviceInfo, object?> key = _sortColumn switch
         {
-            0 => d => d.Hostname,
+            0 => d => d.Hostname?.Trim(),   // the same key DuplicateNames groups by (case-insensitive via CompareKeys)
             1 => d => d.GroupName,
             2 => d => DeviceLiveness.Of(d),   // enum order: error, pending, online, flaky, reporting, offline
             3 => d => d.LoggedInUser,
@@ -590,7 +590,9 @@ public sealed class DevicesView : UserControl, IContentView
             ? items.OrderBy(key, Comparer<object?>.Create(CompareKeys))
             : items.OrderByDescending(key, Comparer<object?>.Create(CompareKeys));
         // Same name: the older record (1) before the newer (2), whichever way the names go.
-        return _sortColumn == 0 ? ordered.ThenBy(d => d.EnrolledAt ?? d.LastSeenAt ?? DateTimeOffset.MinValue) : ordered;
+        return _sortColumn == 0
+            ? ordered.ThenBy(d => d.EnrolledAt ?? d.LastSeenAt ?? DateTimeOffset.MinValue).ThenBy(d => d.DeviceId, StringComparer.Ordinal)
+            : ordered;
     }
 
     private static int CompareKeys(object? a, object? b)
