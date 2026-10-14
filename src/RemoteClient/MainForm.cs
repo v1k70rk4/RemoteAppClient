@@ -301,6 +301,7 @@ public sealed class MainForm : MaterialForm
         {
             _api = new AdminApi(RefreshAdminForwardAsync);
             _api.Unauthorized += OnSessionExpired;   // a 401 on a signed-in call means the session expired -> re-auth
+            Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
             // Broker ssh -L may become usable a few seconds after reserving the port due to
             // cold SSH handshake. Avoid false "not responding" warnings by pinging for about 15s.
@@ -990,8 +991,17 @@ public sealed class MainForm : MaterialForm
 
     private void SetLoginStatus(string text) => _loginStatus.Text = text;
 
+    /// <summary>After sleep the admin forward's ssh still listens on 127.0.0.1 but its link is dead; the first
+    /// request would hang until ssh gives up on it. Dropping the forward on resume makes that request open a
+    /// fresh one straight away.</summary>
+    private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) _api?.InvalidateForward();
+    }
+
     private void Cleanup()
     {
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         try { _envTimer.Stop(); _envTimer.Dispose(); } catch { /* best effort */ }
         try { _api?.LogoutAsync().Wait(TimeSpan.FromSeconds(2)); } catch { }
         _broker?.Dispose();
