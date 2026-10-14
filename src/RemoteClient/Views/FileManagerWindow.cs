@@ -113,7 +113,8 @@ internal sealed class FilePane : UserControl
         _list.Resize += (_, _) => FitColumns();
         _list.ColumnClick += (_, e) =>
         {
-            if (e.Column == _sortCol) _sortAsc = !_sortAsc; else { _sortCol = e.Column; _sortAsc = true; }
+            // A new column starts in its natural order: names A to Z, sizes and dates largest / newest first.
+            if (e.Column == _sortCol) _sortAsc = !_sortAsc; else { _sortCol = e.Column; _sortAsc = e.Column == 0; }
             Render();
         };
         _drives.SelectedIndexChanged += async (_, _) => { if (!_suppressDrive && _drives.SelectedItem is string dr) await NavigateAsync(dr); };
@@ -161,6 +162,9 @@ internal sealed class FilePane : UserControl
     private void Render()
     {
         if (_last is not { } l) return;
+        // Re-sorting must not lose what the operator has selected: the names survive the rebuild.
+        var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ListViewItem it in _list.SelectedItems) if (it.Tag is FsEntry se) selected.Add(se.Name);
         _list.BeginUpdate();
         _list.Items.Clear();
         if (!string.IsNullOrEmpty(l.Path)) _list.Items.Add(new ListViewItem("..") { Tag = null });
@@ -168,6 +172,8 @@ internal sealed class FilePane : UserControl
             _list.Items.Add(new ListViewItem(new[] { "📁 " + e.Name, "", e.Modified == default ? "" : e.Modified.LocalDateTime.ToString("g") }) { Tag = e });
         foreach (var e in Sorted(l.Entries.Where(e => !e.IsDir)))
             _list.Items.Add(new ListViewItem(new[] { e.Name, FmtSize(e.Size), e.Modified == default ? "" : e.Modified.LocalDateTime.ToString("g") }) { Tag = e });
+        if (selected.Count > 0)
+            foreach (ListViewItem it in _list.Items) if (it.Tag is FsEntry fe && selected.Contains(fe.Name)) it.Selected = true;
         _list.EndUpdate();
         FitColumns();
         _list.Invalidate(); // the header's sort mark
