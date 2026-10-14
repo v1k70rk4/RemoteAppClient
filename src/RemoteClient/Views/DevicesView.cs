@@ -22,6 +22,7 @@ public sealed class DevicesView : UserControl, IContentView
     private string _viewerColor;   // TightVNC color depth: "full" or "256" (8-bit, low-color); per-operator, from the account
 
     private readonly List<DeviceInfo> _devices = new();
+    private Dictionary<string, (int N, int Of)> _dupes = new();   // devices sharing a hostname: "1/2", "2/2"
     private readonly Panel _listHost = new() { Dock = DockStyle.Fill };
     private readonly Panel _editorHost = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly ListView _list = new();
@@ -272,6 +273,7 @@ public sealed class DevicesView : UserControl, IContentView
             if (!quiet) SetStatus(L.DevicesView_FetchingDeviceList);   // quiet = the silent 10-second auto-refresh
             var devices = await RetryAsync(() => _api.GetDevicesAsync());
             _devices.Clear(); _devices.AddRange(devices);
+            _dupes = DuplicateNames.Number(_devices);
             PopulateGroupFilter();
             RenderList();
             UpdateStats();
@@ -392,6 +394,14 @@ public sealed class DevicesView : UserControl, IContentView
                     tx += 19;
                 }
                 TextRenderer.DrawText(g, name, UiFont.MonoSemi, new Rectangle(tx, nameY, r.Right - tx - 8, nameH), ThemeManager.Text, nameFlags);
+                if (_dupes.TryGetValue(d.DeviceId, out var dn))
+                {
+                    // "1/2" after the name: the same hostname is in the fleet twice (re-imaged machine); 1 is the older record.
+                    int nameW = TextRenderer.MeasureText(g, name, UiFont.MonoSemi, Size.Empty, TextFormatFlags.NoPadding).Width;
+                    int px = tx + nameW + 8;
+                    if (px + 40 < r.Right)
+                        UiPaint.DrawPill(g, px, note is null ? cy : nameY + nameH / 2, $"{dn.N}/{dn.Of}", ThemeManager.Text2, ThemeManager.Panel3, UiFont.Small, dot: false);
+                }
                 if (note is not null)
                     TextRenderer.DrawText(g, note, UiFont.Small, new Rectangle(tile.Right + 11, cy + 1, r.Right - tile.Right - 19, 15),
                         ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
@@ -516,7 +526,8 @@ public sealed class DevicesView : UserControl, IContentView
             // Display is owner-drawn (DrawRow). The sub-item text is kept (not shown) only so the built-in
             // column auto-size has real content to measure instead of collapsing to zero.
             string status = DeviceLiveness.Label(d);   // the same word the pill draws, so auto-size measures it
-            var item = new ListViewItem(string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname) { Tag = d };
+            var item = new ListViewItem((string.IsNullOrEmpty(d.Hostname) ? L.DevicesView_Unnamed : d.Hostname)
+                + (_dupes.TryGetValue(d.DeviceId, out var dn) ? $"  {dn.N}/{dn.Of}" : "")) { Tag = d };
             item.SubItems.Add(d.GroupName ?? "—");
             item.SubItems.Add(status);
             item.SubItems.Add(string.IsNullOrWhiteSpace(d.LoggedInUser) ? "—" : d.LoggedInUser);
@@ -527,6 +538,7 @@ public sealed class DevicesView : UserControl, IContentView
             else if (d.LinkFlaky && d.Reporting) item.ToolTipText = L.Format(L.DevicesView_LinkFlakyTip, d.RecentReconnects);
             else if (d.Reporting && !d.Online) item.ToolTipText = L.DevicesView_ReportingOnlyTip;
             else if (!string.IsNullOrWhiteSpace(d.LastIncident)) item.ToolTipText = "Supervisor: " + d.LastIncident;
+            else if (dn.Of > 0) item.ToolTipText = L.Format(L.DevicesView_DuplicateNameTip, dn.N, dn.Of, d.EnrolledAt?.LocalDateTime.ToString("g") ?? "?");
             _list.Items.Add(item);
             if (d.DeviceId == selId) toSelect = item;
             if (d.DeviceId == topId) toTop = item;
@@ -574,9 +586,11 @@ public sealed class DevicesView : UserControl, IContentView
             5 => d => d.PublicIpAddress,
             _ => d => d.Hostname,
         };
-        return _sortAsc
+        var ordered = _sortAsc
             ? items.OrderBy(key, Comparer<object?>.Create(CompareKeys))
             : items.OrderByDescending(key, Comparer<object?>.Create(CompareKeys));
+        // Same name: the older record (1) before the newer (2), whichever way the names go.
+        return _sortColumn == 0 ? ordered.ThenBy(d => d.EnrolledAt ?? d.LastSeenAt ?? DateTimeOffset.MinValue) : ordered;
     }
 
     private static int CompareKeys(object? a, object? b)

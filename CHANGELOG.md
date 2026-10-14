@@ -5,8 +5,12 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.1**, server **3.0.0.2**, console
-**3.0.0.2**, Lite **3.0.0.1**; no schema change.
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.1**, server **3.0.0.3**, console
+**3.0.0.3**, Lite **3.0.0.1**; no schema change.
+- A name that is in the fleet twice is numbered. A machine re-imaged by Autopilot enrols as a new device (new
+  identity, new key) under its old name, so the list showed the name twice with nothing to tell the records
+  apart. The console now shows `1/2` after the older record and `2/2` after the newer one, ordered by enrolment
+  (the server sends the enrolment time; the tooltip says when); a name sort keeps 1 before 2.
 - The console reconnects after sleep. Its tunnel to the server kept accepting connections for a while after the
   laptop woke, with nothing alive behind them, so the first click (a device's properties, the list) failed with
   "an error occurred while sending the request" until ssh noticed. The console now drops the tunnel on resume

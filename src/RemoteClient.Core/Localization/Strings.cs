@@ -386,6 +386,7 @@ public static partial class Strings
     public static string DevicesView_FetchingDeviceList => Get(nameof(DevicesView_FetchingDeviceList));
     public static string DevicesView_Device_2 => Get(nameof(DevicesView_Device_2));
     public static string DevicesView_Unnamed => Get(nameof(DevicesView_Unnamed));
+    public static string DevicesView_DuplicateNameTip => Get(nameof(DevicesView_DuplicateNameTip));
     public static string DevicesView_SignInLockedFailedAttempts => Get(nameof(DevicesView_SignInLockedFailedAttempts));
     public static string DevicesView_SelectADevice => Get(nameof(DevicesView_SelectADevice));
     public static string DevicesView_PropertiesError => Get(nameof(DevicesView_PropertiesError));
