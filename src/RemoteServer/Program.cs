@@ -804,6 +804,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         Reporting = d.LastSeenAt > liveCutoff,
         RecentReconnects = registry.RecentReconnects(d.DeviceId),
         LastSeenAt = d.LastSeenAt,
+        EnrolledAt = d.EnrolledAt,
         VncSecret = viaToken ? null : protector.TryUnprotect(d.VncSecret),
         GroupId = d.GroupId,
         GroupName = d.Group?.Name,

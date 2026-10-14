@@ -58,6 +58,12 @@ public sealed class DeviceInfo
     [JsonPropertyName("lastSeenAt")]
     public DateTimeOffset? LastSeenAt { get; set; }
 
+    /// <summary>When the device enrolled. A machine re-imaged (Autopilot) enrols as a new device under its old
+    /// name; the console tells the two records apart by this: the older is 1, the newer 2. Null from an older
+    /// server.</summary>
+    [JsonPropertyName("enrolledAt")]
+    public DateTimeOffset? EnrolledAt { get; set; }
+
     /// <summary>Device VNC password used by the client to generate the viewer .vnc file.</summary>
     [JsonPropertyName("vncSecret")]
     public string? VncSecret { get; set; }

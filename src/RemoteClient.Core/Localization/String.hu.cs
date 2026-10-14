@@ -332,6 +332,7 @@ public static partial class Strings
         [nameof(DevicesView_FetchingDeviceList)] = "Eszközlista lekérése…",
         [nameof(DevicesView_Device_2)] = "{0} eszköz.",
         [nameof(DevicesView_Unnamed)] = "(névtelen)",
+        [nameof(DevicesView_DuplicateNameTip)] = "{0}/{1} ilyen nevű eszköz; ez a rekord {2}-kor lépett be. Az újratelepített (Autopilot) gép új eszközként lép be: a régebbi rekord az 1-es, az újabb a 2-es.",
         [nameof(DevicesView_SignInLockedFailedAttempts)] = "Belépés-zárolt ({0} sikertelen próba) — Belépés feloldása",
         [nameof(DevicesView_SelectADevice)] = "Válassz egy gépet.",
         [nameof(DevicesView_PropertiesError)] = "Tulajdonságok hiba: ",

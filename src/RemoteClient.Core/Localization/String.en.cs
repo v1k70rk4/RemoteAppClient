@@ -332,6 +332,7 @@ public static partial class Strings
         [nameof(DevicesView_FetchingDeviceList)] = "Fetching device list...",
         [nameof(DevicesView_Device_2)] = "{0} device.",
         [nameof(DevicesView_Unnamed)] = "(unnamed)",
+        [nameof(DevicesView_DuplicateNameTip)] = "{0} of {1} devices with this name; this record enrolled {2}. A re-imaged machine (Autopilot) enrols as a new device: the older record is 1, the newer 2.",
         [nameof(DevicesView_SignInLockedFailedAttempts)] = "Sign-in locked ({0} failed attempts) - unlock sign-in",
         [nameof(DevicesView_SelectADevice)] = "Select a device.",
         [nameof(DevicesView_PropertiesError)] = "Properties error: ",
