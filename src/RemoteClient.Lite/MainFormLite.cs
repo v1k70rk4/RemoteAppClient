@@ -146,6 +146,7 @@ public sealed class MainFormLite : MaterialForm
             _login = login;
             _api = new AdminApi(ct => _transport!.ForwardAsync(5000, ct));
             _api.SetToken(login.Token);
+            Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
             _cfg.LastServerUrl = server;
             _cfg.LastUsername = user;
@@ -309,8 +310,16 @@ public sealed class MainFormLite : MaterialForm
         catch { /* no browser - ignore */ }
     }
 
+    /// <summary>The tunnel's ssh outlives the link through sleep; drop the forward on resume so the first request
+    /// after waking opens a fresh one instead of waiting for ssh to give up.</summary>
+    private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) _api?.InvalidateForward();
+    }
+
     private void Cleanup()
     {
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         try { _api?.LogoutAsync().Wait(TimeSpan.FromSeconds(2)); } catch { /* best effort */ }
         try { _api?.Dispose(); } catch { /* best effort */ }
         try { _transport?.Dispose(); } catch { /* best effort */ }

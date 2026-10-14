@@ -29,6 +29,10 @@ public sealed class AuthException(string code) : Exception(code)
 /// the local agent broker (<paramref name="openForward"/>). The connection self-heals:
 /// when the tunnel dies, for example after sleep and a refused 127.0.0.1 port, ConnectCallback
 /// requests a fresh forward and retries, giving the caller a working response after the SSH delay.
+/// A tunnel that still accepts on 127.0.0.1 but is dead behind (ssh has not yet noticed the lost link)
+/// fails the request itself; <see cref="ReconnectHandler"/> then drops the forward and sends a GET once
+/// more through a fresh one, and the host calls <see cref="InvalidateForward"/> on resume from sleep so
+/// the first request after waking does not wait for ssh to give up on the old link.
 /// </summary>
 public sealed class AdminApi : IDisposable
 {
@@ -61,9 +65,13 @@ public sealed class AdminApi : IDisposable
         };
         // 10 minutes: large exe upload / MSI generation fits, while normal queries remain quick.
         // BaseAddress host is irrelevant; ConnectCallback decides the actual fresh port target.
-        _http = new HttpClient(new UnauthorizedHandler(handler, () => { if (_hasToken) Unauthorized?.Invoke(); }))
+        _http = new HttpClient(new UnauthorizedHandler(new ReconnectHandler(handler, InvalidateForward), () => { if (_hasToken) Unauthorized?.Invoke(); }))
             { BaseAddress = new Uri("http://127.0.0.1"), Timeout = TimeSpan.FromMinutes(10) };
     }
+
+    /// <summary>Forgets the current forward: the next request opens a fresh one instead of trusting a tunnel
+    /// that may be dead behind a listening port. Called on resume from sleep and after a failed request.</summary>
+    public void InvalidateForward() => _port = 0;
 
     /// <summary>Connects to the current tunnel port; dead tunnels trigger fresh forward plus retry.</summary>
     private async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext _, CancellationToken ct)
@@ -789,6 +797,27 @@ public sealed class AdminApi : IDisposable
     /// session token is set). Lets the client send the operator back to sign-in when the session expires,
     /// instead of surfacing a raw "401 (Unauthorized)" from EnsureSuccessStatusCode.
     /// </summary>
+    /// <summary>
+    /// Sends a request that died on the wire (HttpRequestException, IOException: the tunnel accepted the
+    /// connection but the link behind it was gone) once more after dropping the forward, so the retry dials a
+    /// fresh ssh -L. Only GET and HEAD are repeated: they are safe to send twice, and the console's ten-second
+    /// device refresh is a GET, so a dead tunnel heals in the background within seconds and a later POST finds
+    /// it working. Any other method just drops the forward and reports the failure.
+    /// </summary>
+    internal sealed class ReconnectHandler(HttpMessageHandler inner, Action invalidateForward) : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            try { return await base.SendAsync(request, ct); }
+            catch (Exception ex) when (ex is HttpRequestException or IOException)
+            {
+                invalidateForward();
+                if (request.Method != HttpMethod.Get && request.Method != HttpMethod.Head) throw;
+            }
+            return await base.SendAsync(request, ct);
+        }
+    }
+
     private sealed class UnauthorizedHandler(HttpMessageHandler inner, Action onUnauthorized) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)

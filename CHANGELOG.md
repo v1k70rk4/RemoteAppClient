@@ -6,7 +6,12 @@ the time of that release; the GitHub release pages carry the same text together 
 ## What's New in 3.0.1
 
 **Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.1**, server **3.0.0.2**, console
-**3.0.0.1**; no schema change.
+**3.0.0.2**, Lite **3.0.0.1**; no schema change.
+- The console reconnects after sleep. Its tunnel to the server kept accepting connections for a while after the
+  laptop woke, with nothing alive behind them, so the first click (a device's properties, the list) failed with
+  "an error occurred while sending the request" until ssh noticed. The console now drops the tunnel on resume
+  and opens a fresh one for the next request, and a query that dies on the wire is sent once more through a
+  fresh tunnel.
 - The file manager sorts by any column: a click on *name*, *size* or *modified* orders the pane by it, a second
   click reverses it. Folders stay above files and `..` on top; the order survives navigation and a refresh.
 - The agent waits a minute after an update command before it starts the download. The command tends to arrive
