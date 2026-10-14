@@ -82,6 +82,11 @@ internal sealed class FilePane : UserControl
     private readonly ListView _list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true };
     private readonly CancellationToken _ct;
     private bool _suppressDrive;
+    // Sort: a click on a header picks the column, a second click flips the direction. Folders always stay
+    // above files and ".." on top; the sort orders within those groups and survives navigation.
+    private int _sortCol;
+    private bool _sortAsc = true;
+    private FsList? _last;
 
     public string Path { get; private set; } = "";
     public IFsBackend Backend => _backend;
@@ -106,6 +111,12 @@ internal sealed class FilePane : UserControl
         };
         _list.Enter += (_, _) => Activated2?.Invoke();
         _list.Resize += (_, _) => FitColumns();
+        _list.ColumnClick += (_, e) =>
+        {
+            // A new column starts in its natural order: names A to Z, sizes and dates largest / newest first.
+            if (e.Column == _sortCol) _sortAsc = !_sortAsc; else { _sortCol = e.Column; _sortAsc = e.Column == 0; }
+            Render();
+        };
         _drives.SelectedIndexChanged += async (_, _) => { if (!_suppressDrive && _drives.SelectedItem is string dr) await NavigateAsync(dr); };
 
         // Dock order: list fills; path + drives stack on top (last added is topmost).
@@ -143,15 +154,42 @@ internal sealed class FilePane : UserControl
         var root = string.IsNullOrEmpty(l.Path) ? null : System.IO.Path.GetPathRoot(l.Path);
         if (root is not null && _drives.Items.Contains(root) && (_drives.SelectedItem as string) != root)
         { _suppressDrive = true; _drives.SelectedItem = root; _suppressDrive = false; }
+        _last = l;
+        Render();
+    }
+
+    /// <summary>Fills the list from the folder on show in the current sort order.</summary>
+    private void Render()
+    {
+        if (_last is not { } l) return;
+        // Re-sorting must not lose what the operator has selected: the names survive the rebuild.
+        var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ListViewItem it in _list.SelectedItems) if (it.Tag is FsEntry se) selected.Add(se.Name);
         _list.BeginUpdate();
         _list.Items.Clear();
         if (!string.IsNullOrEmpty(l.Path)) _list.Items.Add(new ListViewItem("..") { Tag = null });
-        foreach (var e in l.Entries.Where(e => e.IsDir).OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var e in Sorted(l.Entries.Where(e => e.IsDir)))
             _list.Items.Add(new ListViewItem(new[] { "📁 " + e.Name, "", e.Modified == default ? "" : e.Modified.LocalDateTime.ToString("g") }) { Tag = e });
-        foreach (var e in l.Entries.Where(e => !e.IsDir).OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var e in Sorted(l.Entries.Where(e => !e.IsDir)))
             _list.Items.Add(new ListViewItem(new[] { e.Name, FmtSize(e.Size), e.Modified == default ? "" : e.Modified.LocalDateTime.ToString("g") }) { Tag = e });
+        if (selected.Count > 0)
+            foreach (ListViewItem it in _list.Items) if (it.Tag is FsEntry fe && selected.Contains(fe.Name)) it.Selected = true;
         _list.EndUpdate();
         FitColumns();
+        _list.Invalidate(); // the header's sort mark
+    }
+
+    /// <summary>The entries in the chosen column's order; name decides ties, so the order is stable.</summary>
+    private IEnumerable<FsEntry> Sorted(IEnumerable<FsEntry> entries)
+    {
+        var byName = entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
+        IOrderedEnumerable<FsEntry> ordered = _sortCol switch
+        {
+            1 => _sortAsc ? entries.OrderBy(e => e.Size) : entries.OrderByDescending(e => e.Size),
+            2 => _sortAsc ? entries.OrderBy(e => e.Modified) : entries.OrderByDescending(e => e.Modified),
+            _ => _sortAsc ? byName : entries.OrderByDescending(e => e.Name, StringComparer.OrdinalIgnoreCase),
+        };
+        return _sortCol == 0 ? ordered : ordered.ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task OpenSelectedAsync()
@@ -206,6 +244,9 @@ internal sealed class FilePane : UserControl
         using (var bg = new SolidBrush(ThemeManager.Panel2)) e.Graphics.FillRectangle(bg, e.Bounds);
         TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", UiFont.Label, new Rectangle(e.Bounds.X + 8, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height),
             ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        if (e.ColumnIndex == _sortCol)
+            TextRenderer.DrawText(e.Graphics, _sortAsc ? "▴" : "▾", UiFont.Body, new Rectangle(e.Bounds.X, e.Bounds.Y, e.Bounds.Width - 6, e.Bounds.Height),
+                ThemeManager.Text2, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         using var pen = new Pen(ThemeManager.BorderSoft);
         e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top + 5, e.Bounds.Right - 1, e.Bounds.Bottom - 5);
     }

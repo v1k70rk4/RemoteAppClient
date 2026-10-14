@@ -5,7 +5,10 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops.** Agent **3.0.0.1**, server **3.0.0.2**; no schema change.
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.1**, server **3.0.0.2**, console
+**3.0.0.1**; no schema change.
+- The file manager sorts by any column: a click on *name*, *size* or *modified* orders the pane by it, a second
+  click reverses it. Folders stay above files and `..` on top; the order survives navigation and a refresh.
 - The agent waits a minute after an update command before it starts the download. The command tends to arrive
   the moment a device comes back from sleep or roams onto another network, when its link is at its flakiest, and
   a download of tens of megabytes started right then broke more often than not.
