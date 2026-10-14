@@ -578,7 +578,7 @@ public sealed class DevicesView : UserControl, IContentView
         if (_sortColumn < 0) return items;
         Func<DeviceInfo, object?> key = _sortColumn switch
         {
-            0 => d => d.Hostname?.Trim(),   // the same key DuplicateNames groups by (case-insensitive via CompareKeys)
+            0 => d => d.Hostname?.Trim(),   // the same key DuplicateNames groups by; CompareKeys ignores case
             1 => d => d.GroupName,
             2 => d => DeviceLiveness.Of(d),   // enum order: error, pending, online, flaky, reporting, offline
             3 => d => d.LoggedInUser,
@@ -600,6 +600,7 @@ public sealed class DevicesView : UserControl, IContentView
         if (a is null && b is null) return 0;
         if (a is null) return -1;
         if (b is null) return 1;
+        if (a is string sa && b is string sb) return string.Compare(sa, sb, StringComparison.OrdinalIgnoreCase);   // not string.CompareTo: culture- and case-sensitive
         if (a is IComparable c && a.GetType() == b.GetType()) return c.CompareTo(b);
         return string.Compare(a.ToString(), b.ToString(), StringComparison.OrdinalIgnoreCase);
     }
