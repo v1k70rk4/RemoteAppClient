@@ -103,6 +103,7 @@ app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var dir = scope.ServiceProvider.GetRequiredService<IOptions<ServerOptions>>().Value.PackagesDir;
+        await PackageStoreSweep.RunAsync(db, dir, app.Logger, CancellationToken.None);
         var (_, missing) = await ServerDiagnostics.CurrentPackagesAsync(db, dir, CancellationToken.None);
         foreach (var m in missing)
             app.Logger.LogWarning("Package file missing: {Package}. Upload it again under Release channels.", m);
@@ -1093,6 +1094,7 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
     string sha;
     long size;
     string fileName;
+    bool gated = false;   // the sweep must not run between the file landing and its record being saved
     try
     {
         await using (var fs = File.Create(tmp))
@@ -1104,6 +1106,8 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
         }
         fileName = PackageFileName.For(component, channel, version, sha);
         var final = Path.Combine(dir, fileName);
+        await PackageStoreSweep.Gate.WaitAsync(ctx.RequestAborted);
+        gated = true;
         try { File.Move(tmp, final); }
         catch (IOException) when (File.Exists(final))
         {
@@ -1114,17 +1118,24 @@ app.MapPost("/admin/packages", async (HttpContext ctx, AppDbContext db, IOptions
     }
     catch
     {
+        if (gated) PackageStoreSweep.Gate.Release();
         try { File.Delete(tmp); } catch { /* best effort */ }
         throw;
     }
 
-    db.ReleasePackages.Add(new ReleasePackage
+    try
     {
-        Channel = channel, Component = component, Version = version,
-        FileName = fileName, Sha256 = sha, SizeBytes = size,
-    });
-    await db.SaveChangesAsync(ctx.RequestAborted);
+        db.ReleasePackages.Add(new ReleasePackage
+        {
+            Channel = channel, Component = component, Version = version,
+            FileName = fileName, Sha256 = sha, SizeBytes = size,
+        });
+        await db.SaveChangesAsync(ctx.RequestAborted);
+    }
+    finally { PackageStoreSweep.Gate.Release(); }
     await AuditAsync(db, ctx, "package-upload", null, $"{component} · {channel} · {version}");
+    try { await PackageStoreSweep.RunAsync(db, dir, app.Logger, ctx.RequestAborted); }
+    catch (Exception ex) { app.Logger.LogWarning(ex, "Package sweep after upload skipped"); }
 
     return Results.Ok(new { channel, component, version, fileName, url = $"/api/updates/{fileName}", sha256 = sha });
 

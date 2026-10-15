@@ -5,8 +5,12 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.1**, server **3.0.0.3**, console
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.1**, server **3.0.0.4**, console
 **3.0.0.3**, Lite **3.0.0.1**; no schema change.
+- The package store sweeps itself. Every upload added a record and a file and nothing ever removed them, so the
+  store held every version ever uploaded. The server now keeps, per channel and component, the current package
+  and the one before it, drops the older records and deletes the package files nothing points at; generated
+  MSIs and anything else in the directory are left alone. Runs at start-up and after each upload.
 - A name that is in the fleet twice is numbered. A machine re-imaged by Autopilot enrols as a new device (new
   identity, new key) under its old name, so the list showed the name twice with nothing to tell the records
   apart. The console now shows `1/2` after the older record and `2/2` after the newer one, ordered by enrolment
