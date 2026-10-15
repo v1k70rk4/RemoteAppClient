@@ -18,6 +18,11 @@ public static partial class PackageStoreSweep
 {
     public const int KeepPerLane = 2;
 
+    /// <summary>Held by the sweep for its whole run and by an upload from the moment its file lands until its
+    /// record is saved: a file without a record yet would otherwise look like an orphan to a sweep running at
+    /// the same time (another upload's, or start-up's) and be deleted under the upload.</summary>
+    public static readonly SemaphoreSlim Gate = new(1, 1);
+
     [GeneratedRegex(@"^(agent|updater|client|vnc)-[a-z0-9_]+-", RegexOptions.IgnoreCase)]
     private static partial Regex PackageName();
 
@@ -41,30 +46,35 @@ public static partial class PackageStoreSweep
     public static async Task<(int Records, int Files, long Bytes)> RunAsync(AppDbContext db, string dir, ILogger logger, CancellationToken ct)
     {
         if (!Directory.Exists(dir)) return (0, 0, 0);
-        var records = await db.ReleasePackages.ToListAsync(ct);
-        var names = Directory.EnumerateFiles(dir).Select(Path.GetFileName).Where(n => n is not null).Select(n => n!);
-        var (staleRecords, staleFiles) = Plan(records, names);
+        await Gate.WaitAsync(ct);
+        try
+        {
+            var records = await db.ReleasePackages.ToListAsync(ct);
+            var names = Directory.EnumerateFiles(dir).Select(Path.GetFileName).Where(n => n is not null).Select(n => n!);
+            var (staleRecords, staleFiles) = Plan(records, names);
 
-        if (staleRecords.Count > 0)
-        {
-            db.ReleasePackages.RemoveRange(staleRecords);
-            await db.SaveChangesAsync(ct);
-        }
-        long bytes = 0; int deleted = 0;
-        foreach (var f in staleFiles)
-        {
-            var path = Path.Combine(dir, f);
-            try
+            if (staleRecords.Count > 0)
             {
-                bytes += new FileInfo(path).Length;
-                File.Delete(path);
-                deleted++;
+                db.ReleasePackages.RemoveRange(staleRecords);
+                await db.SaveChangesAsync(ct);
             }
-            catch (Exception ex) { logger.LogWarning(ex, "Package sweep could not delete {File}", f); }
+            long bytes = 0; int deleted = 0;
+            foreach (var f in staleFiles)
+            {
+                var path = Path.Combine(dir, f);
+                try
+                {
+                    bytes += new FileInfo(path).Length;
+                    File.Delete(path);
+                    deleted++;
+                }
+                catch (Exception ex) { logger.LogWarning(ex, "Package sweep could not delete {File}", f); }
+            }
+            if (staleRecords.Count > 0 || deleted > 0)
+                logger.LogInformation("Package sweep: {Records} old records and {Files} files ({MB} MB) removed; the current and previous package of every channel are kept",
+                    staleRecords.Count, deleted, bytes / 1_048_576);
+            return (staleRecords.Count, deleted, bytes);
         }
-        if (staleRecords.Count > 0 || deleted > 0)
-            logger.LogInformation("Package sweep: {Records} old records and {Files} files ({MB} MB) removed; the current and previous package of every channel are kept",
-                staleRecords.Count, deleted, bytes / 1_048_576);
-        return (staleRecords.Count, deleted, bytes);
+        finally { Gate.Release(); }
     }
 }
