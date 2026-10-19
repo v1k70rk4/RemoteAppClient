@@ -112,28 +112,28 @@ public static class DataDirectorySecurity
     }
 
     /// <summary>
-    /// Hands a file this process wrote to Administrators. For files an administrator writes by hand
-    /// (<c>bootstrap</c>, <c>enroll</c>), which a creator-owner policy would otherwise leave personally owned -
-    /// and the next <see cref="Secure"/> would treat as someone else's. With <paramref name="keepAcl"/> the
-    /// file's own access rules stay as they are; otherwise it inherits the folder's.
+    /// Hands a file this process wrote to Administrators, inheriting the folder's ACL. For files an
+    /// administrator writes by hand (<c>bootstrap</c>, <c>enroll</c>), which a creator-owner policy would
+    /// otherwise leave personally owned - and the next <see cref="Secure"/> would treat as someone else's.
     /// </summary>
-    public static void ClaimForAdministrators(string path, bool keepAcl = false)
+    public static void ClaimForAdministrators(string path)
     {
         try
         {
             var file = new FileInfo(path);
             if (!file.Exists || file.Attributes.HasFlag(FileAttributes.ReparsePoint)) return;
             TakeOwnership(file);
-            if (!keepAcl) ResetToInherited(file);
+            ResetToInherited(file);
         }
         catch { /* best effort: the file still works, the next Secure may remove it */ }
     }
 
-    /// <summary>The enrollment files that hold a secret. These keep their own access rules when claimed: a
-    /// private key written to disk carries SYSTEM-and-Administrators-only rules that must not give way to what
-    /// the folder would hand down (an <c>--out</c> folder of the administrator's choosing may let every user
-    /// read). Every other enrollment file - the record, the certificates, the public keys - is reset to inherit
-    /// the folder's rules, so a rule someone left on it (write for a local user, say) does not survive.</summary>
+    /// <summary>The enrollment files that hold a secret: a private key on disk, the device certificate's PFX,
+    /// the VNC password. Claimed, these get their own rules written afresh - SYSTEM and Administrators, nothing
+    /// inherited - whatever rules they carried before: neither the folder's (an <c>--out</c> folder of the
+    /// administrator's choosing may let every user read) nor a rule someone left on a file that was then
+    /// overwritten in place. Every other enrollment file - the record, the certificates, the public keys - is
+    /// reset to inherit the folder's rules.</summary>
     private static readonly HashSet<string> SecretFiles = new(StringComparer.OrdinalIgnoreCase)
     {
         "agent.pfx.dat", "vnc.secret", "id_ed25519", "id_ed25519.next",
@@ -141,15 +141,35 @@ public static class DataDirectorySecurity
 
     /// <summary>Hands every enrollment file in <paramref name="directory"/> to Administrators. <c>enroll</c> calls
     /// it once the files are written, so that <see cref="Secure"/> - which removes files owned by anyone else -
-    /// keeps them whoever the enrolling administrator's policy made their owner. A secret keeps its own access
-    /// rules (<see cref="SecretFiles"/>), anything else inherits the folder's.</summary>
+    /// keeps them whoever the enrolling administrator's policy made their owner. A secret gets its own
+    /// SYSTEM-and-Administrators rules (<see cref="SecretFiles"/>), anything else inherits the folder's.</summary>
     public static void ClaimEnrollmentFiles(string directory)
     {
         foreach (var name in EnrollmentFiles)
         {
             var path = Path.Combine(directory, name);
-            if (File.Exists(path)) ClaimForAdministrators(path, keepAcl: SecretFiles.Contains(name));
+            if (!File.Exists(path)) continue;
+            if (SecretFiles.Contains(name)) ClaimSecret(path);
+            else ClaimForAdministrators(path);
         }
+    }
+
+    /// <summary>Owner Administrators, and a protected ACL of exactly SYSTEM and Administrators, full control;
+    /// whatever the file carried before is replaced, not inspected.</summary>
+    private static void ClaimSecret(string path)
+    {
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists || file.Attributes.HasFlag(FileAttributes.ReparsePoint)) return;
+            TakeOwnership(file);
+            var sec = new FileSecurity();
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            sec.AddAccessRule(new FileSystemAccessRule(LocalSystem, FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(Administrators, FileSystemRights.FullControl, AccessControlType.Allow));
+            file.SetAccessControl(sec);
+        }
+        catch { /* best effort: the file still works, the next Secure may remove it */ }
     }
 
     /// <summary>
