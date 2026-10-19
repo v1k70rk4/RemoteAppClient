@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using RemoteAgent.Admin;
 using RemoteAgent.Commands;
+using L = RemoteAgent.Localization.Strings;
 
 namespace RemoteAgent.Files;
 
@@ -66,6 +67,15 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
             bool authorized;
             lock (_lock) authorized = tok != null && _tokens.Contains(tok);
             if (!authorized) { ctx.Response.StatusCode = 403; ctx.Response.Close(); return; }
+            // The local lock used to count only when a tunnel was opened: a session already running kept its
+            // token and went on reading, writing and deleting as SYSTEM after the person at the device had
+            // disabled file transfer. It is checked on every request now, and switching it on ends the session.
+            if (FileLock.IsLocked())
+            {
+                ClearTokens();
+                logger.LogWarning(L.FileService_LockedRequestRefused);
+                ctx.Response.StatusCode = 403; ctx.Response.Close(); return;
+            }
 
             var path = req.QueryString["path"] ?? "";
             switch (req.Url!.AbsolutePath.ToLowerInvariant())

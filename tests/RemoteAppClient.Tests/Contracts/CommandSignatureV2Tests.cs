@@ -75,7 +75,7 @@ public class CommandSignatureV2Tests
         CommandSignature.Sign(c, key);
         Assert.Equal(0, c.SigVersion);
         Assert.True(CommandSignature.Verify(c, key));          // an agent that knows no device id (pre-2.2.7 code path)
-        Assert.True(CommandSignature.Verify(c, key, "dev-1"));  // a new agent still accepts the original form
+        Assert.True(CommandSignature.Verify(c, key, "dev-1"));  // the shared check accepts it; the 3.0.1 agent's CommandVerifier refuses it before this
     }
 
     [Fact]

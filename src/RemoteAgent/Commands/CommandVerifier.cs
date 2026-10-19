@@ -58,6 +58,16 @@ public sealed class CommandVerifier : IDisposable
             return false;
         }
 
+        // Only the device-bound form (version 2) is accepted. The original, unbound form is still valid in
+        // Contracts for agents older than 2.2.7.1, which the server keeps signing for; this agent is not one
+        // of them, and accepting the unbound form here would let a command signed for another device - or
+        // captured long ago for an agent that could not check the binding - be replayed at this one.
+        if (cmd.SigVersion < CommandSignature.CurrentVersion)
+        {
+            _logger.LogWarning(L.CommandVerifier_UnboundSignatureRefused, cmd.SigVersion);
+            return false;
+        }
+
         // Signature FIRST: only a valid server signature makes the timestamp below worth reasoning about.
         // Signature verification uses shared Contracts logic so it cannot drift from the server.
         if (!CommandSignature.Verify(cmd, _publicKey, _deviceId))
