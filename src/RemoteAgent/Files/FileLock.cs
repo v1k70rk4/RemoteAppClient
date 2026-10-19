@@ -13,6 +13,7 @@ public static class FileLock
 {
     private const string LockKey = @"SOFTWARE\RemoteAppClient";
     private const string LockValue = "FileLocked";
+    private const string StampValue = "FileLockedAt";
 
     public static bool IsLocked()
     {
@@ -22,6 +23,19 @@ public static class FileLock
             return k?.GetValue(LockValue) is int v && v != 0;
         }
         catch { return false; }
+    }
+
+    /// <summary>When the lock was last switched on (UTC ticks), 0 when never. The file service compares it with
+    /// the value it saw when the session's tokens were issued: a lock switched on and off again between two
+    /// looks at the flag still ends the session.</summary>
+    public static long LockStamp()
+    {
+        try
+        {
+            using var k = Registry.LocalMachine.OpenSubKey(LockKey);
+            return k?.GetValue(StampValue) is long v ? v : 0;
+        }
+        catch { return 0; }
     }
 
     /// <summary>CLI: file-lock, sets the flag. Requires admin/SYSTEM. Reuses the VNC lock's event log.</summary>
@@ -37,6 +51,7 @@ public static class FileLock
             using var k = Registry.LocalMachine.CreateSubKey(LockKey, writable: true)
                           ?? throw new UnauthorizedAccessException(LockKey);
             k.SetValue(LockValue, on ? 1 : 0, RegistryValueKind.DWord);
+            if (on) k.SetValue(StampValue, DateTime.UtcNow.Ticks, RegistryValueKind.QWord);
             VncLock.Log(message);
             Console.WriteLine(message);
             return 0;
