@@ -13,7 +13,9 @@ public sealed class GroupGeneralPanel : UserControl
     private readonly Guid? _id;
     private readonly TextField _name = new("", 360);
     private readonly UiToggle _consent = new();
-    private readonly UiToggle _unattended = new();
+    // Reserved, not evaluated by the agent (only "consent required" is): kept as stored, no longer shown as a
+    // switch that would look like a working safeguard.
+    private readonly bool _unattendedAllowed;
     private readonly MaterialLabel _status = new() { AutoSize = true, Margin = new Padding(2, 10, 0, 0) };
 
     /// <summary>Raised after a successful save.</summary>
@@ -33,9 +35,9 @@ public sealed class GroupGeneralPanel : UserControl
 
         if (existing is not null)
         {
-            _name.Value = existing.Name; _consent.Checked = existing.ConsentRequired; _unattended.Checked = existing.UnattendedAllowed;
+            _name.Value = existing.Name; _consent.Checked = existing.ConsentRequired;
         }
-        else { _unattended.Checked = true; }
+        _unattendedAllowed = existing?.UnattendedAllowed ?? true;
 
         var save = new UiButton(L.EditTokenForm_Save);
         save.Click += async (_, _) => await SaveAsync();
@@ -48,10 +50,8 @@ public sealed class GroupGeneralPanel : UserControl
         body.Controls.Add(_name);
         body.Controls.Add(new SettingRow(L.GroupGeneralPanel_ConsentRequiredForViewing, L.GroupGeneralPanel_ConsentDesc, _consent)
             { Location = new Point(0, 78), Size = new Size(contentW, 54) });
-        body.Controls.Add(new SettingRow(L.GroupGeneralPanel_AllowUnattendedAccess, L.GroupGeneralPanel_UnattendedDesc, _unattended)
-            { Location = new Point(0, 132), Size = new Size(contentW, 54) });
-        save.Location = new Point(0, 198);
-        cancel.Location = new Point(save.Right + 10, 198);
+        save.Location = new Point(0, 144);
+        cancel.Location = new Point(save.Right + 10, 144);
         body.Controls.Add(save);
         body.Controls.Add(cancel);
         if (!IsNew)
@@ -77,7 +77,7 @@ public sealed class GroupGeneralPanel : UserControl
             Id = _id ?? Guid.Empty,
             Name = _name.Value.Trim(),
             ConsentRequired = _consent.Checked,
-            UnattendedAllowed = _unattended.Checked,
+            UnattendedAllowed = _unattendedAllowed,
         };
         try
         {

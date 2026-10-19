@@ -361,7 +361,7 @@ app.MapPost("/auth/hello/login", async (HttpContext ctx, AppDbContext db, AuthSe
 
     // Device-level lockout applies to Hello too, otherwise it would bypass the password lock.
     var device = await FindDeviceAsync(db, req.DeviceId, ct);
-    if (device?.LoginLockedAt is not null)
+    if (device is not null && LoginLockPolicy.IsActive(device.LoginLockedAt, DateTimeOffset.UtcNow))
         return Results.Json(new AuthError { Error = "device_locked" }, AgentJsonContext.Default.AuthError, statusCode: 403);
 
     if (!challenges.HasLive(req.Username.Trim()))
@@ -852,7 +852,7 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         RekeyRequestIp = rekeyByDevice.TryGetValue(d.Id, out var rr3) ? rr3.SourceIp : null,
         RekeyRequestKeyFingerprint = rekeyByDevice.TryGetValue(d.Id, out var rr4) ? rr4.KeyFingerprint : null,
         LoginFailCount = d.LoginFailCount,
-        LoginLocked = d.LoginLockedAt is not null,
+        LoginLocked = LoginLockPolicy.IsActive(d.LoginLockedAt, DateTimeOffset.UtcNow),
         Note = viaToken ? null : protector.TryUnprotect(d.Note),
         UpdatePending = pendingInfo.ContainsKey(d.Id),
         UpdatePendingInfo = pendingInfo.GetValueOrDefault(d.Id),
@@ -2863,17 +2863,17 @@ static string Sha256Hex(string s) =>
 
 // === Device-level login lockout for brute-force protection. ===
 const int LoginFailLockThreshold = 5;
-// Keyless operators are locked by SOURCE IP (a synthetic "opsrc:" device), and that lock AUTO-EXPIRES after
-// this many minutes (operators roam / IPs are transient) — unlike enrolled-device locks, which are admin-unlock.
-const int OperatorIpLockMinutes = 60;
+// Both an enrolled device's lock and the keyless operators' source-IP lock (a synthetic "opsrc:" device) run
+// out after LoginLockPolicy.LockMinutes; an administrator may clear either earlier.
+const int OperatorIpLockMinutes = LoginLockPolicy.LockMinutes;
 
 static async Task<RemoteServer.Data.Entities.Device?> FindDeviceAsync(AppDbContext db, string? deviceId, CancellationToken ct) =>
     string.IsNullOrWhiteSpace(deviceId) ? null : await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
 
 /// <summary>
 /// Resolves the brute-force tracking target for a sign-in / recovery attempt. With a device id: the enrolled
-/// device (admin-unlock lockout). Without one (keyless operators): a synthetic "opsrc:&lt;ip&gt;" source-IP
-/// record reusing the device fail-counter, but with an AUTO-EXPIRING lock (operators roam). Never locks a user.
+/// device. Without one (keyless operators): a synthetic "opsrc:&lt;ip&gt;" source-IP record reusing the device
+/// fail-counter. Either lock runs out after LoginLockPolicy.LockMinutes. Never locks a user.
 /// Returns the device (null until the first failure creates it), the source IP for that creation, and whether
 /// access is currently locked.
 /// </summary>
@@ -2881,7 +2881,14 @@ static async Task<(RemoteServer.Data.Entities.Device? Device, string? OpIp, bool
     ResolveLoginTargetAsync(AppDbContext db, HttpContext ctx, string? deviceId, CancellationToken ct)
 {
     var device = await FindDeviceAsync(db, deviceId, ct);
-    if (device is not null) return (device, null, device.LoginLockedAt is not null);
+    if (device is not null)
+    {
+        if (device.LoginLockedAt is not null && !LoginLockPolicy.IsActive(device.LoginLockedAt, DateTimeOffset.UtcNow))
+        {
+            device.LoginFailCount = 0; device.LoginLockedAt = null;   // lock window elapsed → start fresh
+        }
+        return (device, null, device.LoginLockedAt is not null);
+    }
 
     // An id the server does not know - a console on a device that was deleted here, or a made-up one - used
     // to return no target at all, so its failures were never counted and the lock could be sidestepped by

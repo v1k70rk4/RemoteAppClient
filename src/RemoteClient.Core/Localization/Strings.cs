@@ -82,7 +82,6 @@ public static partial class Strings
     public static string AuditText_TagSystem => Get(nameof(AuditText_TagSystem));
     public static string AuditText_TagEvent => Get(nameof(AuditText_TagEvent));
     public static string GroupGeneralPanel_ConsentDesc => Get(nameof(GroupGeneralPanel_ConsentDesc));
-    public static string GroupGeneralPanel_UnattendedDesc => Get(nameof(GroupGeneralPanel_UnattendedDesc));
     public static string SettingsView_ThemeDesc => Get(nameof(SettingsView_ThemeDesc));
     public static string SettingsView_LanguageDesc => Get(nameof(SettingsView_LanguageDesc));
     public static string SettingsView_ViewerScaleDesc => Get(nameof(SettingsView_ViewerScaleDesc));
@@ -501,7 +500,6 @@ public static partial class Strings
     public static string GrantsPanel_Device => Get(nameof(GrantsPanel_Device));
     public static string GrantsPanel_Group => Get(nameof(GrantsPanel_Group));
     public static string GroupGeneralPanel_ConsentRequiredForViewing => Get(nameof(GroupGeneralPanel_ConsentRequiredForViewing));
-    public static string GroupGeneralPanel_AllowUnattendedAccess => Get(nameof(GroupGeneralPanel_AllowUnattendedAccess));
     public static string GroupGeneralPanel_GroupName => Get(nameof(GroupGeneralPanel_GroupName));
     public static string GroupsView_SearchGroupName => Get(nameof(GroupsView_SearchGroupName));
     public static string GroupsView_Devices => Get(nameof(GroupsView_Devices));

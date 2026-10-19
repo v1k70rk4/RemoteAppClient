@@ -6,7 +6,14 @@ the time of that release; the GitHub release pages carry the same text together 
 ## What's New in 3.0.1
 
 **Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.2**, updater **3.0.0.1**, server
-**3.0.0.5**, console **3.0.0.3**, Lite **3.0.0.1**; no schema change.
+**3.0.0.6**, console **3.0.0.4**, Lite **3.0.0.1**; no schema change.
+- A device's sign-in lock runs out after an hour. It used to hold until an administrator cleared it, and since
+  the device id in a sign-in request is the caller's word, anyone who knew a device id could lock that device's
+  console out for good with five bad passwords. The lock still slows a guess to five tries an hour, still shows in
+  the list and still alerts; an administrator can still clear it early.
+- The "allow unattended access" switch is gone from the group editor and the group list. The agent never
+  evaluated it (only "consent required" decides), so it looked like a safeguard and was not one. The
+  stored value is kept as it is.
 - The agent accepts device-bound command signatures only. The original, unbound form (what agents older than
   2.2.7.1 understand) is still signed by the server for those agents, but a 3.0.1 agent refuses it: an unbound
   command could be replayed at a device it was never meant for. A device whose agent version the server does

@@ -53,7 +53,6 @@ public sealed class GroupsView : UserControl, IContentView
         _list.SetColumns(
             new OwnerList.Col(L.BootstrapView_Group, 240),
             new OwnerList.Col(L.GroupsView_ConsentRequired, 160),
-            new OwnerList.Col("Unattended", 130),
             new OwnerList.Col(L.GroupsView_Devices, 90, Right: true));
         _list.PaintRow += PaintGroupRow;
         _list.RowActivated += item => OpenEditor((GroupInfo)item);
@@ -77,8 +76,7 @@ public sealed class GroupsView : UserControl, IContentView
             ThemeManager.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
 
         e.Text(1, grp.ConsentRequired ? L.Common_Yes : "—", UiFont.Body, grp.ConsentRequired ? ThemeManager.OkFg : ThemeManager.Text3);
-        e.Text(2, grp.UnattendedAllowed ? L.Common_Yes : L.DeviceGeneralPanel_No_2, UiFont.Body, grp.UnattendedAllowed ? ThemeManager.Text : ThemeManager.Text3);
-        e.Text(3, _counts.TryGetValue(grp.Name, out var c) ? c.ToString() : "0", UiFont.MonoSemi, ThemeManager.Text);
+        e.Text(2, _counts.TryGetValue(grp.Name, out var c) ? c.ToString() : "0", UiFont.MonoSemi, ThemeManager.Text);
     }
 
     private void BuildEditor()
