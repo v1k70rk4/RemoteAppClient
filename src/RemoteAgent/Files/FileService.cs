@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.AccessControl;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -226,11 +227,8 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
         try
         {
             bool existing = File.Exists(path);
-            await using (var fs = File.Create(part))
-            {
-                if (existing) new FileInfo(part).SetAccessControl(new FileInfo(path).GetAccessControl());
+            await using (var fs = existing ? CreateWithRulesOf(part, path) : File.Create(part))
                 await ctx.Request.InputStream.CopyToAsync(fs, revoke);   // cut off when the session's tokens die
-            }
             // The commit happens under the same lock ClearTokens takes to forget the tokens, so a revocation
             // lands either before it (the token is gone, nothing is committed) or after it, never in between.
             lock (_lock)
@@ -247,6 +245,20 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
         }
         Audit("upload", path);
         Ok(ctx);
+    }
+
+    /// <summary>Creates <paramref name="part"/> carrying the access rules of <paramref name="model"/> from the
+    /// first byte, so the body is never readable by anyone the destination does not allow. The rules travel as
+    /// a binary security descriptor: a FileSecurity read from one file and set on another unchanged persists
+    /// nothing (only modified sections are written), so the descriptor is loaded into a fresh object and handed
+    /// to the create call itself. Throws, and so fails the upload, when the rules cannot be read or applied.</summary>
+    private static FileStream CreateWithRulesOf(string part, string model)
+    {
+        var rules = new FileSecurity();
+        rules.SetSecurityDescriptorBinaryForm(
+            new FileInfo(model).GetAccessControl(AccessControlSections.Access).GetSecurityDescriptorBinaryForm(),
+            AccessControlSections.Access);
+        return new FileInfo(part).Create(FileMode.CreateNew, FileSystemRights.Write, FileShare.None, 4096, FileOptions.None, rules);
     }
 
     private static void DeleteEntry(string path)
