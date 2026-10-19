@@ -48,8 +48,12 @@ public sealed class CommandSigner : IDisposable
     }
 
     /// <summary>Whether an agent reporting <paramref name="agentVersion"/> verifies version 2 signatures.</summary>
+    /// <summary>Whether the device gets the device-bound signature: every agent from <see cref="SigV2MinAgent"/>,
+    /// and a device whose version is not known yet. A device without a reported version is a fresh install (a
+    /// re-imaged machine enrolling anew, say), and a fresh install always runs an agent that checks the binding;
+    /// the unbound form would be refused by it until its first report.</summary>
     public static bool UsesV2(string? agentVersion) =>
-        Version.TryParse(agentVersion, out var v) && v >= SigV2MinAgent;
+        !Version.TryParse(agentVersion, out var v) || v >= SigV2MinAgent;
 
     public void Dispose() => _privateKey.Dispose();
 }

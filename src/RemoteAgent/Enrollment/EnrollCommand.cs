@@ -184,6 +184,9 @@ public static class EnrollCommand
         File.WriteAllText(
             Path.Combine(outDir, "enrollment.json"),
             JsonSerializer.Serialize(record, AgentLocalJsonContext.Default.EnrollmentRecord));
+        // Written by whoever runs enroll - SYSTEM for the service, an administrator by hand. Hand the files to
+        // Administrators before Secure, which removes what anyone else owns.
+        DataDirectorySecurity.ClaimEnrollmentFiles(outDir);
         DataDirectorySecurity.Secure(outDir);
         stored?.Dispose();
         sshStored?.Dispose();

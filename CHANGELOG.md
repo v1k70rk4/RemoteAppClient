@@ -5,8 +5,21 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.1**, server **3.0.0.4**, console
-**3.0.0.3**, Lite **3.0.0.1**; no schema change.
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.2**, updater **3.0.0.1**, server
+**3.0.0.5**, console **3.0.0.3**, Lite **3.0.0.1**; no schema change.
+- The agent accepts device-bound command signatures only. The original, unbound form (what agents older than
+  2.2.7.1 understand) is still signed by the server for those agents, but a 3.0.1 agent refuses it: an unbound
+  command could be replayed at a device it was never meant for. A device whose agent version the server does
+  not know yet (a fresh install, a re-imaged machine) now gets the bound form straight away.
+- Enrollment files are no longer trusted by their names. The data folder's clean-up used to keep
+  `enrollment.json` and the key files whoever owned them, so a local user could plant an enrollment before the
+  first install and point the SYSTEM service at a server and signing key of their choosing. `enroll` now hands
+  its files to Administrators, and the clean-up removes enrollment files owned by anyone else, like any other
+  foreign file.
+- Locking file transfer at the device ends a running file session. The lock used to count only when a tunnel
+  was opened; a session already running kept its token and went on as SYSTEM. It is checked on every request.
+- Every Windows component and the server are built on .NET 10.0.13 (the September and October servicing
+  updates); the previous builds carried 10.0.11.
 - The package store sweeps itself. Every upload added a record and a file and nothing ever removed them, so the
   store held every version ever uploaded. The server now keeps, per channel and component, the current package
   and the one before it, drops the older records and deletes the package files nothing points at; generated

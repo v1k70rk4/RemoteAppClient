@@ -32,16 +32,19 @@ public static class DataDirectorySecurity
     public static readonly IReadOnlyList<string> UserReadableFiles = ["enrollment.json"];
 
     /// <summary>
-    /// The enrollment's own files. An administrator running <c>enroll</c> by hand may own them personally (a
-    /// policy can make the creator, not the Administrators group, the owner), so in the agent folder these are
-    /// taken back and locked down rather than deleted - deleting them would unenroll the device.
+    /// The enrollment's own files. <c>enroll</c> hands them to Administrators as soon as it has written them
+    /// (<see cref="ClaimEnrollmentFiles"/>), so a legitimate set is always owned by SYSTEM or Administrators and
+    /// <see cref="Secure"/> keeps it. One owned by anyone else was not written by the agent or an administrator:
+    /// it is removed like any other foreign file. Keeping such a set by its names alone - as this once did, for
+    /// an administrator whose policy made them the personal owner - let a local user plant an enrollment before
+    /// the first install and point the SYSTEM service at a server and command-signing key of their choosing.
     /// </summary>
-    private static readonly HashSet<string> EnrollmentFiles = new(StringComparer.OrdinalIgnoreCase)
+    public static readonly IReadOnlyList<string> EnrollmentFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "enrollment.json", "agent.pfx.dat", "ca.crt", "id_ed25519", "id_ed25519.pub", "id_ed25519-cert.pub", "vnc.secret",
         "id_ecdsa.pub", "id_ecdsa-cert.pub", "ssh-rotation.json",
         "id_ecdsa.next.pub", "id_ecdsa.next-cert.pub", "id_ed25519.next", "id_ed25519.next.pub", "id_ed25519.next-cert.pub",
-    };
+    }.ToList();
 
     private static readonly SecurityIdentifier LocalSystem = new(WellKnownSidType.LocalSystemSid, null);
     private static readonly SecurityIdentifier Administrators = new(WellKnownSidType.BuiltinAdministratorsSid, null);
@@ -82,8 +85,7 @@ public static class DataDirectorySecurity
             TakeOwnership(dir);
             dir.SetAccessControl(FolderSecurity());
 
-            bool isAgentFolder = string.Equals(full, AgentDataDirectory, StringComparison.OrdinalIgnoreCase);
-            int removed = Sweep(dir, keepEnrollmentFiles: isAgentFolder);
+            int removed = Sweep(dir);
             foreach (var name in UserReadableFiles)
             {
                 var file = new FileInfo(Path.Combine(full, name));
@@ -124,6 +126,18 @@ public static class DataDirectorySecurity
             ResetToInherited(file);
         }
         catch { /* best effort: the file still works, the next Secure may remove it */ }
+    }
+
+    /// <summary>Hands every enrollment file in <paramref name="directory"/> to Administrators. <c>enroll</c> calls
+    /// it once the files are written, so that <see cref="Secure"/> - which removes files owned by anyone else -
+    /// keeps them whoever the enrolling administrator's policy made their owner.</summary>
+    public static void ClaimEnrollmentFiles(string directory)
+    {
+        foreach (var name in EnrollmentFiles)
+        {
+            var path = Path.Combine(directory, name);
+            if (File.Exists(path)) ClaimForAdministrators(path);
+        }
     }
 
     /// <summary>
@@ -177,10 +191,9 @@ public static class DataDirectorySecurity
     }
 
     // Walks the folder without following links. Items owned by SYSTEM or Administrators stay (a trusted folder
-    // is walked further, since someone may have dropped files into it while it was open). The enrollment's own
-    // files, directly in the agent folder, are taken back and locked down whoever owns them. Everything else -
-    // and every link - is taken back and deleted.
-    private static int Sweep(DirectoryInfo dir, bool keepEnrollmentFiles)
+    // is walked further, since someone may have dropped files into it while it was open). Everything else -
+    // the enrollment's files included, see EnrollmentFiles - and every link is taken back and deleted.
+    private static int Sweep(DirectoryInfo dir)
     {
         int removed = 0;
         foreach (var item in dir.EnumerateFileSystemInfos())
@@ -188,13 +201,7 @@ public static class DataDirectorySecurity
             bool isLink = item.Attributes.HasFlag(FileAttributes.ReparsePoint);
             if (!isLink && IsOwnedBySystemOrAdministrators(item.FullName))
             {
-                if (item is DirectoryInfo sub) removed += Sweep(sub, keepEnrollmentFiles: false);
-                continue;
-            }
-            if (!isLink && keepEnrollmentFiles && item is FileInfo && EnrollmentFiles.Contains(item.Name))
-            {
-                TakeOwnership(item);
-                ResetToInherited(item);
+                if (item is DirectoryInfo sub) removed += Sweep(sub);
                 continue;
             }
             Remove(item);

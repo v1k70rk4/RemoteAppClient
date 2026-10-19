@@ -120,6 +120,7 @@ internal static partial class Strings
     public static string CommandVerifier_CommandWithoutNonceOrSignature => Get(nameof(CommandVerifier_CommandWithoutNonceOrSignature));
     public static string CommandVerifier_CommandTimestampOutsideWindowAge => Get(nameof(CommandVerifier_CommandTimestampOutsideWindowAge));
     public static string CommandVerifier_CommandSignatureIsInvalidDiscarded => Get(nameof(CommandVerifier_CommandSignatureIsInvalidDiscarded));
+    public static string CommandVerifier_UnboundSignatureRefused => Get(nameof(CommandVerifier_UnboundSignatureRefused));
     public static string CommandVerifier_CommandNonceAlreadySeenReplay => Get(nameof(CommandVerifier_CommandNonceAlreadySeenReplay));
     public static string EnrollCommand_SshKeygenFailedSSHKey => Get(nameof(EnrollCommand_SshKeygenFailedSSHKey));
     public static string HeartbeatService_HeartbeatWriteFailed => Get(nameof(HeartbeatService_HeartbeatWriteFailed));
@@ -198,6 +199,7 @@ internal static partial class Strings
     public static string VncLock_Error => Get(nameof(VncLock_Error));
     public static string FileLock_FileTransferLOCALLYDisabled => Get(nameof(FileLock_FileTransferLOCALLYDisabled));
     public static string FileLock_FileTransferLOCALLYEnabled => Get(nameof(FileLock_FileTransferLOCALLYEnabled));
+    public static string FileService_LockedRequestRefused => Get(nameof(FileService_LockedRequestRefused));
     public static string VncProvisioner_TightVNCInstalledAndConfigured => Get(nameof(VncProvisioner_TightVNCInstalledAndConfigured));
     public static string VncProvisioner_TightVNCAlreadyInstalledConfigurationUpdated => Get(nameof(VncProvisioner_TightVNCAlreadyInstalledConfigurationUpdated));
     public static string VncProvisioner_Password => Get(nameof(VncProvisioner_Password));
