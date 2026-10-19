@@ -162,7 +162,7 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
                 case "/home": await WriteJsonAsync(ctx, ListDir(HomeDir())); break;
                 case "/list": await WriteJsonAsync(ctx, ListDir(path)); break;
                 case "/download": await DownloadAsync(ctx, path, revoke); break;
-                case "/upload": await UploadAsync(ctx, path, revoke); break;
+                case "/upload": await UploadAsync(ctx, path, tok!, revoke); break;
                 case "/mkdir": Directory.CreateDirectory(path); Audit("mkdir", path); Ok(ctx); break;
                 case "/delete": DeleteEntry(path); Audit("delete", path); Ok(ctx); break;
                 case "/rename": RenameEntry(path, req.QueryString["to"] ?? ""); Audit("rename", $"{path} -> {req.QueryString["to"]}"); Ok(ctx); break;
@@ -215,7 +215,7 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
         Audit("download", path);
     }
 
-    private async Task UploadAsync(HttpListenerContext ctx, string path, CancellationToken revoke)
+    private async Task UploadAsync(HttpListenerContext ctx, string path, string token, CancellationToken revoke)
     {
         // The body lands in a part file next to the destination and replaces it only once it is complete: a
         // transfer cut off (revoked, or the peer gone) leaves the destination as it was, and the part file is
@@ -231,9 +231,14 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
                 if (existing) new FileInfo(part).SetAccessControl(new FileInfo(path).GetAccessControl());
                 await ctx.Request.InputStream.CopyToAsync(fs, revoke);   // cut off when the session's tokens die
             }
-            revoke.ThrowIfCancellationRequested();   // revoked while the body was landing: the destination stays
-            if (existing) File.Replace(part, path, destinationBackupFileName: null);
-            else File.Move(part, path);
+            // The commit happens under the same lock ClearTokens takes to forget the tokens, so a revocation
+            // lands either before it (the token is gone, nothing is committed) or after it, never in between.
+            lock (_lock)
+            {
+                if (!_tokens.ContainsKey(token)) throw new OperationCanceledException("revoked while the body was landing; the destination stays");
+                if (existing) File.Replace(part, path, destinationBackupFileName: null);
+                else File.Move(part, path);
+            }
         }
         catch
         {
