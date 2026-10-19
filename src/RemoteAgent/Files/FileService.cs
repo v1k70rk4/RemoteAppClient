@@ -23,12 +23,28 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private readonly HashSet<string> _tokens = new();
     private readonly object _lock = new();
+    // Cancelled whenever the tokens are cleared, so a transfer running on a token that just died stops where it
+    // is instead of finishing its copy. Replaced after each cancellation; a request captures the current one.
+    private CancellationTokenSource _revoke = new();
+
+    /// <summary>How often the local lock is looked at while the service is up, so switching it on at the device
+    /// ends the session even when no request arrives.</summary>
+    private static readonly TimeSpan LockPoll = TimeSpan.FromSeconds(5);
 
     /// <summary>Forgets every session token: the tunnel is closed, so nothing may use the service until a new
-    /// open-tunnel brings a new token. The listener stays up, so the port is never free for someone else.</summary>
+    /// open-tunnel brings a new token. The listener stays up, so the port is never free for someone else. A
+    /// transfer in flight on one of the forgotten tokens is cut off.</summary>
     public void ClearTokens()
     {
-        lock (_lock) _tokens.Clear();
+        CancellationTokenSource old;
+        lock (_lock)
+        {
+            _tokens.Clear();
+            old = _revoke;
+            _revoke = new CancellationTokenSource();
+        }
+        try { old.Cancel(); } catch { /* best effort */ }
+        old.Dispose();
     }
 
     /// <summary>Starts the service and registers a session token (an empty one only binds the port, which is
@@ -44,7 +60,29 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
         try { _listener.Start(); }
         catch (Exception ex) { logger.LogWarning(ex, "File service could not bind 127.0.0.1:{Port}.", Port); return; }
         _ = AcceptLoopAsync(_cts.Token);
+        _ = WatchLockAsync(_cts.Token);
         logger.LogInformation("File service listening on 127.0.0.1:{Port}.", Port);
+    }
+
+    /// <summary>Ends the session the moment the person at the device locks file transfer, whether or not a
+    /// request comes in: the lock is a registry flag with no event, so it is polled while the service is up.</summary>
+    private async Task WatchLockAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(LockPoll, ct);
+                bool live;
+                lock (_lock) live = _tokens.Count > 0;
+                if (live && FileLock.IsLocked())
+                {
+                    ClearTokens();
+                    logger.LogWarning(L.FileService_LockedRequestRefused);
+                }
+            }
+        }
+        catch (OperationCanceledException) { /* shutdown */ }
     }
 
     private async Task AcceptLoopAsync(CancellationToken ct)
@@ -65,7 +103,8 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
             var req = ctx.Request;
             var tok = req.Headers["X-File-Token"];
             bool authorized;
-            lock (_lock) authorized = tok != null && _tokens.Contains(tok);
+            CancellationToken revoke;
+            lock (_lock) { authorized = tok != null && _tokens.Contains(tok); revoke = _revoke.Token; }
             if (!authorized) { ctx.Response.StatusCode = 403; ctx.Response.Close(); return; }
             // The local lock used to count only when a tunnel was opened: a session already running kept its
             // token and went on reading, writing and deleting as SYSTEM after the person at the device had
@@ -83,8 +122,8 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
                 case "/drives": await WriteJsonAsync(ctx, Drives()); break;
                 case "/home": await WriteJsonAsync(ctx, ListDir(HomeDir())); break;
                 case "/list": await WriteJsonAsync(ctx, ListDir(path)); break;
-                case "/download": await DownloadAsync(ctx, path); break;
-                case "/upload": await UploadAsync(ctx, path); break;
+                case "/download": await DownloadAsync(ctx, path, revoke); break;
+                case "/upload": await UploadAsync(ctx, path, revoke); break;
                 case "/mkdir": Directory.CreateDirectory(path); Audit("mkdir", path); Ok(ctx); break;
                 case "/delete": DeleteEntry(path); Audit("delete", path); Ok(ctx); break;
                 case "/rename": RenameEntry(path, req.QueryString["to"] ?? ""); Audit("rename", $"{path} -> {req.QueryString["to"]}"); Ok(ctx); break;
@@ -119,20 +158,28 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
         return list;
     }
 
-    private async Task DownloadAsync(HttpListenerContext ctx, string path)
+    private async Task DownloadAsync(HttpListenerContext ctx, string path, CancellationToken revoke)
     {
         ctx.Response.ContentType = "application/octet-stream";
         await using var fs = File.OpenRead(path);
         ctx.Response.ContentLength64 = fs.Length;
-        await fs.CopyToAsync(ctx.Response.OutputStream);
+        await fs.CopyToAsync(ctx.Response.OutputStream, revoke);   // cut off when the session's tokens die
         ctx.Response.Close();
         Audit("download", path);
     }
 
-    private async Task UploadAsync(HttpListenerContext ctx, string path)
+    private async Task UploadAsync(HttpListenerContext ctx, string path, CancellationToken revoke)
     {
-        await using (var fs = File.Create(path))
-            await ctx.Request.InputStream.CopyToAsync(fs);
+        try
+        {
+            await using (var fs = File.Create(path))
+                await ctx.Request.InputStream.CopyToAsync(fs, revoke);   // cut off when the session's tokens die
+        }
+        catch (OperationCanceledException)
+        {
+            try { File.Delete(path); } catch { /* best effort: no half-written file is left behind */ }
+            throw;
+        }
         Audit("upload", path);
         Ok(ctx);
     }
@@ -194,6 +241,7 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         try { _cts?.Cancel(); } catch { /* best effort */ }
+        ClearTokens();
         try { _listener?.Stop(); _listener?.Close(); } catch { /* best effort */ }
         await Task.CompletedTask;
     }

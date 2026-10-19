@@ -5,7 +5,7 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.2**, updater **3.0.0.1**, server
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.3**, updater **3.0.0.2**, server
 **3.0.0.6**, console **3.0.0.4**, Lite **3.0.0.1**; no schema change.
 - A device's sign-in lock runs out after an hour. It used to hold until an administrator cleared it, and since
   the device id in a sign-in request is the caller's word, anyone who knew a device id could lock that device's
@@ -24,7 +24,10 @@ the time of that release; the GitHub release pages carry the same text together 
   its files to Administrators, and the clean-up removes enrollment files owned by anyone else, like any other
   foreign file.
 - Locking file transfer at the device ends a running file session. The lock used to count only when a tunnel
-  was opened; a session already running kept its token and went on as SYSTEM. It is checked on every request.
+  was opened; a session already running kept its token and went on as SYSTEM. The agent now watches the lock
+  while the service is up (every five seconds) and on every request: switching it on forgets the session's
+  tokens and cuts off a transfer in flight, a half-written upload is removed. A session does not survive a
+  lock-and-unlock either.
 - Every Windows component and the server are built on .NET 10.0.13 (the September and October servicing
   updates); the previous builds carried 10.0.11.
 - The package store sweeps itself. Every upload added a record and a file and nothing ever removed them, so the

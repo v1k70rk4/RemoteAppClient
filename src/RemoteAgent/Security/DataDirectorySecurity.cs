@@ -112,31 +112,35 @@ public static class DataDirectorySecurity
     }
 
     /// <summary>
-    /// Hands a file this process wrote to Administrators, inheriting the folder's ACL. For files an
-    /// administrator writes by hand (<c>bootstrap</c>), which a creator-owner policy would otherwise leave
-    /// personally owned - and the next <see cref="Secure"/> would treat as someone else's.
+    /// Hands a file this process wrote to Administrators. For files an administrator writes by hand
+    /// (<c>bootstrap</c>, <c>enroll</c>), which a creator-owner policy would otherwise leave personally owned -
+    /// and the next <see cref="Secure"/> would treat as someone else's. With <paramref name="keepAcl"/> the
+    /// file's own access rules stay as they are; otherwise it inherits the folder's.
     /// </summary>
-    public static void ClaimForAdministrators(string path)
+    public static void ClaimForAdministrators(string path, bool keepAcl = false)
     {
         try
         {
             var file = new FileInfo(path);
             if (!file.Exists || file.Attributes.HasFlag(FileAttributes.ReparsePoint)) return;
             TakeOwnership(file);
-            ResetToInherited(file);
+            if (!keepAcl) ResetToInherited(file);
         }
         catch { /* best effort: the file still works, the next Secure may remove it */ }
     }
 
     /// <summary>Hands every enrollment file in <paramref name="directory"/> to Administrators. <c>enroll</c> calls
     /// it once the files are written, so that <see cref="Secure"/> - which removes files owned by anyone else -
-    /// keeps them whoever the enrolling administrator's policy made their owner.</summary>
+    /// keeps them whoever the enrolling administrator's policy made their owner. Only the owner changes: a
+    /// private key written to disk carries its own SYSTEM-and-Administrators-only rules, and those must not
+    /// give way to whatever the folder would hand down - an <c>--out</c> folder of the administrator's choosing
+    /// may let every user read.</summary>
     public static void ClaimEnrollmentFiles(string directory)
     {
         foreach (var name in EnrollmentFiles)
         {
             var path = Path.Combine(directory, name);
-            if (File.Exists(path)) ClaimForAdministrators(path);
+            if (File.Exists(path)) ClaimForAdministrators(path, keepAcl: true);
         }
     }
 
