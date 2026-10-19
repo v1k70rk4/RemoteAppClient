@@ -129,18 +129,26 @@ public static class DataDirectorySecurity
         catch { /* best effort: the file still works, the next Secure may remove it */ }
     }
 
+    /// <summary>The enrollment files that hold a secret. These keep their own access rules when claimed: a
+    /// private key written to disk carries SYSTEM-and-Administrators-only rules that must not give way to what
+    /// the folder would hand down (an <c>--out</c> folder of the administrator's choosing may let every user
+    /// read). Every other enrollment file - the record, the certificates, the public keys - is reset to inherit
+    /// the folder's rules, so a rule someone left on it (write for a local user, say) does not survive.</summary>
+    private static readonly HashSet<string> SecretFiles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "agent.pfx.dat", "vnc.secret", "id_ed25519", "id_ed25519.next",
+    };
+
     /// <summary>Hands every enrollment file in <paramref name="directory"/> to Administrators. <c>enroll</c> calls
     /// it once the files are written, so that <see cref="Secure"/> - which removes files owned by anyone else -
-    /// keeps them whoever the enrolling administrator's policy made their owner. Only the owner changes: a
-    /// private key written to disk carries its own SYSTEM-and-Administrators-only rules, and those must not
-    /// give way to whatever the folder would hand down - an <c>--out</c> folder of the administrator's choosing
-    /// may let every user read.</summary>
+    /// keeps them whoever the enrolling administrator's policy made their owner. A secret keeps its own access
+    /// rules (<see cref="SecretFiles"/>), anything else inherits the folder's.</summary>
     public static void ClaimEnrollmentFiles(string directory)
     {
         foreach (var name in EnrollmentFiles)
         {
             var path = Path.Combine(directory, name);
-            if (File.Exists(path)) ClaimForAdministrators(path, keepAcl: true);
+            if (File.Exists(path)) ClaimForAdministrators(path, keepAcl: SecretFiles.Contains(name));
         }
     }
 

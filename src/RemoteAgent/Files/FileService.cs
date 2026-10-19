@@ -26,6 +26,12 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
     // Cancelled whenever the tokens are cleared, so a transfer running on a token that just died stops where it
     // is instead of finishing its copy. Replaced after each cancellation; a request captures the current one.
     private CancellationTokenSource _revoke = new();
+    // Requests being served. A read or write pending on the peer does not notice the cancellation (the listener's
+    // streams check it only before an operation starts), so revoking also aborts these contexts.
+    private readonly HashSet<HttpListenerContext> _active = new();
+    // The lock stamp (FileLock.LockStamp) when the session's tokens were issued; a different stamp later means
+    // the lock was switched on in between, whether or not it is still on.
+    private long _issuedStamp;
 
     /// <summary>How often the local lock is looked at while the service is up, so switching it on at the device
     /// ends the session even when no request arrives.</summary>
@@ -37,22 +43,36 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
     public void ClearTokens()
     {
         CancellationTokenSource old;
+        HttpListenerContext[] active;
         lock (_lock)
         {
             _tokens.Clear();
             old = _revoke;
             _revoke = new CancellationTokenSource();
+            active = _active.ToArray();
         }
         try { old.Cancel(); } catch { /* best effort */ }
         old.Dispose();
+        foreach (var ctx in active)
+            try { ctx.Response.Abort(); } catch { /* best effort: the peer may be gone already */ }
     }
+
+    /// <summary>True when the person at the device has locked file transfer since the session's tokens were
+    /// issued: the flag is on, or the stamp a lock leaves differs from the one seen at issue (switched on and
+    /// off again in between).</summary>
+    private bool LockedSinceIssue() => FileLock.IsLocked() || FileLock.LockStamp() != Volatile.Read(ref _issuedStamp);
 
     /// <summary>Starts the service and registers a session token (an empty one only binds the port, which is
     /// done at agent start so no local user can take it first). Concurrent operators each add their own,
     /// so a second operator joining does not invalidate the first. Idempotent on the listener.</summary>
     public void Start(string token)
     {
-        if (!string.IsNullOrEmpty(token)) lock (_lock) _tokens.Add(token);
+        if (!string.IsNullOrEmpty(token))
+        {
+            // The tunnel was opened under the lock as it stands now; a lock from here on ends the session.
+            Volatile.Write(ref _issuedStamp, FileLock.LockStamp());
+            lock (_lock) _tokens.Add(token);
+        }
         if (_listener is { IsListening: true }) return;
         _cts = new CancellationTokenSource();
         _listener = new HttpListener();
@@ -65,7 +85,8 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
     }
 
     /// <summary>Ends the session the moment the person at the device locks file transfer, whether or not a
-    /// request comes in: the lock is a registry flag with no event, so it is polled while the service is up.</summary>
+    /// request comes in: the lock is a registry flag with no event, so it is polled while the service is up. A
+    /// lock switched on and off again between two polls is caught by its stamp.</summary>
     private async Task WatchLockAsync(CancellationToken ct)
     {
         try
@@ -75,7 +96,7 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
                 await Task.Delay(LockPoll, ct);
                 bool live;
                 lock (_lock) live = _tokens.Count > 0;
-                if (live && FileLock.IsLocked())
+                if (live && LockedSinceIssue())
                 {
                     ClearTokens();
                     logger.LogWarning(L.FileService_LockedRequestRefused);
@@ -104,12 +125,17 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
             var tok = req.Headers["X-File-Token"];
             bool authorized;
             CancellationToken revoke;
-            lock (_lock) { authorized = tok != null && _tokens.Contains(tok); revoke = _revoke.Token; }
+            lock (_lock)
+            {
+                authorized = tok != null && _tokens.Contains(tok);
+                revoke = _revoke.Token;
+                if (authorized) _active.Add(ctx);
+            }
             if (!authorized) { ctx.Response.StatusCode = 403; ctx.Response.Close(); return; }
             // The local lock used to count only when a tunnel was opened: a session already running kept its
             // token and went on reading, writing and deleting as SYSTEM after the person at the device had
             // disabled file transfer. It is checked on every request now, and switching it on ends the session.
-            if (FileLock.IsLocked())
+            if (LockedSinceIssue())
             {
                 ClearTokens();
                 logger.LogWarning(L.FileService_LockedRequestRefused);
@@ -132,11 +158,19 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            if (revoked(ctx)) return;   // cut off by ClearTokens: the context is aborted, nothing to answer
             // Log the detail server-side; return a generic, non-reflective body so no request-controlled
             // data is echoed back into the response.
             logger.LogWarning(ex, "File service request failed.");
             try { ctx.Response.StatusCode = 500; ctx.Response.ContentType = "text/plain; charset=utf-8"; var b = Encoding.UTF8.GetBytes("Operation failed."); ctx.Response.OutputStream.Write(b); ctx.Response.Close(); } catch { /* client gone */ }
         }
+        finally
+        {
+            lock (_lock) _active.Remove(ctx);
+        }
+
+        // A context ClearTokens aborted is no longer in the active set by the time its handler fails.
+        bool revoked(HttpListenerContext c) { lock (_lock) return !_active.Contains(c); }
     }
 
     private static FsList Drives()
@@ -170,14 +204,19 @@ public sealed class FileService(ILogger logger) : IAsyncDisposable
 
     private async Task UploadAsync(HttpListenerContext ctx, string path, CancellationToken revoke)
     {
+        // The body lands in a part file next to the destination and replaces it only once it is complete: a
+        // transfer cut off (revoked, or the peer gone) leaves the destination as it was, and the part file is
+        // removed.
+        var part = path + ".part-" + Guid.NewGuid().ToString("N");
         try
         {
-            await using (var fs = File.Create(path))
+            await using (var fs = File.Create(part))
                 await ctx.Request.InputStream.CopyToAsync(fs, revoke);   // cut off when the session's tokens die
+            File.Move(part, path, overwrite: true);
         }
-        catch (OperationCanceledException)
+        catch
         {
-            try { File.Delete(path); } catch { /* best effort: no half-written file is left behind */ }
+            try { File.Delete(part); } catch { /* best effort */ }
             throw;
         }
         Audit("upload", path);

@@ -26,8 +26,9 @@ the time of that release; the GitHub release pages carry the same text together 
 - Locking file transfer at the device ends a running file session. The lock used to count only when a tunnel
   was opened; a session already running kept its token and went on as SYSTEM. The agent now watches the lock
   while the service is up (every five seconds) and on every request: switching it on forgets the session's
-  tokens and cuts off a transfer in flight, a half-written upload is removed. A session does not survive a
-  lock-and-unlock either.
+  tokens and cuts off a transfer in flight; an upload lands in a part file and replaces the destination only
+  once complete, so a cut-off one leaves the destination as it was. A session does not survive a lock-and-unlock
+  either, however brief: every lock leaves a stamp the service compares against.
 - Every Windows component and the server are built on .NET 10.0.13 (the September and October servicing
   updates); the previous builds carried 10.0.11.
 - The package store sweeps itself. Every upload added a record and a file and nothing ever removed them, so the
