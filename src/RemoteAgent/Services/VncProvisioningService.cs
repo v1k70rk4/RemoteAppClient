@@ -151,22 +151,9 @@ public sealed class VncProvisioningService(
 
     // vnc.secret stores the local VNC password. Encrypt it at rest with DPAPI (machine scope; the agent
     // runs as SYSTEM), transparently migrating any legacy plaintext file the first time it is read.
-    private static string? ReadSecret(string file)
-    {
-        if (!File.Exists(file)) return null;
-        var raw = File.ReadAllBytes(file);
-        if (raw.Length == 0) return null;
-        try { return Encoding.UTF8.GetString(ProtectedData.Unprotect(raw, null, DataProtectionScope.LocalMachine)).Trim(); }
-        catch
-        {
-            var plain = Encoding.UTF8.GetString(raw).Trim();   // legacy plaintext
-            try { WriteSecret(file, plain); } catch { /* best-effort migration */ }
-            return plain;
-        }
-    }
+    private static string? ReadSecret(string file) => VncSecretFile.Read(file);
 
-    private static void WriteSecret(string file, string password) =>
-        File.WriteAllBytes(file, ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.LocalMachine));
+    private static void WriteSecret(string file, string password) => VncSecretFile.Write(file, password);
 
     /// <summary>
     /// Reports the VNC secret over mTLS. Returns true only when the server confirms receipt (2xx), so the

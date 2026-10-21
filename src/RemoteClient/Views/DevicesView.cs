@@ -731,7 +731,6 @@ public sealed class DevicesView : UserControl, IContentView
             var devices = await _api.GetDevicesAsync();
             var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
 
-            if (string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             // A sleeping device cannot be reached now, but the server keeps the command and delivers it the moment
             // the device reports in; the agent then opens the tunnel in the first second of that wake, which is
             // the only way to catch a laptop that dozes off again within a minute. The operator chooses to wait.
@@ -747,6 +746,10 @@ public sealed class DevicesView : UserControl, IContentView
             var sw = System.Diagnostics.Stopwatch.StartNew();   // what the operator waits for, split at the device's answer
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
+            // The session's password comes with the tunnel (an agent that takes one); an older agent keeps its
+            // standing password, which the list carries for it.
+            var vncPassword = result.VncPassword ?? d.VncSecret;
+            if (string.IsNullOrEmpty(vncPassword)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             string outcome;
             if (waitForWake)
             {
@@ -815,7 +818,7 @@ public sealed class DevicesView : UserControl, IContentView
 
             var ready = sw.Elapsed;
             ShowSleepWarning(d);
-            LaunchViewer(localPort, d);
+            LaunchViewer(localPort, d, vncPassword);
             // Two numbers an operator can act on: how fast the device answered the command, and how long its
             // tunnel plus VNC took after that. A slow second number points at the device, not at the network.
             SetStatus(L.Format(L.DevicesView_VNCStartedTimed, d.Hostname, answered.TotalSeconds, (ready - answered).TotalSeconds));
@@ -1089,7 +1092,7 @@ public sealed class DevicesView : UserControl, IContentView
         return false;
     }
 
-    private void LaunchViewer(int localPort, DeviceInfo d)
+    private void LaunchViewer(int localPort, DeviceInfo d, string vncPassword)
     {
         var viewer = ResolveViewer();
         if (viewer is null)
@@ -1120,7 +1123,7 @@ public sealed class DevicesView : UserControl, IContentView
             psi.ArgumentList.Add("-host=127.0.0.1");
             psi.ArgumentList.Add($"-port={localPort}");
         }
-        psi.ArgumentList.Add($"-password={d.VncSecret}");
+        psi.ArgumentList.Add($"-password={vncPassword}");
         // Per-operator scale (TightVNC: -scale=auto -> fitWindow(true), or a percent); overrides the file.
         psi.ArgumentList.Add($"-scale={_viewerScale}");
 

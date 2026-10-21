@@ -196,11 +196,13 @@ public partial class MainWindow : Window
                     : DeviceLiveness.ProblemText(d);
                 return;
             }
-            if (string.IsNullOrEmpty(d.VncSecret)) { DevStatus.Text = L.DevicesView_NoVNCPasswordForThis; return; }
-
             DevStatus.Text = L.Format(L.DevicesView_OpeningTunnel, d.Hostname);
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { DevStatus.Text = L.DevicesView_TunnelRequestFailed; return; }
+            // The session's password comes with the tunnel (an agent that takes one); an older agent keeps its
+            // standing password, which the list carries for it.
+            var vncPassword = result.VncPassword ?? d.VncSecret;
+            if (string.IsNullOrEmpty(vncPassword)) { DevStatus.Text = L.DevicesView_NoVNCPasswordForThis; return; }
 
             DevStatus.Text = L.DevicesView_WaitingForTheRemoteDevice;
             var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
@@ -226,7 +228,7 @@ public partial class MainWindow : Window
             DevStatus.Text = L.DevicesView_ReachingBastionPortThroughThe;
             await Task.Delay(1500); // give the agent a moment to bring up its reverse tunnel
             var localPort = await _transport!.ForwardAsync(result.RemotePort);
-            VncLauncher.Launch(localPort, d.VncSecret!, _cfg.VncScale, _cfg.VncColor256);
+            VncLauncher.Launch(localPort, vncPassword, _cfg.VncScale, _cfg.VncColor256);
             DevStatus.Text = L.Format(L.DevicesView_VNCStarted, d.Hostname);
         }
         catch (Exception ex) { DevStatus.Text = L.DevicesView_ConnectionError + ex.Message; }

@@ -465,6 +465,11 @@ public sealed class OpenTunnelResult
     [JsonPropertyName("fileToken")]
     public string? FileToken { get; set; }
 
+    /// <summary>The VNC password for this session (null from a device whose agent still uses its standing
+    /// password, which the device list carries for it).</summary>
+    [JsonPropertyName("vncPassword")]
+    public string? VncPassword { get; set; }
+
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 

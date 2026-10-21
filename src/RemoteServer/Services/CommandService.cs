@@ -4,6 +4,7 @@ using RemoteAgent.Commands;
 using RemoteServer.Data;
 using RemoteServer.Data.Entities;
 using RemoteServer.Hub;
+using RemoteServer.Security;
 using RemoteServer.Signing;
 using L = RemoteServer.Localization.Strings;
 
@@ -18,6 +19,7 @@ public sealed class CommandService(
     AppDbContext db,
     CommandSigner signer,
     AgentConnectionRegistry registry,
+    SecretProtector protector,
     ILogger<CommandService> logger)
 {
     /// <summary>Adds a command to the queue and attempts immediate delivery when the device is online.</summary>
@@ -69,7 +71,22 @@ public sealed class CommandService(
         var data = entity.PayloadJson is null
             ? null
             : JsonSerializer.Deserialize(entity.PayloadJson, AgentJsonContext.Default.CommandData);
-        var signed = signer.Create(entity.Type, data, CommandSigner.UsesV2(device.AgentVersion) ? deviceId : null);
+        var version = CommandSigner.VersionFor(device.AgentVersion);
+        if (data?.VncPassword is { } stored)
+        {
+            // The session's VNC password sits in the queue row protected (a sleeping device gets its command
+            // later); the agent gets it in the clear, under a version 3 signature only. An older agent cannot
+            // check that form, and it would not act on the field either, so it is not sent one.
+            if (version >= 3)
+            {
+                data.VncPassword = protector.TryUnprotect(stored);
+                // What the device will be running from here on, kept for the hour the password is reused and
+                // for the admin's "show password": the agent reports its standing password only at start-up.
+                if (device.VncSecret != stored) device.VncSecret = stored;
+            }
+            else data.VncPassword = null;
+        }
+        var signed = signer.Create(entity.Type, data, version >= 2 ? deviceId : null, version);
 
         // The nonce goes on the row BEFORE the send: a device on a fast link answers within milliseconds, and
         // when nothing else remembers who asked (a queued command delivered at a sleeping device's next wake),

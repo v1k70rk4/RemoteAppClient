@@ -21,7 +21,7 @@ namespace RemoteAgent.Commands;
 public static class CommandSignature
 {
     /// <summary>The newest canonical form this build can produce and check.</summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     /// <summary>
     /// Version 1: deterministic, field-order-independent text that is signed and verified.
@@ -86,14 +86,33 @@ public static class CommandSignature
         static string? Flag(bool? b) => b is null ? null : b.Value ? "1" : "0";
     }
 
-    private static byte[] Payload(AgentCommand cmd, string? deviceId) =>
-        Encoding.UTF8.GetBytes(cmd.SigVersion >= 2 ? Canonicalize(cmd, deviceId ?? "") : Canonicalize(cmd));
+    /// <summary>
+    /// Version 3: the version 2 form followed by the open-tunnel session's VNC password, "-;" when the command
+    /// carries none. Frozen like the others; the next field goes under version 4.
+    /// </summary>
+    public static string Canonicalize3(AgentCommand cmd, string deviceId)
+    {
+        var sb = new StringBuilder("v3;").Append(Canonicalize(cmd, deviceId));
+        var value = cmd.Data?.VncPassword;
+        if (value is null) sb.Append("-;");
+        else sb.Append(Encoding.UTF8.GetByteCount(value)).Append(':').Append(value).Append(';');
+        return sb.ToString();
+    }
+
+    private static byte[] Payload(AgentCommand cmd, string? deviceId) => Encoding.UTF8.GetBytes(cmd.SigVersion switch
+    {
+        >= 3 => Canonicalize3(cmd, deviceId ?? ""),
+        2 => Canonicalize(cmd, deviceId ?? ""),
+        _ => Canonicalize(cmd),
+    });
 
     /// <summary>Signs the command with the server private key and sets the Signature field. With
-    /// <paramref name="deviceId"/> the version 2 form is used and marked on the command; without it, version 1.</summary>
-    public static void Sign(AgentCommand cmd, ECDsa privateKey, string? deviceId = null)
+    /// <paramref name="deviceId"/> the device-bound form of <paramref name="version"/> (2 or 3) is used and
+    /// marked on the command; without it, version 1.</summary>
+    public static void Sign(AgentCommand cmd, ECDsa privateKey, string? deviceId = null, int version = CurrentVersion)
     {
-        cmd.SigVersion = deviceId is null ? 0 : CurrentVersion;
+        if (version is < 2 or > CurrentVersion) throw new ArgumentOutOfRangeException(nameof(version));
+        cmd.SigVersion = deviceId is null ? 0 : version;
         byte[] sig = privateKey.SignData(Payload(cmd, deviceId), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         cmd.Signature = Convert.ToBase64String(sig);
     }

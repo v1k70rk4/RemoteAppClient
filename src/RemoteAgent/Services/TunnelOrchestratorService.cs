@@ -156,6 +156,27 @@ public sealed class TunnelOrchestratorService(
         // counts as activity). Released in CloseTunnelAsync, and below if the start fails.
         keepAwake.Hold();
 
+        // The session's VNC password, chosen by the server for this hour: set on the VNC server before the
+        // tunnel comes up, so the operator's viewer meets it. Unchanged within the hour means nothing to do and
+        // no restart - a second operator joins the running session. Recorded in vnc.secret so the provisioning
+        // watchdog keeps hardening to this one, not the previous.
+        if (!string.IsNullOrEmpty(data?.VncPassword) && !RemoteAgent.Vnc.VncLock.IsLocked())
+        {
+            try
+            {
+                var pw = data!.VncPassword!;
+                var secretFile = RemoteAgent.Vnc.VncSecretFile.PathIn(options.Value.EnrollmentDir);
+                bool current = string.Equals(RemoteAgent.Vnc.VncSecretFile.Read(secretFile), pw, StringComparison.Ordinal);
+                if (!current || !RemoteAgent.Vnc.VncProvisioner.IsHardened(pw))
+                {
+                    await Task.Run(() => RemoteAgent.Vnc.VncProvisioner.ApplyHardening(pw), ct);   // writes the config, restarts the VNC server
+                    RemoteAgent.Vnc.VncSecretFile.Write(secretFile, pw);
+                    logger.LogInformation(L.TunnelOrchestratorService_SessionPasswordSet);
+                }
+            }
+            catch (Exception ex) { logger.LogWarning(ex, L.TunnelOrchestratorService_SessionPasswordFailed); }
+        }
+
         // Start the loopback file service unless file transfer is locally disabled (token + port are auxiliary).
         bool serveFiles = data?.FileRemotePort is > 0 && !string.IsNullOrEmpty(data.FileToken) && !fileLocked;
         if (serveFiles)

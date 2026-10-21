@@ -14,7 +14,7 @@
     <RootNamespace>RemoteClient.Lite</RootNamespace>
     <AssemblyName>RemoteClient.Lite</AssemblyName>
     <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
-    <Version>3.0.0.1</Version>
+    <Version>3.0.0.2</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>

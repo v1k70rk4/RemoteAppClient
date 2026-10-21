@@ -5,8 +5,16 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.3**, updater **3.0.0.2**, server
-**3.0.0.6**, console **3.0.0.4**, Lite **3.0.0.1**; no schema change.
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.4**, updater **3.0.0.2**, server
+**3.0.0.7**, console **3.0.0.5**, Lite **3.0.0.2**, Linux console **3.0.0.1**; no schema change.
+- The VNC password belongs to the session, not the device. It used to stand for as long as the agent kept it and
+  went out to every console user in the device list, so an operator whose access had ended could still connect
+  while someone else had the device's tunnel open. The server now chooses it at open-tunnel: the agent gets it
+  in the signed command (signature version 3) and sets it on its VNC server before the tunnel comes up, the
+  operator gets the same one in the open-tunnel result, and the list no longer carries it for such a device. One
+  password is kept for an hour from the time it was chosen, so a second operator joining or a reconnect within
+  the hour reuses it without a VNC restart. An older agent keeps its standing password and the list still carries
+  it for that device; an admin's "show password" shows whichever is current.
 - A device's sign-in lock runs out after an hour. It used to hold until an administrator cleared it, and since
   the device id in a sign-in request is the caller's word, anyone who knew a device id could lock that device's
   console out for good with five bad passwords. The lock still slows a guess to five tries an hour, still shows in

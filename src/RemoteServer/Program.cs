@@ -806,7 +806,9 @@ app.MapGet("/admin/devices", async (HttpContext ctx, AppDbContext db, AgentConne
         RecentReconnects = registry.RecentReconnects(d.DeviceId),
         LastSeenAt = d.LastSeenAt,
         EnrolledAt = d.EnrolledAt,
-        VncSecret = viaToken ? null : protector.TryUnprotect(d.VncSecret),
+        // A device whose agent takes a session password gets it at open-tunnel; the list no longer hands out a
+        // standing one for it (an admin's "show password" still does).
+        VncSecret = viaToken || CommandSigner.VersionFor(d.AgentVersion) >= 3 ? null : protector.TryUnprotect(d.VncSecret),
         GroupId = d.GroupId,
         GroupName = d.Group?.Name,
         UpdateAllowed = d.UpdateAllowed,
@@ -1422,7 +1424,7 @@ app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> 
 
 // Open tunnel: uses the device's stable port assigned at enrollment; can be overridden by query.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
-    string deviceId, int? remotePort, string? purpose, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, CancellationToken ct) =>
+    string deviceId, int? remotePort, string? purpose, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, SecretProtector protector, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();
@@ -1460,9 +1462,26 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
         .Where(c => c.DeviceId == device.Id && c.Type == CommandTypes.OpenTunnel && c.Status == RemoteServer.Data.CommandStatus.Queued)
         .ExecuteDeleteAsync(ct);
 
+    // The session's VNC password, for an agent that takes one (see VncSessionPassword): the one chosen within
+    // the last hour, or a fresh one. It travels protected in the queue row and in the clear to the operator;
+    // an older agent keeps its standing password, which the device list still carries for it.
+    string? sessionPassword = null, storedPassword = null;
+    if (CommandSigner.VersionFor(device.AgentVersion) >= 3)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (VncSessionPassword.Reusable(device.VncSecretUpdatedAt, now)) sessionPassword = protector.TryUnprotect(device.VncSecret);
+        if (string.IsNullOrEmpty(sessionPassword))
+        {
+            sessionPassword = VncSessionPassword.Generate();
+            device.VncSecret = protector.Protect(sessionPassword);
+            device.VncSecretUpdatedAt = now;
+        }
+        storedPassword = device.VncSecret;
+    }
+
     var cmd = await commands.EnqueueAsync(
         deviceId, CommandTypes.OpenTunnel,
-        new CommandData { RemotePort = port, ConsentRequired = consentRequired, UnattendedAllowed = unattendedAllowed, FileRemotePort = filePort, FileToken = fileToken, TunnelPurpose = purpose },
+        new CommandData { RemotePort = port, ConsentRequired = consentRequired, UnattendedAllowed = unattendedAllowed, FileRemotePort = filePort, FileToken = fileToken, TunnelPurpose = purpose, VncPassword = storedPassword },
         createdBy: me.Id, ct);
     if (cmd is null) return Results.NotFound();
 
@@ -1470,7 +1489,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct);
 
     return Results.Json(
-        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "", ConsentRequired = consentRequired },
+        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, VncPassword = sessionPassword, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "", ConsentRequired = consentRequired },
         AgentJsonContext.Default.OpenTunnelResult);
 });
 

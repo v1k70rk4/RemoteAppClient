@@ -114,6 +114,11 @@ public sealed class CommandData
     [JsonPropertyName("fileToken")] public string? FileToken { get; set; }
     /// <summary>What the operator opened the tunnel for ("vnc"/"file"); selects which local lock gates it. Auxiliary, unsigned.</summary>
     [JsonPropertyName("tunnelPurpose")] public string? TunnelPurpose { get; set; }
+
+    /// <summary>Open-tunnel: the VNC password for this session, chosen by the server and kept for an hour. The
+    /// agent sets it on its VNC server before it brings the tunnel up; the operator gets the same one in the
+    /// open-tunnel result. Only sent to agents that understand it (signature version 3).</summary>
+    [JsonPropertyName("vncPassword")] public string? VncPassword { get; set; }
 }
 
 /// <summary>Known command types. Arbitrary strings are ignored.</summary>

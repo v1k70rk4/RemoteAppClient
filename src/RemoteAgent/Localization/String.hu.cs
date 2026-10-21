@@ -100,6 +100,8 @@ internal static partial class Strings
         [nameof(TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis)] = "Távoli elérés (tunnel) ELUTASÍTVA: a gép VNC-je helyileg le van tiltva.",
         [nameof(TunnelOrchestratorService_FileTransferDENIEDThis)] = "Fájlátvitel ELUTASÍTVA: a fájlátvitel helyileg le van tiltva ezen a gépen.",
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedThisDevice)] = "open-tunnel elutasítva — a gép VNC-je helyileg le van tiltva.",
+        [nameof(TunnelOrchestratorService_SessionPasswordSet)] = "Munkamenet VNC-jelszó beállítva; a VNC-szerver emiatt újraindult.",
+        [nameof(TunnelOrchestratorService_SessionPasswordFailed)] = "A munkamenet VNC-jelszavát nem sikerült beállítani; az operátor nézője nem fog illeszkedni ehhez a géphez.",
         [nameof(TunnelOrchestratorService_OpenTunnelWithInvalidRemote)] = "open-tunnel érvénytelen távoli porttal ({Port}), kihagyva.",
         [nameof(TunnelOrchestratorService_RemoteAccessDENIEDNoSigned)] = "Távoli elérés ELUTASÍTVA: nincs bejelentkezett felhasználó és a felügyelet nélküli hozzáférés tiltott.",
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedNoActive)] = "open-tunnel elutasítva — nincs aktív felhasználó, unattended tiltott.",

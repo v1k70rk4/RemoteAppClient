@@ -20,4 +20,15 @@ public class CommandSignerPolicyTests
     [InlineData("garbage")]
     public void A_device_without_a_known_version_gets_the_bound_form(string? version) =>
         Assert.True(CommandSigner.UsesV2(version));
+
+    [Theory]
+    [InlineData("2.2.6.0", 1)]
+    [InlineData("2.2.7.1", 2)]
+    [InlineData("3.0.0.3", 2)]
+    [InlineData("3.0.0.4", 3)]
+    [InlineData("3.1.0.0", 3)]
+    [InlineData(null, 3)]
+    [InlineData("garbage", 3)]
+    public void The_signature_version_follows_the_agent_version(string? agent, int expected) =>
+        Assert.Equal(expected, CommandSigner.VersionFor(agent));
 }
