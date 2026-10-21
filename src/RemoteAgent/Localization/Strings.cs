@@ -154,6 +154,8 @@ internal static partial class Strings
     public static string TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis => Get(nameof(TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis));
     public static string TunnelOrchestratorService_FileTransferDENIEDThis => Get(nameof(TunnelOrchestratorService_FileTransferDENIEDThis));
     public static string TunnelOrchestratorService_OpenTunnelDeniedThisDevice => Get(nameof(TunnelOrchestratorService_OpenTunnelDeniedThisDevice));
+    public static string TunnelOrchestratorService_SessionPasswordSet => Get(nameof(TunnelOrchestratorService_SessionPasswordSet));
+    public static string TunnelOrchestratorService_SessionPasswordFailed => Get(nameof(TunnelOrchestratorService_SessionPasswordFailed));
     public static string TunnelOrchestratorService_OpenTunnelWithInvalidRemote => Get(nameof(TunnelOrchestratorService_OpenTunnelWithInvalidRemote));
     public static string TunnelOrchestratorService_RemoteAccessDENIEDNoSigned => Get(nameof(TunnelOrchestratorService_RemoteAccessDENIEDNoSigned));
     public static string TunnelOrchestratorService_OpenTunnelDeniedNoActive => Get(nameof(TunnelOrchestratorService_OpenTunnelDeniedNoActive));

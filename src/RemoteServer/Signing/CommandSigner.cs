@@ -34,7 +34,7 @@ public sealed class CommandSigner : IDisposable
     /// <summary>New signed command with fresh nonce and timestamp. With <paramref name="deviceId"/> the signature
     /// is version 2, which only agents from <see cref="SigV2MinAgent"/> can check; the caller decides from the
     /// agent's reported version (<see cref="UsesV2"/>) and passes null for older ones.</summary>
-    public AgentCommand Create(string type, CommandData? data = null, string? deviceId = null)
+    public AgentCommand Create(string type, CommandData? data = null, string? deviceId = null, int version = CommandSignature.CurrentVersion)
     {
         var cmd = new AgentCommand
         {
@@ -43,8 +43,22 @@ public sealed class CommandSigner : IDisposable
             IssuedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Data = data,
         };
-        CommandSignature.Sign(cmd, _privateKey, deviceId);
+        CommandSignature.Sign(cmd, _privateKey, deviceId, deviceId is null ? CommandSignature.CurrentVersion : version);   // no device: the unbound form, whatever the version
         return cmd;
+    }
+
+    /// <summary>Agents from here on check the version 3 form, which covers the session's VNC password.</summary>
+    public static readonly Version SigV3MinAgent = RemoteAgent.Admin.DeviceInfo.SessionPasswordMinAgent;
+
+    /// <summary>The signature version an agent reporting <paramref name="agentVersion"/> checks: 3 from
+    /// <see cref="SigV3MinAgent"/>, 2 from <see cref="SigV2MinAgent"/>, 1 (the unbound form) below that. A
+    /// device whose version is not known yet is a fresh install and gets the newest.</summary>
+    public static int VersionFor(string? agentVersion)
+    {
+        if (!Version.TryParse(agentVersion, out var v)) return CommandSignature.CurrentVersion;
+        if (v >= SigV3MinAgent) return 3;
+        if (v >= SigV2MinAgent) return 2;
+        return 1;
     }
 
     /// <summary>Whether an agent reporting <paramref name="agentVersion"/> verifies version 2 signatures.</summary>

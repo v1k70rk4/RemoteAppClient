@@ -100,6 +100,8 @@ internal static partial class Strings
         [nameof(TunnelOrchestratorService_RemoteAccessTunnelDENIEDThis)] = "Remote access (tunnel) DENIED: this device's VNC is locally disabled.",
         [nameof(TunnelOrchestratorService_FileTransferDENIEDThis)] = "File transfer DENIED: file transfer is locally disabled on this device.",
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedThisDevice)] = "open-tunnel denied; this device's VNC is locally disabled.",
+        [nameof(TunnelOrchestratorService_SessionPasswordSet)] = "Session VNC password set; the VNC server was restarted for it.",
+        [nameof(TunnelOrchestratorService_SessionPasswordFailed)] = "The session VNC password could not be set; the operator's viewer will not match this device.",
         [nameof(TunnelOrchestratorService_OpenTunnelWithInvalidRemote)] = "open-tunnel with invalid remote port ({Port}), skipped.",
         [nameof(TunnelOrchestratorService_RemoteAccessDENIEDNoSigned)] = "Remote access DENIED: no signed-in user and unattended access is disabled.",
         [nameof(TunnelOrchestratorService_OpenTunnelDeniedNoActive)] = "open-tunnel denied; no active user and unattended is disabled.",
