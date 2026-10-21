@@ -21,6 +21,10 @@ public sealed class AccessResultStore
         public bool Audited { get; set; }
         /// <summary>The device that sent the outcome (its database id), when the answer came first.</summary>
         public Guid? ReportedBy { get; init; }
+        /// <summary>The session's VNC password for this request, handed to the operator only once the device has
+        /// let the request in: an operator the person at the device turned away must not get the password that
+        /// another operator's running session uses.</summary>
+        public string? VncPassword { get; init; }
     }
 
     // Answers that arrive before their request are parked, and a device decides what it sends: without a ceiling
@@ -31,9 +35,9 @@ public sealed class AccessResultStore
 
     /// <summary>At open time: which actor requested access to which deviceId/hostname. Returns the entry; when
     /// the agent's answer got here first (a placeholder holds it), the returned entry already carries the outcome.</summary>
-    public Entry SetPending(string nonce, string actor, Guid? deviceId, string hostname)
+    public Entry SetPending(string nonce, string actor, Guid? deviceId, string hostname, string? vncPassword = null)
     {
-        var entry = new Entry(actor, deviceId, hostname);
+        var entry = new Entry(actor, deviceId, hostname) { VncPassword = vncPassword };
         if (string.IsNullOrEmpty(nonce)) return entry;
         // Never overwrite an answer that beat us. The first version of this merged only a placeholder's outcome,
         // but the uplink side may already have bound the nonce from the command row (a fast device, or a queued
@@ -41,10 +45,14 @@ public sealed class AccessResultStore
         // outcome and all - so the console polled into a timeout for an access the device had in fact granted.
         // Whatever is already known about the answer stays, whoever binds.
         // An answer parked by a different device than the one this request went to is not the answer: dropped.
+        // The request is bound twice - by the open-tunnel endpoint, which knows the session's password, and by
+        // the uplink from the command row, which does not - in whichever order the two finish. A binding without
+        // a password must not wipe the one the other binding brought, or the operator is let in and told there
+        // is no password.
         entry = _map.AddOrUpdate(nonce, entry,
             (_, existing) => existing.Outcome is not null && (existing.ReportedBy is null || deviceId is null || existing.ReportedBy == deviceId)
-                ? new Entry(actor, deviceId, hostname) { Outcome = existing.Outcome, Audited = existing.Audited, ReportedBy = existing.ReportedBy }
-                : entry);
+                ? new Entry(actor, deviceId, hostname) { Outcome = existing.Outcome, Audited = existing.Audited, ReportedBy = existing.ReportedBy, VncPassword = vncPassword ?? existing.VncPassword }
+                : vncPassword is null && existing.VncPassword is not null ? entry with { VncPassword = existing.VncPassword } : entry);
         Prune();
         return entry;
     }

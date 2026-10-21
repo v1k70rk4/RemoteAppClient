@@ -26,6 +26,8 @@ public sealed class TunnelOrchestratorService(
 {
     private readonly TunnelOptions _opt = options.Value.Tunnel;
     private SshReverseTunnel? _tunnel;
+    private bool _tunnelVnc;   // the running tunnel carries the VNC forward (a file-only session does not)
+    private bool _tunnelFiles; // the running tunnel carries the file forward (not when files were locked at its start)
     private RemoteAgent.Files.FileService? _fileService;
     private int _tunnelPort;
     private DateTimeOffset _lastActivity;
@@ -194,9 +196,12 @@ public sealed class TunnelOrchestratorService(
         if (serveFiles)
             (_fileService ??= new RemoteAgent.Files.FileService(loggerFactory.CreateLogger<RemoteAgent.Files.FileService>())).Start(data!.FileToken!);
 
-        // Reuse an existing tunnel on the same port so a second operator can join the session:
-        // TightVNC runs shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer.
-        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort)
+        // Reuse an existing tunnel on the same port so a second operator can join the session: TightVNC runs
+        // shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer. A tunnel brought up for files
+        // alone carries no VNC forward, so a VNC request replaces it rather than joining it.
+        // Likewise a tunnel started while files were locked carries no file forward: a file request after the
+        // unlock needs a restart, not a join, or it would report success with no port behind it.
+        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (_tunnelVnc || wantsFile) && (!serveFiles || _tunnelFiles))
         {
             _lastActivity = DateTimeOffset.UtcNow;
             state.Set(true);
@@ -211,9 +216,13 @@ public sealed class TunnelOrchestratorService(
         // Stamped BEFORE the start: the idle watchdog takes a tunnel whose ssh is up for running, and with the
         // stamp still at the previous session's end it closed tunnels that were only just coming up.
         _lastActivity = DateTimeOffset.UtcNow;
-        try { await _tunnel.StartAsync(remotePort, serveFiles ? data!.FileRemotePort : 0, ct); }
+        // A file session forwards the file port alone: the screen is not opened for an operator who asked for
+        // files, and a password someone saved from an earlier session finds no VNC port behind a file session.
+        try { await _tunnel.StartAsync(wantsFile ? 0 : remotePort, serveFiles ? data!.FileRemotePort : 0, ct); }
         catch { keepAwake.Release(); throw; }
         _tunnelPort = remotePort;
+        _tunnelVnc = !wantsFile;
+        _tunnelFiles = serveFiles;
         state.Set(_tunnel.IsRunning);
         if (!_tunnel.IsRunning) keepAwake.Release();   // nothing came up, nothing to stay awake for
         _lastActivity = DateTimeOffset.UtcNow;

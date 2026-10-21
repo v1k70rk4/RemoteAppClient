@@ -59,24 +59,31 @@ case "$KEYID" in
 esac
 
 NOW=$(date +%s)
-LINE=$(awk -F'\t' -v id="$KEYID" '$1 == id { print $2, $3, $4; exit }' "$GRANTS" 2>/dev/null)
+LINE=$(awk -F'\t' -v id="$KEYID" '$1 == id { print $2, $3, $4, $5; exit }' "$GRANTS" 2>/dev/null)
 if [ -z "$LINE" ]; then
     log "$KEYID: no open-tunnel requested, no listen"
     echo "$OPEN,$NOLISTEN $PRINCIPAL"; exit 0
 fi
 set -- $LINE
-VNC="$1"; FILE="$2"; AT="$3"
-if [ $((NOW - AT)) -gt "$WINDOW" ] || [ $((NOW - AT)) -lt -60 ]; then
-    log "$KEYID: request is $((NOW - AT))s old, no listen"
-    echo "$OPEN,$NOLISTEN $PRINCIPAL"; exit 0
-fi
+VNC="$1"; FILE="$2"; VNC_AT="$3"; FILE_AT="$4"
+# Each port on its own clock: a file request never extends a VNC permission. A port of 0 is not granted; a
+# request older than the window, or from the future (a clock that jumped), grants nothing.
 # ssh sends the name "localhost" for a -R without a bind address, which sshd matches separately from the
 # loopback addresses; all three forms are listed so the agent's forward is accepted whichever it sends.
-L=""
-for p in "$VNC" "$FILE"; do
+L=""; WHY=""
+for pair in "$VNC:$VNC_AT" "$FILE:$FILE_AT"; do
+    p="${pair%%:*}"; at="${pair##*:}"
+    [ "$p" -gt 0 ] 2>/dev/null || continue
+    age=$((NOW - at))
+    if [ "$age" -gt "$WINDOW" ] || [ "$age" -lt -60 ]; then WHY="$WHY $p:${age}s-old"; continue; fi
     L="$L,permitlisten=\"localhost:$p\",permitlisten=\"127.0.0.1:$p\",permitlisten=\"[::1]:$p\""
+    WHY="$WHY $p:${age}s-ago"
 done
-log "$KEYID: listen on $VNC and $FILE (requested $((NOW - AT))s ago)"
+if [ -z "$L" ]; then
+    log "$KEYID: no live request ($WHY), no listen"
+    echo "$OPEN,$NOLISTEN $PRINCIPAL"; exit 0
+fi
+log "$KEYID: listen ($WHY)"
 echo "$OPEN$L $PRINCIPAL"
 SCRIPT
 sudo sed -i -e "s|@GRANTS@|${GRANTS}|" -e "s|@ENFORCE@|${GRANTS%.txt}-enforce|" -e "s|@AGENT_USER@|${RAC_AGENT_USER}|" /usr/local/sbin/rac-principals

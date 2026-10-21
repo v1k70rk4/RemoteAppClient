@@ -363,11 +363,12 @@ public sealed class AdminApi : IDisposable
     }
 
     /// <summary>Access request outcome by nonce. Empty means no answer yet; keep waiting.</summary>
-    public async Task<string> GetAccessResultAsync(string nonce, CancellationToken ct = default)
-    {
-        var r = await _http.GetFromJsonAsync($"/admin/devices/access-result/{nonce}", AgentJsonContext.Default.AccessResultInfo, ct);
-        return r?.Outcome ?? "";
-    }
+    public async Task<string> GetAccessResultAsync(string nonce, CancellationToken ct = default) =>
+        (await GetAccessAsync(nonce, ct))?.Outcome ?? "";
+
+    /// <summary>The request's outcome and, once the device has let it in, the session's VNC password.</summary>
+    public async Task<AccessResultInfo?> GetAccessAsync(string nonce, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync($"/admin/devices/access-result/{nonce}", AgentJsonContext.Default.AccessResultInfo, ct);
 
     public async Task<List<GroupInfo>> GetGroupsAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync("/admin/groups", AgentJsonContext.Default.ListGroupInfo, ct) ?? [];

@@ -277,9 +277,11 @@ public sealed class SshCertService(IOptions<AgentOptions> options, TransportStat
 
     private enum Probe { Ok, Refused, Inconclusive }
 
-    /// <summary>A real reverse connection with the staged key (a throwaway forward, -R 0). Refused = the bastion
-    /// answered the key with "Permission denied"; anything else that went wrong (not reached, a bridge or mux
-    /// down, a timeout, a forward conflict) is inconclusive and tried again later.</summary>
+    /// <summary>A real connection to the bastion with the staged key, authenticated and nothing more: no forward
+    /// is asked for (the bastion lets a device listen only within a request from an operator, so a throwaway
+    /// -R would be turned away and the key never confirmed). Refused = the bastion answered the key with
+    /// "Permission denied"; anything else that went wrong (not reached, a bridge or mux down, a timeout) is
+    /// inconclusive and tried again later.</summary>
     private async Task<Probe> ProbeAsync(SshIdentity.Snapshot staged, CancellationToken ct)
     {
         if (!await BastionReachableAsync(ct)) return Probe.Inconclusive;

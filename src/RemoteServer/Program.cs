@@ -1508,11 +1508,14 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
         createdBy: me.Id, ct);
     if (cmd is null) return Results.NotFound();
 
-    // Bind context to nonce: who requested access to which device, so the agent outcome can be audited.
-    await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct);
+    // Bind context to nonce: who requested access to which device, so the agent outcome can be audited. The
+    // session's password rides on the same entry and is handed over with the outcome, once the device has let
+    // the request in: an operator the person at the device turns away gets no password, and cannot ride another
+    // operator's running tunnel with it.
+    await BindAccessAsync(accessResults, db, cmd.Nonce ?? "", me.Username, device.Id, device.Hostname, ct, sessionPassword);
 
     return Results.Json(
-        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, VncPassword = sessionPassword, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "", ConsentRequired = consentRequired },
+        new OpenTunnelResult { DeviceId = deviceId, RemotePort = port, FileRemotePort = filePort, FileToken = fileToken, Status = cmd.Status.ToString(), Nonce = cmd.Nonce ?? "", ConsentRequired = consentRequired },
         AgentJsonContext.Default.OpenTunnelResult);
 });
 
@@ -1553,7 +1556,9 @@ app.MapGet("/admin/devices/access-result/{nonce}", (string nonce, HttpContext ct
     if (entry is not null && !AuthService.IsAdmin(me) && !string.Equals(entry.Actor, me.Username, StringComparison.Ordinal))
         return Results.Json(new AuthError { Error = "forbidden" }, AgentJsonContext.Default.AuthError, statusCode: 403);
 
-    return Results.Json(new AccessResultInfo { Outcome = entry?.Outcome ?? "" }, AgentJsonContext.Default.AccessResultInfo);
+    // The password goes out with a positive answer only; a refused, timed-out or still-pending request gets none.
+    var let = entry?.Outcome is "auto" or "granted";
+    return Results.Json(new AccessResultInfo { Outcome = entry?.Outcome ?? "", VncPassword = let ? entry!.VncPassword : null }, AgentJsonContext.Default.AccessResultInfo);
 });
 
 // Messages tab: "is your machine free now?" — Yes/No WTS prompt on the device (30s). The outcome
@@ -2753,9 +2758,9 @@ static RemoteServer.Data.Entities.AuditLog AccessOutcomeAudit(AccessResultStore.
 // done, and the store then holds it under a placeholder. Before this merge the binding overwrote that
 // answer, the console polled into "the device did not answer" and the audit said "?" - while the tunnel
 // was in fact open. The fastest device in the fleet lost that race on most of its connects.
-static async Task BindAccessAsync(AccessResultStore accessResults, AppDbContext db, string nonce, string actor, Guid deviceId, string hostname, CancellationToken ct)
+static async Task BindAccessAsync(AccessResultStore accessResults, AppDbContext db, string nonce, string actor, Guid deviceId, string hostname, CancellationToken ct, string? vncPassword = null)
 {
-    var entry = accessResults.SetPending(nonce, actor, deviceId, hostname);
+    var entry = accessResults.SetPending(nonce, actor, deviceId, hostname, vncPassword);
     // An answer that got here first is filed now - unless the uplink side already did, from the command row.
     if (entry.Outcome is { } early && !entry.Audited)
     {
@@ -3230,8 +3235,20 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, Guid devi
                         var row = await adb.Commands.FirstOrDefaultAsync(c => c.Nonce == msg.Nonce && c.DeviceId == deviceKey, ct);
                         var dev = row is null ? null : await adb.Devices.FirstOrDefaultAsync(d => d.Id == row.DeviceId, ct);
                         var who = row?.CreatedByUserId is { } uid ? await adb.Users.FirstOrDefaultAsync(u => u.Id == uid, ct) : null;
-                        // Unknown here (the row is not written yet): the request side binds and audits it.
-                        entry = dev is null || who is null ? null : accessResults.SetPending(msg.Nonce, who.Username, dev.Id, dev.Hostname);
+                        // Unknown here (the row is not written yet): the request side binds and audits it. The
+                        // session's password rides in the queued row (protected), so an answer at a wake hours
+                        // after the request - its binding long expired - still hands the operator the password.
+                        string? queuedPassword = null;
+                        if (row?.PayloadJson is { } payload)
+                        {
+                            try
+                            {
+                                var queued = JsonSerializer.Deserialize(payload, AgentJsonContext.Default.CommandData)?.VncPassword;
+                                if (queued is not null) queuedPassword = scope.ServiceProvider.GetRequiredService<SecretProtector>().TryUnprotect(queued);
+                            }
+                            catch (JsonException) { /* no password to recover */ }
+                        }
+                        entry = dev is null || who is null ? null : accessResults.SetPending(msg.Nonce, who.Username, dev.Id, dev.Hostname, queuedPassword);
                     }
                     if (entry is not null && !entry.Audited)
                     {

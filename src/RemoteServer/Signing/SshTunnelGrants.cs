@@ -15,16 +15,25 @@ namespace RemoteServer.Signing;
 /// (deploy/steps/05-bastion.sh) to read. The agent brings its tunnel up within seconds of the command, and a
 /// tunnel that drops is not rebuilt by the agent - the operator asks again, which grants again.
 ///
-/// The file is rewritten the moment a grant is made and whenever one runs out, one line per device:
-/// <c>deviceId TAB vncPort TAB filePort TAB grantedAtUnixSeconds</c>. The bastion checks the age itself too, so
-/// a file left behind by a stopped server grants nothing.
+/// Each port carries its own time: a file session asked for while a VNC request still waits for the person at
+/// the device keeps the VNC port in the grant, but on the VNC request's own clock - a file request never
+/// extends a VNC permission. The file is rewritten the moment a grant is made and whenever one runs out, one
+/// line per device: <c>deviceId TAB vncPort TAB filePort TAB vncGrantedAt TAB fileGrantedAt</c> (unix seconds,
+/// 0 for a port not granted). The bastion checks the ages itself too, so a file left behind by a stopped server
+/// grants nothing.
 /// </summary>
 public sealed class SshTunnelGrants(IOptions<ServerOptions> options, ILogger<SshTunnelGrants> logger) : BackgroundService
 {
     public static readonly TimeSpan Window = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan Sweep = TimeSpan.FromSeconds(15);
 
-    public sealed record Grant(int VncPort, int FilePort, DateTimeOffset At);
+    /// <summary>A port of 0 is not granted; its time is then irrelevant.</summary>
+    public sealed record Grant(int VncPort, int FilePort, DateTimeOffset VncAt, DateTimeOffset FileAt)
+    {
+        public bool VncLive(DateTimeOffset now) => VncPort > 0 && now - VncAt < Window;
+        public bool FileLive(DateTimeOffset now) => FilePort > 0 && now - FileAt < Window;
+        public bool AnyLive(DateTimeOffset now) => VncLive(now) || FileLive(now);
+    }
 
     private readonly ConcurrentDictionary<string, Grant> _grants = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _write = new(1, 1);
@@ -32,20 +41,40 @@ public sealed class SshTunnelGrants(IOptions<ServerOptions> options, ILogger<Ssh
         ? null
         : Path.Combine(Path.GetDirectoryName(options.Value.Bastion.RevokedKeysPath) ?? "/var/lib/remoteserver/ssh", "tunnel-grants.txt");
 
-    /// <summary>Lets the device bring its reverse tunnel up for the next <see cref="Window"/>.</summary>
+    /// <summary>Lets the device bring its reverse tunnel up on these ports (0 = not this one) for the next
+    /// <see cref="Window"/>; a port a standing grant still holds keeps its own time.</summary>
     public async Task GrantAsync(string deviceId, int vncPort, int filePort, CancellationToken ct)
     {
-        _grants[deviceId] = new Grant(vncPort, filePort, DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        _grants.AddOrUpdate(deviceId, Merge(null, vncPort, filePort, now), (_, prior) => Merge(prior, vncPort, filePort, now));
         await WriteAsync(ct);
     }
 
-    /// <summary>The grants still inside the window at <paramref name="now"/>, as the file's content: one line per
-    /// device sorted by id, trailing newline, empty when none.</summary>
+    /// <summary>What a new grant becomes next to a standing one: a port asked for now gets the time now; a port
+    /// not asked for now is carried over from the standing grant with its own time, while that is still live;
+    /// anything else is not granted.</summary>
+    public static Grant Merge(Grant? prior, int vncPort, int filePort, DateTimeOffset now)
+    {
+        var vnc = vncPort > 0 ? (vncPort, now)
+                : prior is not null && prior.VncLive(now) ? (prior.VncPort, prior.VncAt)
+                : (0, DateTimeOffset.MinValue);
+        var file = filePort > 0 ? (filePort, now)
+                 : prior is not null && prior.FileLive(now) ? (prior.FilePort, prior.FileAt)
+                 : (0, DateTimeOffset.MinValue);
+        return new Grant(vnc.Item1, file.Item1, vnc.Item2, file.Item2);
+    }
+
+    /// <summary>The grants with a live port at <paramref name="now"/>, as the file's content: one line per device
+    /// sorted by id, a port that has run out shown as 0, trailing newline, empty when none.</summary>
     public static string Render(IEnumerable<KeyValuePair<string, Grant>> grants, DateTimeOffset now)
     {
         var sb = new StringBuilder();
-        foreach (var (id, g) in grants.Where(kv => now - kv.Value.At < Window).OrderBy(kv => kv.Key, StringComparer.Ordinal))
-            sb.Append(id).Append('\t').Append(g.VncPort).Append('\t').Append(g.FilePort).Append('\t').Append(g.At.ToUnixTimeSeconds()).Append('\n');
+        foreach (var (id, g) in grants.Where(kv => kv.Value.AnyLive(now)).OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var (vnc, vncAt) = g.VncLive(now) ? (g.VncPort, g.VncAt.ToUnixTimeSeconds()) : (0, 0L);
+            var (file, fileAt) = g.FileLive(now) ? (g.FilePort, g.FileAt.ToUnixTimeSeconds()) : (0, 0L);
+            sb.Append(id).Append('\t').Append(vnc).Append('\t').Append(file).Append('\t').Append(vncAt).Append('\t').Append(fileAt).Append('\n');
+        }
         return sb.ToString();
     }
 
@@ -59,7 +88,7 @@ public sealed class SshTunnelGrants(IOptions<ServerOptions> options, ILogger<Ssh
             var now = DateTimeOffset.UtcNow;
             bool expired = false;
             foreach (var (id, g) in _grants)
-                if (now - g.At >= Window && _grants.TryRemove(new KeyValuePair<string, Grant>(id, g))) expired = true;
+                if (!g.AnyLive(now) && _grants.TryRemove(new KeyValuePair<string, Grant>(id, g))) expired = true;
             if (expired)
             {
                 try { await WriteAsync(ct); }

@@ -103,6 +103,15 @@ public sealed class DeviceInfo
     [JsonIgnore]
     public bool TakesSessionPassword => !Version.TryParse(AgentVersion, out var v) || v >= SessionPasswordMinAgent;
 
+    /// <summary>Agents from this version bring up the file port alone for a file session; older ones forward the
+    /// VNC port as well, and the bastion must be told to let them.</summary>
+    public static readonly Version FileOnlyTunnelMinAgent = new(3, 0, 0, 5);
+
+    /// <summary>Whether an agent reporting <paramref name="agentVersion"/> forwards only the file port for a file
+    /// session. An unknown version counts as an older agent: being granted a port it does not bind costs a new
+    /// agent nothing, while an older one refused its VNC forward loses the whole tunnel.</summary>
+    public static bool ForwardsFileOnly(string? agentVersion) => Version.TryParse(agentVersion, out var v) && v >= FileOnlyTunnelMinAgent;
+
     [JsonPropertyName("helperVersion")]
     public string? HelperVersion { get; set; }
 
@@ -473,11 +482,6 @@ public sealed class OpenTunnelResult
     [JsonPropertyName("fileToken")]
     public string? FileToken { get; set; }
 
-    /// <summary>The VNC password for this session (null from a device whose agent still uses its standing
-    /// password, which the device list carries for it).</summary>
-    [JsonPropertyName("vncPassword")]
-    public string? VncPassword { get; set; }
-
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
@@ -531,6 +535,11 @@ public sealed class AccessResultInfo
     /// <summary>"" / "pending" = still waiting; otherwise: auto | granted | denied | timeout | no-user | locked.</summary>
     [JsonPropertyName("outcome")]
     public string Outcome { get; set; } = string.Empty;
+
+    /// <summary>The session's VNC password, handed over only once the device has let the request in (auto or
+    /// granted); null before that, after a refusal, and for a device whose agent keeps a standing password.</summary>
+    [JsonPropertyName("vncPassword")]
+    public string? VncPassword { get; set; }
 }
 
 /// <summary>Server-level settings (admin GET/PUT). Secrets are never returned; Has* flags indicate presence.</summary>
