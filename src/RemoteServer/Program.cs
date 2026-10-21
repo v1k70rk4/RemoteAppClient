@@ -61,6 +61,8 @@ builder.Services.AddSingleton<CertificateAuthority>();
 builder.Services.AddSingleton<SshCertificateAuthority>();
 builder.Services.AddSingleton<SshRevocationList>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SshRevocationList>());
+builder.Services.AddSingleton<SshTunnelGrants>();                                       // which device may bind its ports on the bastion right now
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SshTunnelGrants>());
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddSingleton<ClockSkewTracker>();   // per-device clock readings live across requests

@@ -6,7 +6,16 @@ the time of that release; the GitHub release pages carry the same text together 
 ## What's New in 3.0.1
 
 **Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.3**, updater **3.0.0.2**, server
-**3.0.0.6**, console **3.0.0.4**, Lite **3.0.0.1**; no schema change.
+**3.0.0.8**, console **3.0.0.4**, Lite **3.0.0.1**; no schema change.
+- A device may bring a reverse tunnel up on the bastion only when an operator has just asked for it, and only on
+  its own two ports. Every agent certificate carries the same principal, so any valid certificate (every
+  enrolled machine's, that is anyone who is SYSTEM on one) could bind another device's reverse port: hold it so
+  that device cannot be reached, or sit a fake endpoint on it for the next operator. The server now writes a
+  grant the moment it delivers an open-tunnel command (device, VNC port, file port, time), and the bastion's sshd
+  (an `AuthorizedPrincipalsCommand` installed by `deploy/steps/05-bastion.sh`) lets that device listen on those
+  ports for two minutes; any other device, and every operator certificate, may not listen at all. A tunnel that
+  drops is not rebuilt by the agent: the operator connects again, which grants again. Rolled out in observe mode
+  first, then per device, then for all. Existing installs: rerun `./deploy/setup.sh 05-bastion`.
 - A device's sign-in lock runs out after an hour. It used to hold until an administrator cleared it, and since
   the device id in a sign-in request is the caller's word, anyone who knew a device id could lock that device's
   console out for good with five bad passwords. The lock still slows a guess to five tries an hour, still shows in
