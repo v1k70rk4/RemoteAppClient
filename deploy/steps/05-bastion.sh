@@ -35,28 +35,29 @@ MAP="@PORTS@"
 ENFORCE="@ENFORCE@"
 PRINCIPAL="@AGENT_USER@"
 OPEN='permitopen="127.0.0.1:*"'          # -L to the admin API and to devices' loopback ports (the console model)
+log() { command -v logger >/dev/null 2>&1 && logger -t rac-principals "$*"; }
 
 # Observe mode until the enforce file exists: everyone unrestricted, decisions only logged. A non-empty
 # enforce file names the key ids to restrict (a canary), an empty one restricts every known device.
 if [ ! -f "$ENFORCE" ]; then
-    logger -t rac-principals "observe: $KEYID unrestricted (no $ENFORCE)"
+    log "observe: $KEYID unrestricted (no $ENFORCE)"
     echo "$OPEN $PRINCIPAL"; exit 0
 fi
 if [ -s "$ENFORCE" ] && ! grep -qxF -- "$KEYID" "$ENFORCE"; then
-    logger -t rac-principals "canary: $KEYID unrestricted (not listed in $ENFORCE)"
+    log "canary: $KEYID unrestricted (not listed in $ENFORCE)"
     echo "$OPEN $PRINCIPAL"; exit 0
 fi
 
 case "$KEYID" in
     operator:*)
         # Operators forward out only; port 1 is unusable, so this is "no listen" (sshd knows no "none" here).
-        logger -t rac-principals "operator $KEYID: no listen"
+        log "operator $KEYID: no listen"
         echo "$OPEN,permitlisten=\"localhost:1\" $PRINCIPAL"; exit 0;;
 esac
 
 LINE=$(awk -F'\t' -v id="$KEYID" '$1 == id { print $2, $3; exit }' "$MAP" 2>/dev/null)
 if [ -z "$LINE" ]; then
-    logger -t rac-principals "WARNING: $KEYID not in $MAP, unrestricted"
+    log "WARNING: $KEYID not in $MAP, unrestricted"
     echo "$OPEN $PRINCIPAL"; exit 0
 fi
 set -- $LINE
