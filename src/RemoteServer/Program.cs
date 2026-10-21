@@ -61,6 +61,7 @@ builder.Services.AddSingleton<CertificateAuthority>();
 builder.Services.AddSingleton<SshCertificateAuthority>();
 builder.Services.AddSingleton<SshRevocationList>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SshRevocationList>());
+builder.Services.AddHostedService<SshPortMap>();   // which loopback ports each device may bind on the bastion
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddSingleton<ClockSkewTracker>();   // per-device clock readings live across requests
@@ -1445,7 +1446,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     // File-service forward port: deterministic per device (60000-65000, distinct from VNC's 50000-60000),
     // so a reused reverse tunnel keeps forwarding the SAME file port across sessions (a per-session random
     // port would mismatch on reuse and break the file pane). Unique for sequentially-assigned tunnel ports.
-    var filePort = 60000 + ((port - 50000) % 5000);
+    var filePort = TunnelPorts.FileFor(port);
     var fileToken = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
 
     // Effective access policy: device override, then group, then defaults (no consent / unattended allowed).

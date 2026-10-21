@@ -6,7 +6,15 @@ the time of that release; the GitHub release pages carry the same text together 
 ## What's New in 3.0.1
 
 **Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.3**, updater **3.0.0.2**, server
-**3.0.0.6**, console **3.0.0.4**, Lite **3.0.0.1**; no schema change.
+**3.0.0.7**, console **3.0.0.4**, Lite **3.0.0.1**; no schema change.
+- A device may bind only its own ports on the bastion. Every agent certificate carries the same principal, so
+  any valid certificate (every enrolled machine's, that is anyone who is SYSTEM on one) could bind another
+  device's reverse port: hold it so that device cannot be reached, or sit a fake endpoint on it for the next
+  operator. The server now keeps a map of each device's two ports, and the bastion's sshd (an
+  `AuthorizedPrincipalsCommand` installed by `deploy/steps/05-bastion.sh`) grants a certificate listen rights
+  for those ports only; an operator certificate gets none. Rolled out in observe mode first, then per device,
+  then for all; a device the map does not know is let through unrestricted, so a stale map never locks anyone
+  out. Existing installs: rerun `./deploy/setup.sh 05-bastion`.
 - A device's sign-in lock runs out after an hour. It used to hold until an administrator cleared it, and since
   the device id in a sign-in request is the caller's word, anyone who knew a device id could lock that device's
   console out for good with five bad passwords. The lock still slows a guess to five tries an hour, still shows in
