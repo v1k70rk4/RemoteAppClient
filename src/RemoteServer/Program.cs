@@ -1465,16 +1465,37 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     // The session's VNC password, for an agent that takes one (see VncSessionPassword): the one chosen within
     // the last hour, or a fresh one. It travels protected in the queue row and in the clear to the operator;
     // an older agent keeps its standing password, which the device list still carries for it.
+    // Only a VNC open may choose one: a file open rotating the password after the hour would restart the VNC
+    // server under an operator whose session is running.
     string? sessionPassword = null, storedPassword = null;
-    if (CommandSigner.VersionFor(device.AgentVersion) >= 3)
+    bool wantsVnc = !string.Equals(purpose, "file", StringComparison.OrdinalIgnoreCase);
+    if (wantsVnc && CommandSigner.VersionFor(device.AgentVersion) >= 3)
     {
         var now = DateTimeOffset.UtcNow;
         if (VncSessionPassword.Reusable(device.VncSecretUpdatedAt, now)) sessionPassword = protector.TryUnprotect(device.VncSecret);
         if (string.IsNullOrEmpty(sessionPassword))
         {
-            sessionPassword = VncSessionPassword.Generate();
-            device.VncSecret = protector.Protect(sessionPassword);
-            device.VncSecretUpdatedAt = now;
+            // Two opens past the hour at once must not each choose a password (the agent would apply the later
+            // one and lock the first operator out): the new one lands only if the record is still what was
+            // read; otherwise the other request's choice is reloaded and reused.
+            var candidate = VncSessionPassword.Generate();
+            var protectedCandidate = protector.Protect(candidate);
+            var expectedSecret = device.VncSecret;
+            var expectedAt = device.VncSecretUpdatedAt;
+            var changed = await db.Devices
+                .Where(d => d.Id == device.Id && d.VncSecret == expectedSecret && d.VncSecretUpdatedAt == expectedAt)
+                .ExecuteUpdateAsync(s => s.SetProperty(d => d.VncSecret, protectedCandidate).SetProperty(d => d.VncSecretUpdatedAt, now), ct);
+            if (changed == 1)
+            {
+                device.VncSecret = protectedCandidate; device.VncSecretUpdatedAt = now;
+                sessionPassword = candidate;
+            }
+            else
+            {
+                await db.Entry(device).ReloadAsync(ct);
+                sessionPassword = protector.TryUnprotect(device.VncSecret);
+                if (string.IsNullOrEmpty(sessionPassword)) return Results.Problem("vnc_password_unavailable");
+            }
         }
         storedPassword = device.VncSecret;
     }

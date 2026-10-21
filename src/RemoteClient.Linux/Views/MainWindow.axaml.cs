@@ -196,13 +196,21 @@ public partial class MainWindow : Window
                     : DeviceLiveness.ProblemText(d);
                 return;
             }
+            // An older agent keeps its standing password, which the list carries for it: without one there is
+            // nothing to connect with, so stop before the device is asked (and possibly its user prompted).
+            if (!d.TakesSessionPassword && string.IsNullOrEmpty(d.VncSecret)) { DevStatus.Text = L.DevicesView_NoVNCPasswordForThis; return; }
+
             DevStatus.Text = L.Format(L.DevicesView_OpeningTunnel, d.Hostname);
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { DevStatus.Text = L.DevicesView_TunnelRequestFailed; return; }
-            // The session's password comes with the tunnel (an agent that takes one); an older agent keeps its
-            // standing password, which the list carries for it.
+            // The session's password comes with the tunnel (an agent that takes one). None at all means the
+            // request cannot be used: take it back so the device is not opened for nothing.
             var vncPassword = result.VncPassword ?? d.VncSecret;
-            if (string.IsNullOrEmpty(vncPassword)) { DevStatus.Text = L.DevicesView_NoVNCPasswordForThis; return; }
+            if (string.IsNullOrEmpty(vncPassword))
+            {
+                try { await _api.CancelQueuedAsync(d.DeviceId, "open-tunnel"); } catch { /* best effort */ }
+                DevStatus.Text = L.DevicesView_NoVNCPasswordForThis; return;
+            }
 
             DevStatus.Text = L.DevicesView_WaitingForTheRemoteDevice;
             var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);

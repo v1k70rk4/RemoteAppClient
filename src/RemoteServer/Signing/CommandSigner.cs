@@ -48,7 +48,7 @@ public sealed class CommandSigner : IDisposable
     }
 
     /// <summary>Agents from here on check the version 3 form, which covers the session's VNC password.</summary>
-    public static readonly Version SigV3MinAgent = new(3, 0, 0, 4);
+    public static readonly Version SigV3MinAgent = RemoteAgent.Admin.DeviceInfo.SessionPasswordMinAgent;
 
     /// <summary>The signature version an agent reporting <paramref name="agentVersion"/> checks: 3 from
     /// <see cref="SigV3MinAgent"/>, 2 from <see cref="SigV2MinAgent"/>, 1 (the unbound form) below that. A

@@ -742,14 +742,22 @@ public sealed class DevicesView : UserControl, IContentView
                 waitForWake = true;
             }
 
+            // An older agent keeps its standing password, which the list carries for it: without one there is
+            // nothing to connect with, so stop before the device is asked (and possibly its user prompted).
+            if (!d.TakesSessionPassword && string.IsNullOrEmpty(d.VncSecret)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+
             SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
             var sw = System.Diagnostics.Stopwatch.StartNew();   // what the operator waits for, split at the device's answer
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
-            // The session's password comes with the tunnel (an agent that takes one); an older agent keeps its
-            // standing password, which the list carries for it.
+            // The session's password comes with the tunnel (an agent that takes one). None at all means the
+            // request cannot be used: take it back so the device is not opened for nothing.
             var vncPassword = result.VncPassword ?? d.VncSecret;
-            if (string.IsNullOrEmpty(vncPassword)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (string.IsNullOrEmpty(vncPassword))
+            {
+                try { await _api.CancelQueuedAsync(d.DeviceId, "open-tunnel"); } catch { /* best effort */ }
+                MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return;
+            }
             string outcome;
             if (waitForWake)
             {
