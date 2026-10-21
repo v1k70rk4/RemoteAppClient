@@ -147,14 +147,47 @@ public sealed class TunnelOrchestratorService(
         // Diagnostic: log the exact value received so consent issues are verifiable from the event log.
         logger.LogInformation("Open-tunnel access policy: consentRequired={Consent}", data?.ConsentRequired);
         var outcome = await ConsentGateAsync(data?.ConsentRequired ?? false, ct);
-        await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
         if (outcome is not ("auto" or "granted"))
+        {
+            await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
             return; // denied / timeout / no user; tunnel stays closed
+        }
 
         // From here the device is in a session: keep it awake until the tunnel closes, or a laptop that sleeps
         // after five idle minutes falls asleep under the operator (nobody is at the keyboard, so nothing else
         // counts as activity). Released in CloseTunnelAsync, and below if the start fails.
         keepAwake.Hold();
+
+        // The session's VNC password, chosen by the server for this hour: set on the VNC server before the
+        // tunnel comes up, so the operator's viewer meets it. Unchanged within the hour means nothing to do and
+        // no restart - a second operator joins the running session. Recorded in vnc.secret FIRST, so the
+        // provisioning watchdog (every 30 s) never finds the old secret while the new one is live and puts the
+        // old one back; if the hardening then fails, the watchdog brings the VNC server to the new one itself.
+        // The operator is told of the outcome only once the password is in place: a success report with a
+        // password the device does not have would send their viewer to a locked door.
+        if (!string.IsNullOrEmpty(data?.VncPassword) && !RemoteAgent.Vnc.VncLock.IsLocked())
+        {
+            try
+            {
+                var pw = data!.VncPassword!;
+                var secretFile = RemoteAgent.Vnc.VncSecretFile.PathIn(options.Value.EnrollmentDir);
+                bool current = string.Equals(RemoteAgent.Vnc.VncSecretFile.Read(secretFile), pw, StringComparison.Ordinal);
+                if (!current || !RemoteAgent.Vnc.VncProvisioner.IsHardened(pw))
+                {
+                    RemoteAgent.Vnc.VncSecretFile.Write(secretFile, pw);
+                    await Task.Run(() => RemoteAgent.Vnc.VncProvisioner.ApplyHardening(pw), ct);   // writes the config, restarts the VNC server
+                    logger.LogInformation(L.TunnelOrchestratorService_SessionPasswordSet);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, L.TunnelOrchestratorService_SessionPasswordFailed);
+                keepAwake.Release();
+                await uplink.ReportAccessResultAsync(cmd.Nonce, "failed", ct);
+                return;
+            }
+        }
+        await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
 
         // Start the loopback file service unless file transfer is locally disabled (token + port are auxiliary).
         bool serveFiles = data?.FileRemotePort is > 0 && !string.IsNullOrEmpty(data.FileToken) && !fileLocked;

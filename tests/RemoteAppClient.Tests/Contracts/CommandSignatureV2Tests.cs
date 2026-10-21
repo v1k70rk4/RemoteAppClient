@@ -42,7 +42,7 @@ public class CommandSignatureV2Tests
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var c = Cmd(CommandTypes.OpenTunnel, new CommandData { RemotePort = 1, FileToken = "tok", TunnelPurpose = "vnc" });
-        CommandSignature.Sign(c, key, "dev-1");
+        CommandSignature.Sign(c, key, "dev-1", version: 2);
 
         Assert.Equal(2, c.SigVersion);
         Assert.True(CommandSignature.Verify(c, key, "dev-1"));
@@ -84,8 +84,36 @@ public class CommandSignatureV2Tests
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var c = Cmd(CommandTypes.Ping);
         CommandSignature.Sign(c, key, "dev-1");
-        c.SigVersion = 3;
+        c.SigVersion = CommandSignature.CurrentVersion + 1;
         Assert.False(CommandSignature.Verify(c, key, "dev-1"));
+    }
+
+    [Fact]
+    public void Version_3_signs_the_session_password_and_version_2_does_not_see_it()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var c = Cmd(CommandTypes.OpenTunnel, new CommandData { RemotePort = 1, FileToken = "tok", TunnelPurpose = "vnc", VncPassword = "Ab3dEf7h" });
+        CommandSignature.Sign(c, key, "dev-1");
+        Assert.Equal(3, c.SigVersion);
+        Assert.True(CommandSignature.Verify(c, key, "dev-1"));
+        Assert.False(CommandSignature.Verify(c, key, "dev-2"));
+
+        c.Data!.VncPassword = "Ab3dEf7x";                          // a changed password breaks the signature
+        Assert.False(CommandSignature.Verify(c, key, "dev-1"));
+
+        var v2 = Cmd(CommandTypes.OpenTunnel, new CommandData { RemotePort = 1, FileToken = "tok", TunnelPurpose = "vnc" });
+        CommandSignature.Sign(v2, key, "dev-1", version: 2);
+        v2.Data!.VncPassword = "planted!";                          // version 2 never covered this field
+        Assert.True(CommandSignature.Verify(v2, key, "dev-1"));     // ...so an old agent would not notice it
+        Assert.Equal("-;", CommandSignature.Canonicalize3(Cmd(CommandTypes.Ping), "d")[^2..]);
+    }
+
+    [Fact]
+    public void A_version_outside_2_to_current_cannot_be_asked_for()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        Assert.Throws<ArgumentOutOfRangeException>(() => CommandSignature.Sign(Cmd(CommandTypes.Ping), key, "dev-1", version: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CommandSignature.Sign(Cmd(CommandTypes.Ping), key, "dev-1", version: CommandSignature.CurrentVersion + 1));
     }
 
     [Fact]

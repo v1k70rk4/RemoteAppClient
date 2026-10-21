@@ -95,6 +95,14 @@ public sealed class DeviceInfo
     [JsonPropertyName("agentVersion")]
     public string? AgentVersion { get; set; }
 
+    /// <summary>Agents from this version take the session's VNC password at open-tunnel (and check the
+    /// signature form that covers it); older ones keep a standing password, which the list carries.</summary>
+    public static readonly Version SessionPasswordMinAgent = new(3, 0, 0, 4);
+
+    /// <summary>Whether this device's agent takes a session password. An unknown version is a fresh install.</summary>
+    [JsonIgnore]
+    public bool TakesSessionPassword => !Version.TryParse(AgentVersion, out var v) || v >= SessionPasswordMinAgent;
+
     [JsonPropertyName("helperVersion")]
     public string? HelperVersion { get; set; }
 
@@ -464,6 +472,11 @@ public sealed class OpenTunnelResult
 
     [JsonPropertyName("fileToken")]
     public string? FileToken { get; set; }
+
+    /// <summary>The VNC password for this session (null from a device whose agent still uses its standing
+    /// password, which the device list carries for it).</summary>
+    [JsonPropertyName("vncPassword")]
+    public string? VncPassword { get; set; }
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
