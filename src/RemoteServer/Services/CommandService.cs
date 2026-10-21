@@ -19,6 +19,7 @@ public sealed class CommandService(
     AppDbContext db,
     CommandSigner signer,
     AgentConnectionRegistry registry,
+    SshTunnelGrants grants,
     SecretProtector protector,
     ILogger<CommandService> logger)
 {
@@ -103,6 +104,13 @@ public sealed class CommandService(
             entity.SentAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             logger.LogInformation(L.CommandService_CommandDeliveredToDeviceType, deviceId, entity.Type);
+            // An open-tunnel delivered is the operator's request the bastion goes by: for the next two minutes
+            // this device may bring its reverse tunnel up on its own ports (SshTunnelGrants).
+            if (entity.Type == CommandTypes.OpenTunnel && data?.RemotePort is > 0)
+            {
+                try { await grants.GrantAsync(deviceId, data.RemotePort, data.FileRemotePort, ct); }
+                catch (Exception ex) { logger.LogWarning(ex, "Tunnel grant for {DeviceId} not written", deviceId); }
+            }
         }
         else
         {

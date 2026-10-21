@@ -6,7 +6,16 @@ the time of that release; the GitHub release pages carry the same text together 
 ## What's New in 3.0.1
 
 **Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.4**, updater **3.0.0.2**, server
-**3.0.0.7**, console **3.0.0.5**, Lite **3.0.0.2**, Linux console **3.0.0.1**; no schema change.
+**3.0.0.8**, console **3.0.0.5**, Lite **3.0.0.2**, Linux console **3.0.0.1**; no schema change.
+- A device may bring a reverse tunnel up on the bastion only when an operator has just asked for it, and only on
+  its own two ports. Every agent certificate carries the same principal, so any valid certificate (every
+  enrolled machine's, that is anyone who is SYSTEM on one) could bind another device's reverse port: hold it so
+  that device cannot be reached, or sit a fake endpoint on it for the next operator. The server now writes a
+  grant the moment it delivers an open-tunnel command (device, VNC port, file port, time), and the bastion's sshd
+  (an `AuthorizedPrincipalsCommand` installed by `deploy/steps/05-bastion.sh`) lets that device listen on those
+  ports for two minutes; any other device, and every operator certificate, may not listen at all. A tunnel that
+  drops is not rebuilt by the agent: the operator connects again, which grants again. Rolled out in observe mode
+  first, then per device, then for all. Existing installs: rerun `./deploy/setup.sh 05-bastion`.
 - The VNC password belongs to the session, not the device. It used to stand for as long as the agent kept it and
   went out to every console user in the device list, so an operator whose access had ended could still connect
   while someone else had the device's tunnel open. The server now chooses it at open-tunnel: the agent gets it
