@@ -32,7 +32,8 @@ the time of that release; the GitHub release pages carry the same text together 
   went out to every console user in the device list, so an operator whose access had ended could still connect
   while someone else had the device's tunnel open. The server now chooses it at open-tunnel: the agent gets it
   in the signed command (signature version 3) and sets it on its VNC server before the tunnel comes up, the
-  operator gets the same one in the open-tunnel result, and the list no longer carries it for such a device. One
+  operator gets the same one with the access result once the device has let the request in, and the list no
+  longer carries it for such a device. One
   password is kept for an hour from the time it was chosen, so a second operator joining or a reconnect within
   the hour reuses it without a VNC restart. An older agent keeps its standing password and the list still carries
   it for that device; an admin's "show password" shows whichever is current.

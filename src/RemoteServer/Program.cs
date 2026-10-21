@@ -3235,8 +3235,20 @@ static async Task PumpIncomingAsync(WebSocket socket, string deviceId, Guid devi
                         var row = await adb.Commands.FirstOrDefaultAsync(c => c.Nonce == msg.Nonce && c.DeviceId == deviceKey, ct);
                         var dev = row is null ? null : await adb.Devices.FirstOrDefaultAsync(d => d.Id == row.DeviceId, ct);
                         var who = row?.CreatedByUserId is { } uid ? await adb.Users.FirstOrDefaultAsync(u => u.Id == uid, ct) : null;
-                        // Unknown here (the row is not written yet): the request side binds and audits it.
-                        entry = dev is null || who is null ? null : accessResults.SetPending(msg.Nonce, who.Username, dev.Id, dev.Hostname);
+                        // Unknown here (the row is not written yet): the request side binds and audits it. The
+                        // session's password rides in the queued row (protected), so an answer at a wake hours
+                        // after the request - its binding long expired - still hands the operator the password.
+                        string? queuedPassword = null;
+                        if (row?.PayloadJson is { } payload)
+                        {
+                            try
+                            {
+                                var queued = JsonSerializer.Deserialize(payload, AgentJsonContext.Default.CommandData)?.VncPassword;
+                                if (queued is not null) queuedPassword = scope.ServiceProvider.GetRequiredService<SecretProtector>().TryUnprotect(queued);
+                            }
+                            catch (JsonException) { /* no password to recover */ }
+                        }
+                        entry = dev is null || who is null ? null : accessResults.SetPending(msg.Nonce, who.Username, dev.Id, dev.Hostname, queuedPassword);
                     }
                     if (entry is not null && !entry.Audited)
                     {

@@ -108,8 +108,9 @@ public sealed class DeviceInfo
     public static readonly Version FileOnlyTunnelMinAgent = new(3, 0, 0, 5);
 
     /// <summary>Whether an agent reporting <paramref name="agentVersion"/> forwards only the file port for a file
-    /// session. An unknown version is a fresh install.</summary>
-    public static bool ForwardsFileOnly(string? agentVersion) => !Version.TryParse(agentVersion, out var v) || v >= FileOnlyTunnelMinAgent;
+    /// session. An unknown version counts as an older agent: being granted a port it does not bind costs a new
+    /// agent nothing, while an older one refused its VNC forward loses the whole tunnel.</summary>
+    public static bool ForwardsFileOnly(string? agentVersion) => Version.TryParse(agentVersion, out var v) && v >= FileOnlyTunnelMinAgent;
 
     [JsonPropertyName("helperVersion")]
     public string? HelperVersion { get; set; }

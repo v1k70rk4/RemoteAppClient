@@ -27,6 +27,7 @@ public sealed class TunnelOrchestratorService(
     private readonly TunnelOptions _opt = options.Value.Tunnel;
     private SshReverseTunnel? _tunnel;
     private bool _tunnelVnc;   // the running tunnel carries the VNC forward (a file-only session does not)
+    private bool _tunnelFiles; // the running tunnel carries the file forward (not when files were locked at its start)
     private RemoteAgent.Files.FileService? _fileService;
     private int _tunnelPort;
     private DateTimeOffset _lastActivity;
@@ -198,7 +199,9 @@ public sealed class TunnelOrchestratorService(
         // Reuse an existing tunnel on the same port so a second operator can join the session: TightVNC runs
         // shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer. A tunnel brought up for files
         // alone carries no VNC forward, so a VNC request replaces it rather than joining it.
-        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (_tunnelVnc || wantsFile))
+        // Likewise a tunnel started while files were locked carries no file forward: a file request after the
+        // unlock needs a restart, not a join, or it would report success with no port behind it.
+        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (_tunnelVnc || wantsFile) && (!serveFiles || _tunnelFiles))
         {
             _lastActivity = DateTimeOffset.UtcNow;
             state.Set(true);
@@ -219,6 +222,7 @@ public sealed class TunnelOrchestratorService(
         catch { keepAwake.Release(); throw; }
         _tunnelPort = remotePort;
         _tunnelVnc = !wantsFile;
+        _tunnelFiles = serveFiles;
         state.Set(_tunnel.IsRunning);
         if (!_tunnel.IsRunning) keepAwake.Release();   // nothing came up, nothing to stay awake for
         _lastActivity = DateTimeOffset.UtcNow;
