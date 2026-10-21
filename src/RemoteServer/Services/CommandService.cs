@@ -97,6 +97,25 @@ public sealed class CommandService(
         entity.Signature = signed.Signature;
         await db.SaveChangesAsync(ct);
 
+        // An open-tunnel about to go out is the operator's request the bastion goes by: for the next two minutes
+        // this device may bring its reverse tunnel up on its own ports (SshTunnelGrants). Written BEFORE the
+        // send - a device on a fast link has its ssh at the bastion before the bookkeeping after a send is done -
+        // and only for the ports this purpose needs: a file session brings up the file port alone - on an agent
+        // that does so; an older one forwards the VNC port too and must be let, or its whole tunnel is turned
+        // away. A grant that cannot be written keeps the command queued for the next delivery rather than sending
+        // the device to a bastion that would turn it away.
+        if (entity.Type == CommandTypes.OpenTunnel && data?.RemotePort is > 0)
+        {
+            bool fileOnly = string.Equals(data.TunnelPurpose, "file", StringComparison.OrdinalIgnoreCase)
+                            && RemoteAgent.Admin.DeviceInfo.ForwardsFileOnly(device.AgentVersion);
+            try { await grants.GrantAsync(deviceId, fileOnly ? 0 : data.RemotePort, data.FileRemotePort, ct); }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Tunnel grant for {DeviceId} not written; the open-tunnel stays queued", deviceId);
+                return;
+            }
+        }
+
         var sent = await registry.TrySendAsync(deviceId, signed, ct);
         if (sent)
         {
@@ -104,13 +123,6 @@ public sealed class CommandService(
             entity.SentAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             logger.LogInformation(L.CommandService_CommandDeliveredToDeviceType, deviceId, entity.Type);
-            // An open-tunnel delivered is the operator's request the bastion goes by: for the next two minutes
-            // this device may bring its reverse tunnel up on its own ports (SshTunnelGrants).
-            if (entity.Type == CommandTypes.OpenTunnel && data?.RemotePort is > 0)
-            {
-                try { await grants.GrantAsync(deviceId, data.RemotePort, data.FileRemotePort, ct); }
-                catch (Exception ex) { logger.LogWarning(ex, "Tunnel grant for {DeviceId} not written", deviceId); }
-            }
         }
         else
         {

@@ -74,8 +74,10 @@ fi
 # loopback addresses; all three forms are listed so the agent's forward is accepted whichever it sends.
 L=""
 for p in "$VNC" "$FILE"; do
+    [ "$p" -gt 0 ] 2>/dev/null || continue   # a file session is granted the file port alone (VNC port 0)
     L="$L,permitlisten=\"localhost:$p\",permitlisten=\"127.0.0.1:$p\",permitlisten=\"[::1]:$p\""
 done
+[ -n "$L" ] || L=",$NOLISTEN"
 log "$KEYID: listen on $VNC and $FILE (requested $((NOW - AT))s ago)"
 echo "$OPEN$L $PRINCIPAL"
 SCRIPT

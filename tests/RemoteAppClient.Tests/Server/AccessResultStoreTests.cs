@@ -23,6 +23,43 @@ public class AccessResultStoreTests
     }
 
     [Fact]
+    public void The_session_password_rides_on_the_request_whichever_side_binds_first()
+    {
+        var s = new AccessResultStore();
+        var id = Guid.NewGuid();
+        Assert.Equal("Ab3dEf7h", s.SetPending("n1", "alice", id, "HOST", "Ab3dEf7h").VncPassword);
+        Assert.Equal("Ab3dEf7h", s.GetEntry("n1")!.VncPassword);
+
+        s.RecordOutcome("n2", "granted", id);                                     // the answer got here first
+        var merged = s.SetPending("n2", "bob", id, "HOST", "Zy9xWv5u");
+        Assert.Equal("granted", merged.Outcome);
+        Assert.Equal("Zy9xWv5u", merged.VncPassword);
+    }
+
+    [Fact]
+    public void A_binding_without_a_password_does_not_wipe_the_one_already_bound()
+    {
+        var s = new AccessResultStore();
+        var id = Guid.NewGuid();
+        // The open-tunnel endpoint binds with the password, the uplink binds from the command row without one.
+        s.SetPending("n1", "alice", id, "HOST", "Ab3dEf7h");
+        s.SetPending("n1", "alice", id, "HOST");
+        Assert.Equal("Ab3dEf7h", s.GetEntry("n1")!.VncPassword);
+
+        // The other order: the uplink binds first, then the answer lands, then the endpoint binds with the password.
+        s.SetPending("n2", "bob", id, "HOST");
+        s.RecordOutcome("n2", "granted", id);
+        var bound = s.SetPending("n2", "bob", id, "HOST", "Zy9xWv5u");
+        Assert.Equal("granted", bound.Outcome);
+        Assert.Equal("Zy9xWv5u", bound.VncPassword);
+
+        // And a password-less binding after the answer keeps both the answer and the password.
+        s.SetPending("n2", "bob", id, "HOST");
+        Assert.Equal("granted", s.GetEntry("n2")!.Outcome);
+        Assert.Equal("Zy9xWv5u", s.GetEntry("n2")!.VncPassword);
+    }
+
+    [Fact]
     public void An_answer_that_beats_the_request_is_parked_and_then_merged()
     {
         var s = new AccessResultStore();

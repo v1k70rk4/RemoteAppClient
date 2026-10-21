@@ -750,14 +750,6 @@ public sealed class DevicesView : UserControl, IContentView
             var sw = System.Diagnostics.Stopwatch.StartNew();   // what the operator waits for, split at the device's answer
             var result = await _api.OpenTunnelAsync(d.DeviceId, "vnc");
             if (result is null) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
-            // The session's password comes with the tunnel (an agent that takes one). None at all means the
-            // request cannot be used: take it back so the device is not opened for nothing.
-            var vncPassword = result.VncPassword ?? d.VncSecret;
-            if (string.IsNullOrEmpty(vncPassword))
-            {
-                try { await _api.CancelQueuedAsync(d.DeviceId, "open-tunnel"); } catch { /* best effort */ }
-                MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return;
-            }
             string outcome;
             if (waitForWake)
             {
@@ -809,6 +801,12 @@ public sealed class DevicesView : UserControl, IContentView
             }
 
             SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
+            // The session's password comes with a positive answer (an agent that takes one); an older agent keeps
+            // its standing password, which the list carries for it.
+            string? vncPassword = null;
+            try { vncPassword = (await _api.GetAccessAsync(result.Nonce))?.VncPassword; } catch { /* fall back below */ }
+            vncPassword ??= d.VncSecret;
+            if (string.IsNullOrEmpty(vncPassword)) { MessageBox.Show(L.DevicesView_NoVNCPasswordForThis, L.DevicesView_NoPassword, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             var localPort = await _forward(result.RemotePort, CancellationToken.None);
 
             // ssh -L binds the local port whether or not anything serves the far end, so connecting to it

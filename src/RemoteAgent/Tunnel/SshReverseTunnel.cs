@@ -130,8 +130,14 @@ public sealed class SshReverseTunnel(TunnelOptions options, TransportState trans
         psi.ArgumentList.Add("-F");
         psi.ArgumentList.Add("none");
         psi.ArgumentList.Add("-N");
-        psi.ArgumentList.Add("-R");
-        psi.ArgumentList.Add($"{remotePort}:127.0.0.1:{options.LocalForwardPort}");
+        // The VNC forward only when this session is for VNC: a file session brings up the file port alone, so an
+        // operator's old password cannot ride a file session into the screen. No port at all (the key probe)
+        // means a plain authenticated session, which the bastion's listen rules never turn away.
+        if (remotePort > 0)
+        {
+            psi.ArgumentList.Add("-R");
+            psi.ArgumentList.Add($"{remotePort}:127.0.0.1:{options.LocalForwardPort}");
+        }
         if (_fileRemotePort > 0)
         {
             // Additive second forward for the file service (loopback 5901); VNC forward above is unchanged.

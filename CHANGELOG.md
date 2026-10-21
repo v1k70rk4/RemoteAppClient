@@ -5,8 +5,20 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.4**, updater **3.0.0.2**, server
-**3.0.0.8**, console **3.0.0.5**, Lite **3.0.0.2**, Linux console **3.0.0.1**; no schema change.
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.5**, updater **3.0.0.2**, server
+**3.0.0.9**, console **3.0.0.6**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
+- The session's VNC password reaches the operator only once the device has let the request in. It used to come
+  back with the open-tunnel result, before the person at the device had answered, so an operator they turned
+  away still held the password of another operator's running session. It now rides on the access result and is
+  handed over with a positive answer only.
+- A file session brings up the file port alone. The agent used to forward the VNC port for every session, so a
+  password saved from an earlier session could reach the screen behind someone's file session; the bastion is
+  told the same (a file session is granted the file port only).
+- The SSH key rotation's probe no longer asks for a throwaway reverse forward, which the bastion's listen rules
+  would turn away; it authenticates and nothing more.
+- The bastion's grant is written before the open-tunnel command is sent, not after its bookkeeping, so a device on
+  a fast link does not reach the bastion ahead of its permission; a grant that cannot be written keeps the
+  command queued.
 - A device may bring a reverse tunnel up on the bastion only when an operator has just asked for it, and only on
   its own two ports. Every agent certificate carries the same principal, so any valid certificate (every
   enrolled machine's, that is anyone who is SYSTEM on one) could bind another device's reverse port: hold it so

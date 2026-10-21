@@ -35,9 +35,20 @@ public sealed class SshTunnelGrants(IOptions<ServerOptions> options, ILogger<Ssh
     /// <summary>Lets the device bring its reverse tunnel up for the next <see cref="Window"/>.</summary>
     public async Task GrantAsync(string deviceId, int vncPort, int filePort, CancellationToken ct)
     {
-        _grants[deviceId] = new Grant(vncPort, filePort, DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        // One grant per device: a file session's grant (file port alone) must not strip the VNC port from a VNC
+        // request still waiting for the person at the device to answer - another operator opening files in those
+        // seconds would leave the approved VNC session unable to come up. A port the standing grant still holds
+        // is carried over.
+        _grants.AddOrUpdate(deviceId, Merge(null, vncPort, filePort, now), (_, prior) => Merge(prior, vncPort, filePort, now));
         await WriteAsync(ct);
     }
+
+    /// <summary>What a new grant becomes next to a standing one (pure, for the tests).</summary>
+    public static Grant Merge(Grant? prior, int vncPort, int filePort, DateTimeOffset now) =>
+        prior is not null && now - prior.At < Window
+            ? new Grant(vncPort > 0 ? vncPort : prior.VncPort, filePort > 0 ? filePort : prior.FilePort, now)
+            : new Grant(vncPort, filePort, now);
 
     /// <summary>The grants still inside the window at <paramref name="now"/>, as the file's content: one line per
     /// device sorted by id, trailing newline, empty when none.</summary>
