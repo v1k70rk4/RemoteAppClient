@@ -20,7 +20,7 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
     <!-- The server compiles against this EF Core; without naming it here the test host would pick the older one Pomelo asks for. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.21" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.22" />
   </ItemGroup>
 
   <ItemGroup>
