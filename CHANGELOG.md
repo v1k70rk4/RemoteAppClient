@@ -9,7 +9,8 @@ the time of that release; the GitHub release pages carry the same text together 
 **3.0.0.10**, console **3.0.0.6**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
 - The server names MySqlConnector 2.6.2 itself rather than taking the 2.4.0 its EF Core provider asks for
   (GHSA-473q-m89c-ghf8: a password sent before the certificate is checked under `VerifyCA`/`VerifyFull` without
-  `SslCa`). An install that reaches its database on localhost, as `deploy/` sets it up, was not exposed.
+  `SslCa`). A local database, `deploy/`'s default, was not exposed, nor was a remote one under the default
+  `SslMode`; a remote database with `VerifyCA`/`VerifyFull` and no `SslCa` was, and is covered by this update.
 - The session's VNC password reaches the operator only once the device has let the request in. It used to come
   back with the open-tunnel result, before the person at the device had answered, so an operator they turned
   away still held the password of another operator's running session. It now rides on the access result and is
