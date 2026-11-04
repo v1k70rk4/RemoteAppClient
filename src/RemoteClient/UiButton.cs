@@ -35,7 +35,9 @@ public sealed class UiButton : Control, IButtonControl
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public DialogResult DialogResult { get; set; } = DialogResult.None;
     public void NotifyDefault(bool value) { }
-    public void PerformClick() { if (Enabled) OnClick(EventArgs.Empty); }
+    // CanSelect, as the stock Button: a hidden button (the sign-in button under the hidden sign-in card, still
+    // the form's AcceptButton) must not fire on Enter pressed in some other field.
+    public void PerformClick() { if (CanSelect) OnClick(EventArgs.Empty); }
 
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }

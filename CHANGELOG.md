@@ -10,6 +10,11 @@ the time of that release; the GitHub release pages carry the same text together 
 - The console's stat cards (all / online / offline / awaiting approval) are filter buttons: a click narrows the
   list to what the card counts, the active card is marked, a second click or the "all" card shows everything
   again. The status dropdown and the cards do not stack: choosing one clears the other.
+- Enter in the device search box no longer signs in again. The sign-in button stayed the window's default
+  button after sign-in, so Enter in any field of the shell pressed it: with a password sign-in the shell was
+  built a second time over the first (a new header and sidebar on every Enter), with a Windows Hello sign-in
+  each Enter counted as a failed password sign-in. A hidden button no longer takes Enter, and the shell has no
+  default button.
 - A row tooltip ("Supervisor: …", a sign-in lock, a flaky link) no longer gets stuck above every window. The
   ten-second refresh rebuilt the rows under an open tooltip, which then belonged to no row and was never closed
   until the console exited; the list now closes it before the rows are rebuilt and when the mouse leaves.

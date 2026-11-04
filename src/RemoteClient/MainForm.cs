@@ -838,6 +838,7 @@ public sealed class MainForm : MaterialForm
     private void EnterSetup()
     {
         _loginCard.Visible = false;
+        AcceptButton = null;
         bool pw = _login!.MustChangePassword;
         _newPass.Visible = _newPass2.Visible = pw;
         bool totp = _login.TotpEnrollRequired;
@@ -913,6 +914,10 @@ public sealed class MainForm : MaterialForm
 
     private async Task EnterMainAsync()
     {
+        // The sign-in button was the form's AcceptButton; signed in, Enter in a field of the shell (the device
+        // search, say) would otherwise sign in again with what the hidden card still holds and build the shell a
+        // second time over the first (a password sign-in), or count a failed sign-in (an empty password).
+        AcceptButton = null;
         // Silent self-update: if a newer 'client' exists on the channel, replace and restart.
         // Channel is resolved from this device's fleet channel by hostname; fallback is local config.
         if (_api is not null)
