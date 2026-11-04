@@ -838,6 +838,7 @@ public sealed class MainForm : MaterialForm
     private void EnterSetup()
     {
         _loginCard.Visible = false;
+        AcceptButton = null;
         bool pw = _login!.MustChangePassword;
         _newPass.Visible = _newPass2.Visible = pw;
         bool totp = _login.TotpEnrollRequired;
@@ -922,6 +923,12 @@ public sealed class MainForm : MaterialForm
             if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); _cleaned = true; Application.Exit(); return; }
         }
 
+        // The sign-in button was the form's AcceptButton; signed in, Enter in a field of the shell (the device
+        // search, say) would otherwise sign in again with what the hidden card still holds and build the shell a
+        // second time over the first (a password sign-in), or count a failed sign-in (an empty password). Cleared
+        // only now, past the update check: a check that fails leaves the operator on the sign-in card, where
+        // Enter must still sign in.
+        AcceptButton = null;
         ApplyBranding(); // blue title bar branding
 
         // Operator viewer preferences (roam with the account); applied when launching the VNC viewer.

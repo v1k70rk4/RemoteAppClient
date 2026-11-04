@@ -55,10 +55,10 @@ finish(){ # $1 = ok|failed
 
 restore(){ # restore binaries + DB from the backup made this run, then start and report failure
   log "Rolling back to opt-$TS + db-$TS"
-  systemctl stop "$SVC" 2>>"$LOG"
-  rsync -rlpt --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$LOG"
+  systemctl stop "$SVC" 2>>"$PLOG"
+  rsync -rlpt --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$PLOG"
   own_app
-  [ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql_db 2>>"$LOG"
+  [ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql_db 2>>"$PLOG"
   systemctl start "$SVC"
   log "Rollback finished."
   finish failed
@@ -81,7 +81,7 @@ if [ -e "$SQL" ] && [ ! -f "$SQL" -o -L "$SQL" ]; then log "upgrade.sql is not a
 log "Backing up binaries -> $BK/opt-$TS"
 cp -a "$OPT" "$BK/opt-$TS" || { log "Binary backup failed."; finish failed; }
 log "Dumping database -> $BK/db-$TS.sql.gz"
-if ! mysqldump --single-transaction --routines --events remoteserver 2>>"$LOG" | gzip > "$BK/db-$TS.sql.gz"; then
+if ! mysqldump --single-transaction --routines --events remoteserver 2>>"$PLOG" | gzip > "$BK/db-$TS.sql.gz"; then
   log "Database dump failed; aborting before any change."; finish failed
 fi
 echo "$TS" | put "$UPD/last_backup"
@@ -96,12 +96,13 @@ systemctl stop "$SVC"
 # 3) Optional schema upgrade (after the DB backup).
 if [ -f "$SQL" ]; then
   log "Applying upgrade.sql"
-  if mysql_db < "$SQL" 2>>"$LOG"; then
+  if mysql_db < "$SQL" 2>>"$PLOG"; then
     log "upgrade.sql applied."
   else
     log "upgrade.sql FAILED; restoring DB and aborting."
-    gunzip -c "$BK/db-$TS.sql.gz" | mysql_db 2>>"$LOG"
+    gunzip -c "$BK/db-$TS.sql.gz" | mysql_db 2>>"$PLOG"
     systemctl start "$SVC"
+    log "Database restored from db-$TS."   # also publishes the restore's stderr, written after the last log line
     finish failed
   fi
 fi
@@ -109,14 +110,14 @@ fi
 # 4) Extract the new build and locate the RemoteServer apphost (handles flat or nested tarballs).
 STAGE=$(mktemp -d)
 log "Extracting tar.gz"
-if ! tar --no-same-owner --no-same-permissions -xzf "$TAR" -C "$STAGE" 2>>"$LOG"; then log "Extract failed."; rm -rf "$STAGE"; restore; fi
+if ! tar --no-same-owner --no-same-permissions -xzf "$TAR" -C "$STAGE" 2>>"$PLOG"; then log "Extract failed."; rm -rf "$STAGE"; restore; fi
 APP=$(find "$STAGE" -type f -name RemoteServer | head -n1)
 if [ -z "$APP" ]; then log "RemoteServer binary not found in tar.gz."; rm -rf "$STAGE"; restore; fi
 SRCDIR=$(dirname "$APP")
 
 # 5) Swap in place, preserving the prod appsettings.json.
 log "Syncing new build into $OPT (preserving appsettings.json)"
-rsync -rlpt --delete --exclude appsettings.json "$SRCDIR"/ "$OPT"/ 2>>"$LOG" || { log "rsync failed."; rm -rf "$STAGE"; restore; }
+rsync -rlpt --delete --exclude appsettings.json "$SRCDIR"/ "$OPT"/ 2>>"$PLOG" || { log "rsync failed."; rm -rf "$STAGE"; restore; }
 own_app
 chmod u+x,g+x "$OPT/RemoteServer" 2>/dev/null || true
 rm -rf "$STAGE"
@@ -169,9 +170,9 @@ if ! [[ "${TS:-}" =~ ^[0-9]{8}-[0-9]{6}$ ]] || [ ! -d "$BK/opt-$TS" ]; then log 
 
 log "Rolling back to $TS"
 systemctl stop "$SVC"
-rsync -rlpt --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$LOG"
+rsync -rlpt --delete "$BK/opt-$TS"/ "$OPT"/ 2>>"$PLOG"
 chown -R "root:$SVC_USER" "$OPT"; chmod -R u=rwX,g=rX,o= "$OPT"
-[ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql "${MYSQL_OPTS[@]}" remoteserver 2>>"$LOG"
+[ -f "$BK/db-$TS.sql.gz" ] && gunzip -c "$BK/db-$TS.sql.gz" | mysql "${MYSQL_OPTS[@]}" remoteserver 2>>"$PLOG"
 systemctl start "$SVC"
 
 ok=0

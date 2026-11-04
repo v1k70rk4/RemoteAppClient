@@ -96,6 +96,9 @@ public sealed class HealthAlertWatcher(
         if (diag.Log.Error is { } logErr)
             findings.Add(new("log", T("HealthAlert_LogDir", logErr)));
 
+        if (diag.Bastion is { Ok: false } bastion)
+            findings.Add(new("bastion-script", T("HealthAlert_BastionScript", bastion.ScriptFormat, bastion.GrantsFormat)));
+
         // The helper writes result.status after every self-update; "failed" means it rolled back. The time is
         // part of the key, so a later failure alerts again and a later success clears this one.
         try

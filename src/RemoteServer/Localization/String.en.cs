@@ -132,6 +132,7 @@ internal static partial class Strings
         [nameof(HealthAlert_TlsExpiring)] = "The TLS certificate expires in {0} days ({1}); certbot renewal has probably stopped.",
         [nameof(HealthAlert_PackagesMissing)] = "Package file(s) missing: {0}",
         [nameof(HealthAlert_LogDir)] = "The log directory is unusable: {0}",
+        [nameof(HealthAlert_BastionScript)] = "The bastion's rac-principals script reads tunnel-grants format {0}, this server writes format {1}: run ./deploy/setup.sh 05-bastion on the box, or devices' tunnels are turned away once listen rights are enforced.",
         [nameof(HealthAlert_UpdateFailed)] = "The last server update failed ({0}); the helper rolled back to the previous version.",
         [nameof(HealthAlert_DeviceCerts)] = "{0} device certificate(s) expire within {1} days (first: {2} on {3}); {4} already expired. There is no renewal: these devices must be re-enrolled.",
         [nameof(HealthAlert_NoCommandChannel)] = "{0} device(s) send telemetry but none is on the command channel; the 443 mux or nginx's /agent route is probably stuck.",

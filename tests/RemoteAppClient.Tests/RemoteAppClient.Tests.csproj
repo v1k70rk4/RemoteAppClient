@@ -43,6 +43,7 @@
     <Compile Include="..\..\src\RemoteAgent\Security\RekeyPolicy.cs" Link="Agent\RekeyPolicy.cs" />
     <Compile Include="..\..\src\RemoteAgent\Security\SshCertificate.cs" Link="Agent\SshCertificate.cs" />
     <Compile Include="..\..\src\RemoteAgent\Security\SshKeyEncoding.cs" Link="Agent\SshKeyEncoding.cs" />
+    <Compile Include="..\..\src\RemoteAgent\Update\UpdateQueue.cs" Link="Agent\UpdateQueue.cs" />
   </ItemGroup>
 
   <ItemGroup>

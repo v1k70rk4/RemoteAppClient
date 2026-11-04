@@ -132,6 +132,7 @@ internal static partial class Strings
         [nameof(HealthAlert_TlsExpiring)] = "A TLS-tanúsítvány {0} nap múlva lejár ({1}); a certbot-megújítás valószínűleg elakadt.",
         [nameof(HealthAlert_PackagesMissing)] = "Hiányzó csomagfájl(ok): {0}",
         [nameof(HealthAlert_LogDir)] = "A naplómappa nem használható: {0}",
+        [nameof(HealthAlert_BastionScript)] = "A bastion rac-principals szkriptje a tunnel-grants {0}. formátumát olvassa, a szerver a {1}.-at írja: futtasd a boxon a ./deploy/setup.sh 05-bastion lépést, különben az élesített korlátozás alatt az eszközök alagútját elutasítja.",
         [nameof(HealthAlert_UpdateFailed)] = "A legutóbbi szerverfrissítés elbukott ({0}); a helper visszaállt az előző verzióra.",
         [nameof(HealthAlert_DeviceCerts)] = "{0} eszköz tanúsítványa lejár {1} napon belül (első: {2}, {3}); {4} már lejárt. Megújítás nincs: ezeket újra be kell léptetni.",
         [nameof(HealthAlert_NoCommandChannel)] = "{0} eszköz küld telemetriát, de egy sincs a parancscsatornán; valószínűleg a 443-as mux vagy az nginx /agent útvonala akadt el.",

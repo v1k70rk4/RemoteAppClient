@@ -32,6 +32,8 @@ sudo tee /usr/local/sbin/rac-principals >/dev/null <<'SCRIPT'
 #!/bin/sh
 # AuthorizedPrincipalsCommand for the bastion's agent user: prints the principal line, with listen rights,
 # for the certificate whose key id is $1. See deploy/steps/05-bastion.sh.
+# rac-principals format 2 (deviceId, vncPort, filePort, vncGrantedAt, fileGrantedAt). The server reads this
+# line (Signing/SshTunnelGrants) and warns when it writes a format this script does not read.
 KEYID="$1"
 GRANTS="@GRANTS@"
 ENFORCE="@ENFORCE@"

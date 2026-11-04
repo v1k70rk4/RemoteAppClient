@@ -5,8 +5,52 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.5**, updater **3.0.0.2**, server
-**3.0.0.10**, console **3.0.0.6**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.6**, updater **3.0.0.2**, server
+**3.0.0.11**, console **3.0.0.8**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
+- The console's stat cards (all / online / offline / awaiting approval) are filter buttons: a click narrows the
+  list to what the card counts, the active card is marked, a second click or the "all" card shows everything
+  again. The status dropdown and the cards do not stack: choosing one clears the other.
+- Enter in the device search box no longer signs in again. The sign-in button stayed the window's default
+  button after sign-in, so Enter in any field of the shell pressed it: with a password sign-in the shell was
+  built a second time over the first (a new header and sidebar on every Enter), with a Windows Hello sign-in
+  each Enter counted as a failed password sign-in. A hidden button no longer takes Enter, and the shell has no
+  default button.
+- A row tooltip ("Supervisor: …", a sign-in lock, a flaky link) no longer gets stuck above every window. The
+  ten-second refresh rebuilt the rows under an open tooltip, which then belonged to no row and was never closed
+  until the console exited; the list now closes it before the rows are rebuilt and when the mouse leaves.
+- The agent takes a rollout of several packages one after the other. It ran one update at a time and dropped
+  what arrived meanwhile, so a console + agent + updater rollout left every device with the first package only,
+  the rest ten minutes later when the server offered them again; now the newest command per component waits
+  its turn and runs in the server's order, the agent's own package last.
+- A sleeping device's answer reaches the console. A queued open-tunnel was re-signed with a new nonce at the
+  device's wake, while the console waited on the nonce it was given at the request: the device let the operator
+  in and the console reported a timeout. The nonce now stays with the command; only the timestamp and the
+  signature are fresh at each delivery.
+- The session's VNC password is not rotated under a running session. The first VNC open past the hour chose a
+  new password, which the agent sets by restarting the VNC server - under the operator whose session was still
+  running. The agent now reports whether its tunnel carries the VNC forward (`tunnelVncActive`), and a device
+  reporting it up keeps its password (a file-only tunnel reports none, an agent before 3.0.0.6 reports nothing
+  and keeps the hour rule); the next open after that report has stopped renews it. The decision is logged.
+- The stat cards count the devices the search box and the group dropdown narrow to, so a card's number is the
+  rows it filters to; the cards take the keyboard too (Tab, Space, Enter), and re-picking "any status" in the
+  dropdown clears an active card.
+- The agent applies a rollout's packages in order even when its own package arrived first: after the minute's
+  grace it runs whatever arrived meanwhile and comes earlier in the order (VNC, console, updater), its own
+  package last, since that one restarts the process.
+- A command's nonce is chosen at the enqueue, not at the first delivery, so a device connecting in between
+  cannot deliver the same row under a nonce of its own.
+- The server update helper (`deploy/steps/10-selfupdate.sh`) wrote tools' error output straight into
+  `updates/result.log`, a file in a directory the service user owns, as root: a planted symlink there would have
+  sent that output into any file on the box. Every line now goes through the root-only working copy and is
+  renamed into place. Existing installs: rerun `./deploy/setup.sh 10-selfupdate`. The older standalone copy of
+  the helper under `ops/` is gone; the deploy step is the one source.
+- The bastion's listen-rights script names the grants-file format it reads (`rac-principals format 2`), and the
+  server compares it with the format it writes at start and in the diagnostics (`bastion`), with a health alert
+  when they differ: a server update that changes the format without the bastion step being rerun used to turn a
+  device's file session away silently once listen rights were enforced.
+- The grants file is world-readable whatever umask the service runs under; sshd reads it as `nobody`.
+- A second VNC viewer joins a session started under a file lock instead of restarting the tunnel for a file
+  port nobody has asked for yet.
 - The server names MySqlConnector 2.6.2 itself rather than taking the 2.4.0 its EF Core provider asks for
   (GHSA-473q-m89c-ghf8: a password sent before the certificate is checked under `VerifyCA`/`VerifyFull` without
   `SslCa`). A local database, `deploy/`'s default, was not exposed, nor was a remote one under the default

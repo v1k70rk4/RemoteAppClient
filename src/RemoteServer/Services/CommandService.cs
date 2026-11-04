@@ -40,6 +40,10 @@ public sealed class CommandService(
             PayloadJson = data is null ? null : JsonSerializer.Serialize(data, AgentJsonContext.Default.CommandData),
             Status = CommandStatus.Queued,
             CreatedByUserId = createdBy,
+            // The nonce is the command's from the first save: a device connecting between this save and the
+            // delivery below drains the queue (DrainQueuedAsync) and would otherwise sign the same row under a
+            // nonce of its own, with the console polling the other one.
+            Nonce = Guid.NewGuid().ToString("N"),
         };
         db.Commands.Add(entity);
         await db.SaveChangesAsync(ct);
@@ -87,12 +91,13 @@ public sealed class CommandService(
             }
             else data.VncPassword = null;
         }
-        var signed = signer.Create(entity.Type, data, version >= 2 ? deviceId : null, version);
-
-        // The nonce goes on the row BEFORE the send: a device on a fast link answers within milliseconds, and
-        // when nothing else remembers who asked (a queued command delivered at a sleeping device's next wake),
-        // the answer is attributed through this row. A failed send leaves a nonce that the next delivery
-        // overwrites with its own fresh signature.
+        // A command's nonce is chosen once, at the enqueue, and kept through every delivery attempt; only the
+        // timestamp and the signature are fresh. The console polls the nonce it was given at the request for the
+        // device's answer (half an hour for a sleeping device), and a delivery at the wake under a new nonce had
+        // the agent answer where nobody listened: the operator saw a timeout for an access the device had
+        // granted. A row queued before nonces were chosen at the enqueue gets one here, on the row before the
+        // send, so the answer of a device on a fast link is attributed through the row either way.
+        var signed = signer.Create(entity.Type, data, version >= 2 ? deviceId : null, version, entity.Nonce);
         entity.Nonce = signed.Nonce;
         entity.Signature = signed.Signature;
         await db.SaveChangesAsync(ct);
