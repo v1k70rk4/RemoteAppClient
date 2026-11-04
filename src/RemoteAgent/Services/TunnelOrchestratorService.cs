@@ -32,9 +32,9 @@ public sealed class TunnelOrchestratorService(
     private int _tunnelPort;
     private DateTimeOffset _lastActivity;
 
-    // The currently-running update, if any. Updates run off the command loop so a slow/hung download
-    // cannot block tunnel/power/message commands; single-flight so only one runs at a time.
-    private Task _updateTask = Task.CompletedTask;
+    // Updates run off the command loop so a slow/hung download cannot block tunnel/power/message commands;
+    // one at a time, the rest waiting their turn (UpdateQueue).
+    private readonly RemoteAgent.Update.UpdateQueue _updates = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -93,31 +93,36 @@ public sealed class TunnelOrchestratorService(
     }
 
     /// <summary>
-    /// Runs an update off the command loop, single-flight. Downloads can take minutes, so awaiting
-    /// inline would block tunnel/power/message; and only one update should run at a time.
+    /// Runs an update off the command loop, one at a time. Downloads can take minutes, so awaiting inline
+    /// would block tunnel/power/message; a command that arrives while one runs waits its turn in the queue
+    /// (a rollout of several packages lands within seconds) and runs when the current one is done.
     /// </summary>
     private static readonly TimeSpan UpdateGrace = TimeSpan.FromMinutes(1);
 
     private void StartUpdate(AgentCommand cmd, CancellationToken ct)
     {
-        if (!_updateTask.IsCompleted)
+        if (!_updates.TryStart(cmd))
         {
-            logger.LogInformation("Update already in progress; skipping new update command.");
+            logger.LogInformation(L.TunnelOrchestratorService_UpdateQueued, cmd.Data?.UpdateTarget ?? "agent", cmd.Data?.UpdateVersion);
             return;
         }
-        _updateTask = Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
-            try
+            for (var next = cmd; next is not null; next = _updates.Next())
             {
-                // An update command tends to arrive the moment a device comes back (wake, reconnect), when a
-                // laptop's link is at its flakiest; a minute's grace lets the connection settle before a
-                // download of tens of megabytes starts on it.
-                logger.LogInformation(L.TunnelOrchestratorService_UpdateStartsInAMinute, cmd.Data?.UpdateTarget ?? "agent", cmd.Data?.UpdateVersion);
-                await Task.Delay(UpdateGrace, ct);
-                await updateInstaller.ApplyAsync(
-                    cmd.Data?.UpdateTarget, cmd.Data?.UpdateVersion, cmd.Data?.UpdateUrl, cmd.Data?.UpdateSha256, ct);
+                try
+                {
+                    // An update command tends to arrive the moment a device comes back (wake, reconnect), when a
+                    // laptop's link is at its flakiest; a minute's grace lets the connection settle before a
+                    // download of tens of megabytes starts on it.
+                    logger.LogInformation(L.TunnelOrchestratorService_UpdateStartsInAMinute, next.Data?.UpdateTarget ?? "agent", next.Data?.UpdateVersion);
+                    await Task.Delay(UpdateGrace, ct);
+                    await updateInstaller.ApplyAsync(
+                        next.Data?.UpdateTarget, next.Data?.UpdateVersion, next.Data?.UpdateUrl, next.Data?.UpdateSha256, ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+                catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_TunnelCommandProcessingFailedType, CommandTypes.Update); }
             }
-            catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_TunnelCommandProcessingFailedType, CommandTypes.Update); }
         }, ct);
     }
 
@@ -200,8 +205,11 @@ public sealed class TunnelOrchestratorService(
         // shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer. A tunnel brought up for files
         // alone carries no VNC forward, so a VNC request replaces it rather than joining it.
         // Likewise a tunnel started while files were locked carries no file forward: a file request after the
-        // unlock needs a restart, not a join, or it would report success with no port behind it.
-        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (_tunnelVnc || wantsFile) && (!serveFiles || _tunnelFiles))
+        // unlock needs a restart, not a join, or it would report success with no port behind it. A VNC request
+        // asks only for the VNC forward: the file forward it would also carry is not required of the running
+        // tunnel, or a second viewer joining a session started under a file lock would restart the tunnel under
+        // the first one for a port nobody asked for yet.
+        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (wantsFile ? _tunnelFiles : _tunnelVnc))
         {
             _lastActivity = DateTimeOffset.UtcNow;
             state.Set(true);

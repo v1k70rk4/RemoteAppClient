@@ -197,6 +197,7 @@ internal static partial class Strings
     public static string HealthAlert_TlsExpiring => Get(nameof(HealthAlert_TlsExpiring));
     public static string HealthAlert_PackagesMissing => Get(nameof(HealthAlert_PackagesMissing));
     public static string HealthAlert_LogDir => Get(nameof(HealthAlert_LogDir));
+    public static string HealthAlert_BastionScript => Get(nameof(HealthAlert_BastionScript));
     public static string HealthAlert_UpdateFailed => Get(nameof(HealthAlert_UpdateFailed));
     public static string HealthAlert_DeviceCerts => Get(nameof(HealthAlert_DeviceCerts));
     public static string HealthAlert_NoCommandChannel => Get(nameof(HealthAlert_NoCommandChannel));

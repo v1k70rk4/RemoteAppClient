@@ -76,6 +76,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton<HelloChallengeStore>();
 builder.Services.AddSingleton<TotpReplayGuard>();   // an accepted TOTP code is used up
 builder.Services.AddSingleton<AccessResultStore>();
+builder.Services.AddSingleton<TunnelActivity>();                                        // which devices report a tunnel up (no password rotation under a session)
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddHostedService<SecretExpiryWatcher>();
 builder.Services.AddHostedService<CommandExpiryWatcher>();
@@ -687,7 +688,7 @@ app.Map("/ssh", async (HttpContext ctx, Microsoft.Extensions.Options.IOptions<Se
 });
 
 // === Telemetry ingest. Production uses mTLS behind nginx. ===
-app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink, AppDbContext db) =>
+app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink, AppDbContext db, TunnelActivity tunnels) =>
 {
     // Only a device the server knows (see AuthorizedDeviceAsync): a deleted one no longer re-creates itself, and
     // nothing is filed under a made-up "unknown" device. Development keeps the old self-registration for local runs.
@@ -707,6 +708,7 @@ app.MapPost("/api/telemetry", async (HttpContext ctx, ITelemetrySink sink, AppDb
 
     if (payload is null) return Results.BadRequest();
     await sink.IngestAsync(deviceId, payload, PublicIpOf(ctx), ctx.RequestAborted);
+    tunnels.Report(deviceId, payload.TunnelActive, DateTimeOffset.UtcNow);
 
     // Steer the agent's bastion transport via the telemetry response (mTLS-authenticated, non-secret;
     // the bastion host key stays pinned regardless of port). Old agents ignore the body; new ones apply it.
@@ -1426,7 +1428,7 @@ app.MapGet("/api/updates/{fileName}", (string fileName, IOptions<ServerOptions> 
 
 // Open tunnel: uses the device's stable port assigned at enrollment; can be overridden by query.
 app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
-    string deviceId, int? remotePort, string? purpose, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, SecretProtector protector, CancellationToken ct) =>
+    string deviceId, int? remotePort, string? purpose, HttpContext ctx, AppDbContext db, CommandService commands, AuthService auth, AccessResultStore accessResults, SecretProtector protector, TunnelActivity tunnels, CancellationToken ct) =>
 {
     var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
     if (device is null) return Results.NotFound();
@@ -1468,15 +1470,23 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     // the last hour, or a fresh one. It travels protected in the queue row and in the clear to the operator;
     // an older agent keeps its standing password, which the device list still carries for it.
     // Only a VNC open may choose one: a file open rotating the password after the hour would restart the VNC
-    // server under an operator whose session is running.
+    // server under an operator whose session is running. Nor is it rotated while the device reports its tunnel
+    // up (TunnelActivity): a second operator joining past the hour would otherwise restart the VNC server under
+    // the first one; the password is renewed at the first open after the session has ended.
     string? sessionPassword = null, storedPassword = null;
     bool wantsVnc = !string.Equals(purpose, "file", StringComparison.OrdinalIgnoreCase);
     if (wantsVnc && CommandSigner.VersionFor(device.AgentVersion) >= 3)
     {
         var now = DateTimeOffset.UtcNow;
-        if (VncSessionPassword.Reusable(device.VncSecretUpdatedAt, now)) sessionPassword = protector.TryUnprotect(device.VncSecret);
+        // Which rule kept the password is logged: the hour's rule covers everything inside the hour, so whether
+        // a running session past it keeps its password can only be read here, not from the screen.
+        var why = VncSessionPassword.Reusable(device.VncSecretUpdatedAt, now) ? "kept: chosen within the hour"
+                : tunnels.IsUp(deviceId, now) ? "kept: the device reports its tunnel up"
+                : "new";
+        if (why is not "new") sessionPassword = protector.TryUnprotect(device.VncSecret);
         if (string.IsNullOrEmpty(sessionPassword))
         {
+            why = "new";
             // Two opens past the hour at once must not each choose a password (the agent would apply the later
             // one and lock the first operator out): the new one lands only if the record is still what was
             // read; otherwise the other request's choice is reloaded and reused.
@@ -1497,9 +1507,11 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
                 await db.Entry(device).ReloadAsync(ct);
                 sessionPassword = protector.TryUnprotect(device.VncSecret);
                 if (string.IsNullOrEmpty(sessionPassword)) return Results.Problem("vnc_password_unavailable");
+                why = "kept: another request chose it just now";
             }
         }
         storedPassword = device.VncSecret;
+        app.Logger.LogInformation("Session VNC password for {DeviceId}: {Why}", deviceId, why);
     }
 
     var cmd = await commands.EnqueueAsync(

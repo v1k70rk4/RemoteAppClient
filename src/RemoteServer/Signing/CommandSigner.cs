@@ -31,15 +31,17 @@ public sealed class CommandSigner : IDisposable
     /// <summary>Agents from this version verify the version 2 form (every field, bound to the device).</summary>
     public static readonly Version SigV2MinAgent = new(2, 2, 7, 1);
 
-    /// <summary>New signed command with fresh nonce and timestamp. With <paramref name="deviceId"/> the signature
+    /// <summary>New signed command with a fresh timestamp. With <paramref name="deviceId"/> the signature
     /// is version 2, which only agents from <see cref="SigV2MinAgent"/> can check; the caller decides from the
-    /// agent's reported version (<see cref="UsesV2"/>) and passes null for older ones.</summary>
-    public AgentCommand Create(string type, CommandData? data = null, string? deviceId = null, int version = CommandSignature.CurrentVersion)
+    /// agent's reported version (<see cref="UsesV2"/>) and passes null for older ones. The nonce is fresh unless
+    /// the caller passes the one a queued command already has: the console waits on that nonce for the answer
+    /// of a sleeping device, and a delivery at its wake under a new nonce would answer where nobody listens.</summary>
+    public AgentCommand Create(string type, CommandData? data = null, string? deviceId = null, int version = CommandSignature.CurrentVersion, string? nonce = null)
     {
         var cmd = new AgentCommand
         {
             Type = type,
-            Nonce = Guid.NewGuid().ToString("N"),
+            Nonce = string.IsNullOrEmpty(nonce) ? Guid.NewGuid().ToString("N") : nonce,
             IssuedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Data = data,
         };

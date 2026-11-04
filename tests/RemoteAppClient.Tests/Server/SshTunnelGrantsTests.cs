@@ -58,3 +58,43 @@ public class SshTunnelGrantsTests
         Assert.Equal("", SshTunnelGrants.Render(grants, T0.AddMinutes(10)));
     }
 }
+
+/// <summary>The bastion script names the grants-file format it reads; the server compares it with the one it
+/// writes, so a server update that changes the format is noticed before enforce turns devices away.</summary>
+public class SshTunnelGrantsFormatTests
+{
+    [Fact]
+    public void The_installed_script_names_its_format()
+    {
+        var script = "#!/bin/sh\n# AuthorizedPrincipalsCommand ...\n# rac-principals format 2 (deviceId, vncPort, ...)\nKEYID=\"$1\"\n";
+        Assert.Equal(2, SshTunnelGrants.ScriptFormatOf(script));
+    }
+
+    [Fact]
+    public void A_script_from_before_the_marker_is_told_apart_by_the_columns_it_reads()
+    {
+        Assert.Equal(1, SshTunnelGrants.ScriptFormatOf("#!/bin/sh\nKEYID=\"$1\"\nawk -F'\t' '$1 == id { print $2, $3, $4; exit }'\n"));
+        Assert.Equal(2, SshTunnelGrants.ScriptFormatOf("#!/bin/sh\nKEYID=\"$1\"\nawk -F'\t' '$1 == id { print $2, $3, $4, $5; exit }'\n"));
+    }
+
+    [Fact]
+    public void No_script_means_no_verdict()
+    {
+        Assert.Null(SshTunnelGrants.InstalledScriptFormat(Path.Combine(Path.GetTempPath(), "rac-no-such-script-" + Guid.NewGuid().ToString("N"))));
+    }
+
+    [Fact]
+    public void The_step_in_the_repo_names_the_format_the_server_writes()
+    {
+        // deploy/steps/05-bastion.sh carries the script; its marker must follow SshTunnelGrants.FileFormat.
+        var dir = AppContext.BaseDirectory;
+        string? step = null;
+        for (var d = new DirectoryInfo(dir); d is not null && step is null; d = d.Parent)
+        {
+            var candidate = Path.Combine(d.FullName, "deploy", "steps", "05-bastion.sh");
+            if (File.Exists(candidate)) step = candidate;
+        }
+        if (step is null) return;   // not run from the repo (a packaged test run): nothing to compare
+        Assert.Equal(SshTunnelGrants.FileFormat, SshTunnelGrants.ScriptFormatOf(File.ReadAllText(step)));
+    }
+}

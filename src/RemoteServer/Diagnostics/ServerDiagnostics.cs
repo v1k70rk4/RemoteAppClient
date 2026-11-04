@@ -52,6 +52,7 @@ public static class ServerDiagnostics
         ReadProc(diag);
         diag.Disks = Disks(logs.Directory, opt.PackagesDir, opt.UpdatesDir);
         diag.Log = LogInfo(logs, now);
+        diag.Bastion = BastionInfo();
 
         // The network probes (DNS, TLS) run alongside the database ones, each with its own timeout. The two
         // database probes share one DbContext, which is not thread-safe, so they run one after the other.
@@ -70,6 +71,22 @@ public static class ServerDiagnostics
         diag.Dns = dnsTask.Result;
         diag.Tls = tlsTask.Result;
         return diag;
+    }
+
+    /// <summary>The bastion's listen-rights script against the grants file this server writes (Linux only): a
+    /// server update changes the file's format without touching the box's script, and a script reading an older
+    /// format turns a device's tunnel away under enforce. Rerunning the bastion step installs the current one.</summary>
+    public static ServerDiagBastion? BastionInfo()
+    {
+        if (!OperatingSystem.IsLinux()) return null;
+        var installed = RemoteServer.Signing.SshTunnelGrants.InstalledScriptFormat();
+        return new ServerDiagBastion
+        {
+            ScriptInstalled = installed is not null,
+            ScriptFormat = installed,
+            GrantsFormat = RemoteServer.Signing.SshTunnelGrants.FileFormat,
+            Ok = installed is null || installed == RemoteServer.Signing.SshTunnelGrants.FileFormat,
+        };
     }
 
     /// <summary>

@@ -673,6 +673,21 @@ public sealed class ServerDiag
     /// <summary>Whether the proxy secret is enforced and nginx's identity headers are arriving. Null on a server
     /// that predates the field.</summary>
     [JsonPropertyName("proxyTrust")] public ServerDiagProxy? ProxyTrust { get; set; }
+    /// <summary>Whether the bastion's listen-rights script reads the grants file this server writes. Null on a
+    /// server that predates the check, or not on Linux.</summary>
+    [JsonPropertyName("bastion")] public ServerDiagBastion? Bastion { get; set; }
+}
+
+public sealed class ServerDiagBastion
+{
+    /// <summary>/usr/local/sbin/rac-principals exists on this box (deploy/steps/05-bastion.sh installed it).</summary>
+    [JsonPropertyName("scriptInstalled")] public bool ScriptInstalled { get; set; }
+    /// <summary>The grants-file format the installed script reads; null when none is installed.</summary>
+    [JsonPropertyName("scriptFormat")] public int? ScriptFormat { get; set; }
+    /// <summary>The grants-file format this server writes.</summary>
+    [JsonPropertyName("grantsFormat")] public int GrantsFormat { get; set; }
+    /// <summary>No script, or one that reads what the server writes. False: rerun the bastion step on the box.</summary>
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
 }
 
 public sealed class ServerDiagProxy

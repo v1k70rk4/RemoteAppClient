@@ -120,6 +120,7 @@ internal static partial class Strings
         [nameof(TunnelOrchestratorService_TunnelIdleTimeoutIdleS)] = "Tunnel idle-timeout ({Idle}s), tearing down.",
         [nameof(TunnelOrchestratorService_UnknownCommandType)] = "Unknown command: {Type}",
         [nameof(TunnelOrchestratorService_UpdateStartsInAMinute)] = "Update of {Target} to {Version} received; the download starts in a minute, once the connection has settled",
+        [nameof(TunnelOrchestratorService_UpdateQueued)] = "Update of {Target} to {Version} received while another update runs; it waits its turn",
         [nameof(UpdateInstaller_UpdateCommandWithoutURLHash)] = "Update command without URL/hash, skipped.",
         [nameof(UpdateInstaller_CouldNotDetermineUpdaterExe)] = "Could not determine Updater exe path; skipping update.",
         [nameof(UpdateInstaller_DownloadingUpdateTargetVersionUrl)] = "Downloading update: {Target} {Version} ({Url})",

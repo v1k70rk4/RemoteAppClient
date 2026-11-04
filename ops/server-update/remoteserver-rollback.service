@@ -1,6 +1,0 @@
-[Unit]
-Description=RemoteServer rollback to the last backup
-
-[Service]
-Type=oneshot
-ExecStart=/opt/remoteserver-update/rollback.sh

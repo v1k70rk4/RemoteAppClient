@@ -27,6 +27,29 @@ public sealed class SshTunnelGrants(IOptions<ServerOptions> options, ILogger<Ssh
     public static readonly TimeSpan Window = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan Sweep = TimeSpan.FromSeconds(15);
 
+    /// <summary>The grants file's format. The bastion script that reads it names the format it understands
+    /// ("rac-principals format N" in deploy/steps/05-bastion.sh); a server update brings a new file format
+    /// without touching the box's script, so the server checks the two agree and says so when they do not.</summary>
+    public const int FileFormat = 2;
+    public const string PrincipalsScript = "/usr/local/sbin/rac-principals";
+
+    /// <summary>The format the installed bastion script reads: null when none is installed (the bastion step
+    /// predates listen rights, or this is not the bastion), 1 for a script from before formats were named.</summary>
+    public static int? InstalledScriptFormat(string path = PrincipalsScript)
+    {
+        try { return File.Exists(path) ? ScriptFormatOf(File.ReadAllText(path)) : null; }
+        catch (Exception) { return null; }
+    }
+
+    public static int ScriptFormatOf(string script)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(script, @"rac-principals format (\d+)");
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var n)) return n;
+        // Before the marker: the format-2 script (per-port times) already read the fifth column, the first one
+        // did not. A box whose step ran between the two is not sent to rerun it for a line of comment.
+        return script.Contains("$2, $3, $4, $5", StringComparison.Ordinal) ? 2 : 1;
+    }
+
     /// <summary>A port of 0 is not granted; its time is then irrelevant.</summary>
     public sealed record Grant(int VncPort, int FilePort, DateTimeOffset VncAt, DateTimeOffset FileAt)
     {
@@ -81,6 +104,8 @@ public sealed class SshTunnelGrants(IOptions<ServerOptions> options, ILogger<Ssh
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         if (!OperatingSystem.IsLinux() || _path is null) return;
+        if (InstalledScriptFormat() is { } installed && installed != FileFormat)
+            logger.LogWarning("The bastion's {Script} reads tunnel-grants format {Installed}, this server writes format {Current}: rerun ./deploy/setup.sh 05-bastion on the box, or a device's tunnel is turned away under enforce", PrincipalsScript, installed, FileFormat);
         try { await WriteAsync(ct); } catch (Exception ex) { logger.LogWarning(ex, "Tunnel grants not written at start"); }
         while (!ct.IsCancellationRequested)
         {
@@ -107,6 +132,9 @@ public sealed class SshTunnelGrants(IOptions<ServerOptions> options, ILogger<Ssh
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             var tmp = _path + ".tmp";
             await File.WriteAllTextAsync(tmp, Render(_grants, DateTimeOffset.UtcNow), ct);
+            // The bastion script reads the file as "nobody": world-readable whatever this process's umask makes
+            // of a new file (a strict umask gave it 0600, and every device was then turned away under enforce).
+            File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
             File.Move(tmp, _path, overwrite: true);
         }
         finally { _write.Release(); }

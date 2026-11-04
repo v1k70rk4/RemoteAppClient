@@ -36,6 +36,9 @@ public sealed class DevicesView : UserControl, IContentView
     private readonly StatCard _statPending = new(L.DevicesView_StatPending);
     private readonly UiCombo _groupFilter = new(150);
     private readonly UiCombo _statusFilter = new(140);
+    // The stat card the list is narrowed to (online / offline / pending), or null: the cards are filter
+    // buttons as well as counters, and a card's number is the number of rows its filter shows.
+    private StatCard? _tileFilter;
     private readonly ToolTip _tip = new();
     private readonly System.Windows.Forms.Timer _autoRefresh = new() { Interval = 10_000 };
     private bool _suppressFilter;
@@ -93,7 +96,7 @@ public sealed class DevicesView : UserControl, IContentView
         _groupFilter.Margin = new Padding(0, 0, 6, 0);
         _statusFilter.Margin = new Padding(0, 0, 16, 0);
         _groupFilter.SelectedIndexChanged += (_, _) => { if (!_suppressFilter) RenderList(); };
-        _statusFilter.SelectedIndexChanged += (_, _) => { if (!_suppressFilter) RenderList(); };
+        _statusFilter.SelectedIndexChanged += (_, _) => { if (!_suppressFilter) { _tileFilter = null; RenderList(); } };
         tools.Controls.Add(_groupFilter);
         tools.Controls.Add(_statusFilter);
         // Refresh as a compact icon button (tooltip carries the label); device enrollment lives on Bootstrap.
@@ -130,7 +133,7 @@ public sealed class DevicesView : UserControl, IContentView
         _listHeader.MouseClick += HeaderClick;            // click a column to sort
         _listHeader.Cursor = Cursors.Hand;
         _list.MouseMove += OnRowHover;
-        _list.MouseLeave += (_, _) => SetHoverRow(-1);
+        _list.MouseLeave += (_, _) => { SetHoverRow(-1); PopItemToolTip(); };
         _list.DoubleClick += async (_, _) => await ConnectSelectedAsync();
         // Right-click selects the row under the cursor and opens a context menu of editor tabs.
         if (_isAdmin)
@@ -204,8 +207,11 @@ public sealed class DevicesView : UserControl, IContentView
         {
             cards[i].Dock = DockStyle.Fill;
             cards[i].Margin = new Padding(i == 0 ? 0 : 6, 0, 0, 0);
-            statGrid.Controls.Add(cards[i], i, 0);
+            var card = cards[i];
+            card.Click += (_, _) => SelectTile(card);
+            statGrid.Controls.Add(card, i, 0);
         }
+        _statTotal.Selected = true;
         var statRow = new Panel { Dock = DockStyle.Top, Height = 72, Padding = new Padding(10, 8, 10, 4) };
         statRow.Controls.Add(statGrid);
         _listHost.Controls.Add(statRow);  // Top
@@ -304,6 +310,25 @@ public sealed class DevicesView : UserControl, IContentView
     }
 
     private void OnRowHover(object? sender, MouseEventArgs e) => SetHoverRow(_list.GetItemAt(e.X, e.Y)?.Index ?? -1);
+
+    // The row tooltips ("Supervisor: …", a lock, a flaky link) are the ListView's own tooltip window, a topmost
+    // window that the list closes only when the mouse leaves the item that opened it. The ten-second refresh
+    // clears and rebuilds every row: a tooltip open at that moment belongs to an item that no longer exists, the
+    // list never tells it to close, and it sits above every window until the console exits. So it is told to
+    // close here, before the rows are cleared and whenever the mouse leaves the list.
+    private const int LVM_GETTOOLTIPS = 0x1000 + 78;
+    private const int TTM_POP = 0x0400 + 28;
+    private void PopItemToolTip()
+    {
+        if (!_list.IsHandleCreated) return;
+        try
+        {
+            var tip = SendMessage(_list.Handle, LVM_GETTOOLTIPS, IntPtr.Zero, IntPtr.Zero);
+            if (tip != IntPtr.Zero) SendMessage(tip, TTM_POP, IntPtr.Zero, IntPtr.Zero);
+        }
+        catch { /* cosmetic */ }
+    }
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     // Dark column-header strip, drawn at the same x-offsets as the cells (column start + 10, matching PaintCell).
     private void DrawHeaderStrip(object? sender, PaintEventArgs e)
@@ -478,12 +503,29 @@ public sealed class DevicesView : UserControl, IContentView
         _suppressFilter = false;
     }
 
+    private static bool IsPending(DeviceInfo d) => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase);
+
     private void UpdateStats()
     {
         _statTotal.SetValue(_devices.Count);
         _statOnline.SetValue(_devices.Count(d => d.Online));
         _statOffline.SetValue(_devices.Count(d => !d.Online));
-        _statPending.SetValue(_devices.Count(d => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase)));
+        _statPending.SetValue(_devices.Count(IsPending));
+    }
+
+    /// <summary>A stat card clicked: the list narrows to what it counts. The total card, or the card already
+    /// active, shows everything again; the status dropdown goes back to "any", since the two would otherwise
+    /// filter on top of each other and the card's number would not match the rows.</summary>
+    private void SelectTile(StatCard card)
+    {
+        _tileFilter = card == _statTotal || card == _tileFilter ? null : card;
+        if (_statusFilter.SelectedIndex > 0)
+        {
+            _suppressFilter = true;
+            _statusFilter.SelectedIndex = 0;
+            _suppressFilter = false;
+        }
+        RenderList();
     }
 
     private void RenderList()
@@ -512,12 +554,23 @@ public sealed class DevicesView : UserControl, IContentView
             _ => items,
         };
 
+        // A clicked stat card narrows the list to exactly what it counts (UpdateStats uses the same tests), so
+        // the number on the card and the rows below it agree.
+        if (_tileFilter == _statOnline) items = items.Where(d => d.Online);
+        else if (_tileFilter == _statOffline) items = items.Where(d => !d.Online);
+        else if (_tileFilter == _statPending) items = items.Where(IsPending);
+        _statTotal.Selected = _tileFilter is null && _statusFilter.SelectedIndex <= 0;
+        _statOnline.Selected = _tileFilter == _statOnline;
+        _statOffline.Selected = _tileFilter == _statOffline;
+        _statPending.Selected = _tileFilter == _statPending;
+
         items = SortItems(items);
 
         // Preserve the operator's selection + scroll across a rebuild (especially the 10-second auto-refresh).
         var selId = SelectedDevice()?.DeviceId;
         var topId = (_list.TopItem?.Tag as DeviceInfo)?.DeviceId;
 
+        PopItemToolTip();   // before the rows go: a tooltip left over a cleared item never closes by itself
         _list.BeginUpdate();
         _list.Items.Clear();
         ListViewItem? toSelect = null, toTop = null;
