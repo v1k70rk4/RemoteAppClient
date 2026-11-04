@@ -31,6 +31,9 @@ public sealed class TunnelOrchestratorService(
     private RemoteAgent.Files.FileService? _fileService;
     private int _tunnelPort;
     private DateTimeOffset _lastActivity;
+    // One session at a time, between the command loop (open, close) and the idle watchdog: the watchdog closing
+    // a session it found idle or dead must not run into an open that is replacing the tunnel at that moment.
+    private readonly SemaphoreSlim _session = new(1, 1);
 
     // Updates run off the command loop so a slow/hung download cannot block tunnel/power/message commands;
     // one at a time, the rest waiting their turn (UpdateQueue).
@@ -169,85 +172,93 @@ public sealed class TunnelOrchestratorService(
         // From here the device is in a session: keep it awake until the tunnel closes, or a laptop that sleeps
         // after five idle minutes falls asleep under the operator (nobody is at the keyboard, so nothing else
         // counts as activity). Released in CloseTunnelAsync, and below if the start fails.
-        keepAwake.Hold();
-
-        // The session's VNC password, chosen by the server for this hour: set on the VNC server before the
-        // tunnel comes up, so the operator's viewer meets it. Unchanged within the hour means nothing to do and
-        // no restart - a second operator joins the running session. Recorded in vnc.secret FIRST, so the
-        // provisioning watchdog (every 30 s) never finds the old secret while the new one is live and puts the
-        // old one back; if the hardening then fails, the watchdog brings the VNC server to the new one itself.
-        // The operator is told of the outcome only once the password is in place: a success report with a
-        // password the device does not have would send their viewer to a locked door.
-        if (!string.IsNullOrEmpty(data?.VncPassword) && !RemoteAgent.Vnc.VncLock.IsLocked())
+        // From here the session's resources are taken (keep-awake, file token, the tunnel itself); the watchdog
+        // closes a session under the same gate, so it cannot clear them between the old tunnel's stop and the
+        // new one's start, nor take a tunnel that is only just coming up for one that died.
+        await _session.WaitAsync(ct);
+        try
         {
-            try
+            keepAwake.Hold();
+
+            // The session's VNC password, chosen by the server for this hour: set on the VNC server before the
+            // tunnel comes up, so the operator's viewer meets it. Unchanged within the hour means nothing to do and
+            // no restart - a second operator joins the running session. Recorded in vnc.secret FIRST, so the
+            // provisioning watchdog (every 30 s) never finds the old secret while the new one is live and puts the
+            // old one back; if the hardening then fails, the watchdog brings the VNC server to the new one itself.
+            // The operator is told of the outcome only once the password is in place: a success report with a
+            // password the device does not have would send their viewer to a locked door.
+            if (!string.IsNullOrEmpty(data?.VncPassword) && !RemoteAgent.Vnc.VncLock.IsLocked())
             {
-                var pw = data!.VncPassword!;
-                var secretFile = RemoteAgent.Vnc.VncSecretFile.PathIn(options.Value.EnrollmentDir);
-                bool current = string.Equals(RemoteAgent.Vnc.VncSecretFile.Read(secretFile), pw, StringComparison.Ordinal);
-                if (!current || !RemoteAgent.Vnc.VncProvisioner.IsHardened(pw))
+                try
                 {
-                    RemoteAgent.Vnc.VncSecretFile.Write(secretFile, pw);
-                    await Task.Run(() => RemoteAgent.Vnc.VncProvisioner.ApplyHardening(pw), ct);   // writes the config, restarts the VNC server
-                    logger.LogInformation(L.TunnelOrchestratorService_SessionPasswordSet);
+                    var pw = data!.VncPassword!;
+                    var secretFile = RemoteAgent.Vnc.VncSecretFile.PathIn(options.Value.EnrollmentDir);
+                    bool current = string.Equals(RemoteAgent.Vnc.VncSecretFile.Read(secretFile), pw, StringComparison.Ordinal);
+                    if (!current || !RemoteAgent.Vnc.VncProvisioner.IsHardened(pw))
+                    {
+                        RemoteAgent.Vnc.VncSecretFile.Write(secretFile, pw);
+                        await Task.Run(() => RemoteAgent.Vnc.VncProvisioner.ApplyHardening(pw), ct);   // writes the config, restarts the VNC server
+                        logger.LogInformation(L.TunnelOrchestratorService_SessionPasswordSet);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, L.TunnelOrchestratorService_SessionPasswordFailed);
+                    keepAwake.Release();
+                    await uplink.ReportAccessResultAsync(cmd.Nonce, "failed", ct);
+                    return;
                 }
             }
-            catch (Exception ex)
+            await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
+
+            // Start the loopback file service unless file transfer is locally disabled (token + port are auxiliary).
+            bool serveFiles = data?.FileRemotePort is > 0 && !string.IsNullOrEmpty(data.FileToken) && !fileLocked;
+            if (serveFiles)
+                (_fileService ??= new RemoteAgent.Files.FileService(loggerFactory.CreateLogger<RemoteAgent.Files.FileService>())).Start(data!.FileToken!);
+
+            // Reuse an existing tunnel on the same port so a second operator can join the session: TightVNC runs
+            // shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer. A tunnel brought up for files
+            // alone carries no VNC forward, so a VNC request replaces it rather than joining it.
+            // Likewise a tunnel started while files were locked carries no file forward: a file request after the
+            // unlock needs a restart, not a join, or it would report success with no port behind it. A VNC request
+            // asks only for the VNC forward: the file forward it would also carry is not required of the running
+            // tunnel, or a second viewer joining a session started under a file lock would restart the tunnel under
+            // the first one for a port nobody asked for yet.
+            if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (wantsFile ? _tunnelFiles : _tunnelVnc))
             {
-                logger.LogWarning(ex, L.TunnelOrchestratorService_SessionPasswordFailed);
-                keepAwake.Release();
-                await uplink.ReportAccessResultAsync(cmd.Nonce, "failed", ct);
+                _lastActivity = DateTimeOffset.UtcNow;
+                var running = _tunnel;
+                state.Set(true, _tunnelVnc, () => running.IsRunning);
                 return;
             }
-        }
-        await uplink.ReportAccessResultAsync(cmd.Nonce, outcome, ct);
 
-        // Start the loopback file service unless file transfer is locally disabled (token + port are auxiliary).
-        bool serveFiles = data?.FileRemotePort is > 0 && !string.IsNullOrEmpty(data.FileToken) && !fileLocked;
-        if (serveFiles)
-            (_fileService ??= new RemoteAgent.Files.FileService(loggerFactory.CreateLogger<RemoteAgent.Files.FileService>())).Start(data!.FileToken!);
+            // Different port (or no tunnel): replace the existing one.
+            if (_tunnel is not null)
+                await _tunnel.StopAsync();
+            // No session on record while the new tunnel starts: the watchdog's dead-tunnel branch goes by the port,
+            // and a start that retries a held port for up to a minute (ssh not running in between) must not be
+            // closed under itself - file tokens and keep-awake gone, and the tunnel then coming up anyway. The port
+            // is recorded again below, once the start has returned. Commands run one at a time, so no second open
+            // can overlap this one; the watchdog is the only other actor here.
+            _tunnelPort = 0;
 
-        // Reuse an existing tunnel on the same port so a second operator can join the session: TightVNC runs
-        // shared (AlwaysShared) and the SSH -R tunnel multiplexes the extra viewer. A tunnel brought up for files
-        // alone carries no VNC forward, so a VNC request replaces it rather than joining it.
-        // Likewise a tunnel started while files were locked carries no file forward: a file request after the
-        // unlock needs a restart, not a join, or it would report success with no port behind it. A VNC request
-        // asks only for the VNC forward: the file forward it would also carry is not required of the running
-        // tunnel, or a second viewer joining a session started under a file lock would restart the tunnel under
-        // the first one for a port nobody asked for yet.
-        if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (wantsFile ? _tunnelFiles : _tunnelVnc))
-        {
+            _tunnel = new SshReverseTunnel(_opt, transport, loggerFactory.CreateLogger<SshReverseTunnel>());
+            // Stamped BEFORE the start: the idle watchdog takes a tunnel whose ssh is up for running, and with the
+            // stamp still at the previous session's end it closed tunnels that were only just coming up.
             _lastActivity = DateTimeOffset.UtcNow;
-            var running = _tunnel;
-            state.Set(true, _tunnelVnc, () => running.IsRunning);
-            return;
+            // A file session forwards the file port alone: the screen is not opened for an operator who asked for
+            // files, and a password someone saved from an earlier session finds no VNC port behind a file session.
+            try { await _tunnel.StartAsync(wantsFile ? 0 : remotePort, serveFiles ? data!.FileRemotePort : 0, ct); }
+            catch { keepAwake.Release(); throw; }
+            _tunnelPort = remotePort;
+            _tunnelVnc = !wantsFile;
+            _tunnelFiles = serveFiles;
+            var started = _tunnel;
+            state.Set(started.IsRunning, _tunnelVnc, () => started.IsRunning);
+            if (!_tunnel.IsRunning) keepAwake.Release();   // nothing came up, nothing to stay awake for
+            _lastActivity = DateTimeOffset.UtcNow;
         }
-
-        // Different port (or no tunnel): replace the existing one.
-        if (_tunnel is not null)
-            await _tunnel.StopAsync();
-        // No session on record while the new tunnel starts: the watchdog's dead-tunnel branch goes by the port,
-        // and a start that retries a held port for up to a minute (ssh not running in between) must not be
-        // closed under itself - file tokens and keep-awake gone, and the tunnel then coming up anyway. The port
-        // is recorded again below, once the start has returned. Commands run one at a time, so no second open
-        // can overlap this one; the watchdog is the only other actor here.
-        _tunnelPort = 0;
-
-        _tunnel = new SshReverseTunnel(_opt, transport, loggerFactory.CreateLogger<SshReverseTunnel>());
-        // Stamped BEFORE the start: the idle watchdog takes a tunnel whose ssh is up for running, and with the
-        // stamp still at the previous session's end it closed tunnels that were only just coming up.
-        _lastActivity = DateTimeOffset.UtcNow;
-        // A file session forwards the file port alone: the screen is not opened for an operator who asked for
-        // files, and a password someone saved from an earlier session finds no VNC port behind a file session.
-        try { await _tunnel.StartAsync(wantsFile ? 0 : remotePort, serveFiles ? data!.FileRemotePort : 0, ct); }
-        catch { keepAwake.Release(); throw; }
-        _tunnelPort = remotePort;
-        _tunnelVnc = !wantsFile;
-        _tunnelFiles = serveFiles;
-        var started = _tunnel;
-        state.Set(started.IsRunning, _tunnelVnc, () => started.IsRunning);
-        if (!_tunnel.IsRunning) keepAwake.Release();   // nothing came up, nothing to stay awake for
-        _lastActivity = DateTimeOffset.UtcNow;
+        finally { _session.Release(); }
     }
 
     /// <summary>
@@ -413,6 +424,14 @@ public sealed class TunnelOrchestratorService(
 
     private async Task CloseTunnelAsync()
     {
+        await _session.WaitAsync();   // no token: a close at shutdown goes through
+        try { await CloseTunnelCoreAsync(); }
+        finally { _session.Release(); }
+    }
+
+    /// <summary>The close itself; the caller holds <see cref="_session"/>.</summary>
+    private async Task CloseTunnelCoreAsync()
+    {
         keepAwake.Release();   // with or without a tunnel: nothing is left to keep the device awake for
         _fileService?.ClearTokens();   // the session's file tokens die with the tunnel
         if (_tunnel is null) return;
@@ -429,18 +448,26 @@ public sealed class TunnelOrchestratorService(
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), ct);
-                if (_tunnel is { IsRunning: true } && DateTimeOffset.UtcNow - _lastActivity > idle)
+                // Judged and closed under the session gate: what is looked at is what is closed, not a tunnel an
+                // open replaced in between.
+                await _session.WaitAsync(ct);
+                try
                 {
-                    logger.LogInformation(L.TunnelOrchestratorService_TunnelIdleTimeoutIdleS, idle.TotalSeconds);
-                    await CloseTunnelAsync();
+                    if (_tunnel is { IsRunning: true } && DateTimeOffset.UtcNow - _lastActivity > idle)
+                    {
+                        logger.LogInformation(L.TunnelOrchestratorService_TunnelIdleTimeoutIdleS, idle.TotalSeconds);
+                        await CloseTunnelCoreAsync();
+                    }
+                    else if (_tunnel is { IsRunning: false } && _tunnelPort != 0)
+                    {
+                        // The ssh went away on its own (the bastion dropped it, the link died): close what is
+                        // left of the session - the file tokens, the keep-awake - rather than hold them until
+                        // the next open.
+                        logger.LogInformation("Reverse tunnel is no longer running; closing the session.");
+                        await CloseTunnelCoreAsync();
+                    }
                 }
-                else if (_tunnel is { IsRunning: false } && _tunnelPort != 0)
-                {
-                    // The ssh went away on its own (the bastion dropped it, the link died): close what is left
-                    // of the session - the file tokens, the keep-awake - rather than hold them until the next open.
-                    logger.LogInformation("Reverse tunnel is no longer running; closing the session.");
-                    await CloseTunnelAsync();
-                }
+                finally { _session.Release(); }
             }
         }
         catch (OperationCanceledException) { /* shutdown */ }
