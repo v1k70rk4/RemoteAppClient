@@ -5,7 +5,7 @@ the time of that release; the GitHub release pages carry the same text together 
 
 ## What's New in 3.0.1
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.6**, updater **3.0.0.2**, server
+**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.7**, updater **3.0.0.2**, server
 **3.0.0.11**, console **3.0.0.8**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
 - The console's stat cards (all / online / offline / awaiting approval) are filter buttons: a click narrows the
   list to what the card counts, the active card is marked, a second click or the "all" card shows everything
@@ -29,7 +29,7 @@ the time of that release; the GitHub release pages carry the same text together 
 - The session's VNC password is not rotated under a running session. The first VNC open past the hour chose a
   new password, which the agent sets by restarting the VNC server - under the operator whose session was still
   running. The agent now reports whether its tunnel carries the VNC forward (`tunnelVncActive`), and a device
-  reporting it up keeps its password (a file-only tunnel reports none, an agent before 3.0.0.6 reports nothing
+  reporting it up keeps its password (a file-only tunnel reports none, an agent before 3.0.0.7 reports nothing
   and keeps the hour rule); the next open after that report has stopped renews it. The decision is logged.
 - The stat cards count the devices the search box and the group dropdown narrow to, so a card's number is the
   rows it filters to; the cards take the keyboard too (Tab, Space, Enter), and re-picking "any status" in the
