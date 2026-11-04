@@ -121,6 +121,11 @@ public sealed class TelemetryPayload
     [JsonPropertyName("tunnelActive")]
     public bool TunnelActive { get; set; }
 
+    /// <summary>The tunnel carries the VNC forward (false for a file-only tunnel, and from agents before 3.0.0.6).
+    /// The server keeps a session's VNC password past the hour only while this is reported.</summary>
+    [JsonPropertyName("tunnelVncActive")]
+    public bool TunnelVncActive { get; set; }
+
     /// <summary>Whether remote access was disabled locally on this device (VNC lock).</summary>
     [JsonPropertyName("vncLocked")]
     public bool VncLocked { get; set; }

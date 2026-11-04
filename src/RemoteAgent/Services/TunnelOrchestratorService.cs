@@ -218,7 +218,7 @@ public sealed class TunnelOrchestratorService(
         if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (wantsFile ? _tunnelFiles : _tunnelVnc))
         {
             _lastActivity = DateTimeOffset.UtcNow;
-            state.Set(true);
+            state.Set(true, _tunnelVnc);
             return;
         }
 
@@ -237,7 +237,7 @@ public sealed class TunnelOrchestratorService(
         _tunnelPort = remotePort;
         _tunnelVnc = !wantsFile;
         _tunnelFiles = serveFiles;
-        state.Set(_tunnel.IsRunning);
+        state.Set(_tunnel.IsRunning, _tunnelVnc);
         if (!_tunnel.IsRunning) keepAwake.Release();   // nothing came up, nothing to stay awake for
         _lastActivity = DateTimeOffset.UtcNow;
     }

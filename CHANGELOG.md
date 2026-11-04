@@ -28,8 +28,9 @@ the time of that release; the GitHub release pages carry the same text together 
   signature are fresh at each delivery.
 - The session's VNC password is not rotated under a running session. The first VNC open past the hour chose a
   new password, which the agent sets by restarting the VNC server - under the operator whose session was still
-  running. A device that was sent a VNC open and reports its tunnel up since keeps its password (a file-only
-  tunnel does not count); the next open after the session has ended renews it. The decision is logged.
+  running. The agent now reports whether its tunnel carries the VNC forward (`tunnelVncActive`), and a device
+  reporting it up keeps its password (a file-only tunnel reports none, an agent before 3.0.0.6 reports nothing
+  and keeps the hour rule); the next open after that report has stopped renews it. The decision is logged.
 - The stat cards count the devices the search box and the group dropdown narrow to, so a card's number is the
   rows it filters to; the cards take the keyboard too (Tab, Space, Enter), and re-picking "any status" in the
   dropdown clears an active card.

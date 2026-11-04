@@ -37,6 +37,7 @@ public sealed class SystemInfoCollector(IOptions<AgentOptions> options, TunnelSt
             BootTimeUtc = DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64),
             CollectedAtUtc = DateTimeOffset.UtcNow,
             TunnelActive = tunnelState.IsActive,
+            TunnelVncActive = tunnelState.IsVncActive,
             VncLocked = Vnc.VncLock.IsLocked(),
             IpAddress = NetInfo.PrimaryIPv4(),
             WifiSsid = NetInfo.WifiSsid(),
