@@ -49,6 +49,39 @@ public class UpdateQueueTests
         Assert.Equal("3.0.0.6", q.Next()!.Data!.UpdateVersion);
     }
 
+    [Fact]
+    public void After_the_grace_period_what_arrived_meanwhile_goes_first_and_the_agent_package_last()
+    {
+        var q = new UpdateQueue();
+        Assert.True(q.TryStart(Update("agent")));
+        Assert.False(q.TryStart(Update("client")));
+        Assert.False(q.TryStart(Update("vnc")));
+
+        Assert.Equal("vnc", q.Reorder(Update("agent"))!.Data!.UpdateTarget);   // the agent's own package waits
+        Assert.Equal("client", q.Next()!.Data!.UpdateTarget);
+        Assert.Equal("agent", q.Next()!.Data!.UpdateTarget);
+        Assert.Null(q.Next());
+        Assert.False(q.IsRunning);
+    }
+
+    [Fact]
+    public void Reorder_runs_the_command_itself_when_nothing_earlier_waits_and_a_newer_one_for_the_component_replaces_it()
+    {
+        var q = new UpdateQueue();
+        var client = Update("client");
+        Assert.True(q.TryStart(client));
+        Assert.Same(client, q.Reorder(client));
+        Assert.True(q.IsRunning);
+
+        Assert.Null(q.Next());
+
+        var older = Update("agent", "3.0.0.5");
+        Assert.True(q.TryStart(older));
+        Assert.False(q.TryStart(Update("agent", "3.0.0.6")));   // a newer agent package during the grace minute
+        Assert.Equal("3.0.0.6", q.Reorder(older).Data!.UpdateVersion);
+        Assert.Null(q.Next());                                   // the older one is not applied after it
+    }
+
     [Theory]
     [InlineData(null, "agent")]
     [InlineData("", "agent")]

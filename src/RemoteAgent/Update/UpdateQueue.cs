@@ -44,13 +44,33 @@ public sealed class UpdateQueue
     {
         lock (_lock)
         {
-            foreach (var comp in Order)
-                if (_pending.Remove(comp, out var cmd)) return cmd;
-            foreach (var comp in _pending.Keys)
-                if (_pending.Remove(comp, out var cmd)) return cmd;
-            _running = false;
-            return null;
+            var next = TakeLocked();
+            if (next is null) _running = false;
+            return next;
         }
+    }
+
+    /// <summary>What the runner applies now that its grace period is over: <paramref name="cmd"/>, unless a
+    /// command that arrived meanwhile comes earlier in the order - then that one, and <paramref name="cmd"/> waits
+    /// its turn. The first command of a rollout is as often the agent's own package as any other, and applying
+    /// it first would restart the process with the console and VNC packages still waiting here. A newer command
+    /// for the same component as <paramref name="cmd"/> replaces it.</summary>
+    public AgentCommand Reorder(AgentCommand cmd)
+    {
+        lock (_lock)
+        {
+            _pending.TryAdd(Component(cmd.Data?.UpdateTarget), cmd);
+            return TakeLocked()!;
+        }
+    }
+
+    private AgentCommand? TakeLocked()
+    {
+        foreach (var comp in Order)
+            if (_pending.Remove(comp, out var cmd)) return cmd;
+        foreach (var comp in _pending.Keys)
+            if (_pending.Remove(comp, out var cmd)) return cmd;
+        return null;
     }
 
     public bool IsRunning { get { lock (_lock) return _running; } }

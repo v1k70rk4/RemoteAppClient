@@ -105,9 +105,18 @@ public sealed class UiCombo : Control
         _dd.Closed += (_, _) => { _open = false; Invalidate(); };
     }
 
+    /// <summary>Raised on every pick from the popup, whether or not the selection changed (<see cref="SelectedIndexChanged"/>
+    /// is not): a view that layers another filter on top of this one can be told to drop it when the operator
+    /// re-picks the entry already shown.</summary>
+    public event EventHandler? Picked;
+
     private void Pick()
     {
-        if (_lb!.SelectedIndex >= 0) SelectedIndex = _lb.SelectedIndex;
+        if (_lb!.SelectedIndex >= 0)
+        {
+            SelectedIndex = _lb.SelectedIndex;
+            Picked?.Invoke(this, EventArgs.Empty);
+        }
         _dd?.Close();
     }
 

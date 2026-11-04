@@ -24,6 +24,19 @@ public sealed class StatCard : Control
                  | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
         Height = 60;
         Cursor = Cursors.Hand;
+        // A filter button is reached with Tab and pressed with Space or Enter as well as the mouse.
+        SetStyle(ControlStyles.Selectable, true);
+        TabStop = true;
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e) { Focus(); base.OnMouseDown(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+    protected override bool IsInputKey(Keys keyData) => keyData is Keys.Enter or Keys.Space || base.IsInputKey(keyData);
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.KeyCode is Keys.Space or Keys.Enter) { e.Handled = true; OnClick(EventArgs.Empty); }
+        base.OnKeyDown(e);
     }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -45,6 +58,7 @@ public sealed class StatCard : Control
         var fill = _selected ? ThemeManager.AccentSoft : _hover ? ThemeManager.Panel2 : ThemeManager.Panel;
         var border = _selected ? ThemeManager.Accent : _hover ? ThemeManager.BorderStrong : ThemeManager.BorderSoft;
         UiPaint.DrawCard(g, new Rectangle(0, 0, Width - 1, Height - 1), 12, fill, border, _selected ? 1.5f : 1f);
+        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(g, new Rectangle(4, 4, Width - 9, Height - 9), ThemeManager.Text, fill);
         TextRenderer.DrawText(g, Text.ToUpperInvariant(), UiFont.Label, new Rectangle(15, 12, Width - 30, 14),
             ThemeManager.Text3, TextFormatFlags.Left | TextFormatFlags.NoPadding);
         TextRenderer.DrawText(g, _value, UiFont.StatNumber, new Rectangle(13, 26, Width - 26, 30),

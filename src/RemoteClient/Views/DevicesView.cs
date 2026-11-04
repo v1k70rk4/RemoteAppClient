@@ -97,6 +97,9 @@ public sealed class DevicesView : UserControl, IContentView
         _statusFilter.Margin = new Padding(0, 0, 16, 0);
         _groupFilter.SelectedIndexChanged += (_, _) => { if (!_suppressFilter) RenderList(); };
         _statusFilter.SelectedIndexChanged += (_, _) => { if (!_suppressFilter) { _tileFilter = null; RenderList(); } };
+        // With a card active the dropdown already shows "any status"; picking that entry again changes nothing
+        // and so raises no SelectedIndexChanged, but it is the operator asking for everything: the card goes too.
+        _statusFilter.Picked += (_, _) => { if (_tileFilter is not null && _statusFilter.SelectedIndex <= 0) { _tileFilter = null; RenderList(); } };
         tools.Controls.Add(_groupFilter);
         tools.Controls.Add(_statusFilter);
         // Refresh as a compact icon button (tooltip carries the label); device enrollment lives on Bootstrap.
@@ -281,8 +284,7 @@ public sealed class DevicesView : UserControl, IContentView
             _devices.Clear(); _devices.AddRange(devices);
             _dupes = DuplicateNames.Number(_devices);
             PopulateGroupFilter();
-            RenderList();
-            UpdateStats();
+            RenderList();   // also refreshes the cards
             SetStatus(L.Format(L.DevicesView_Device_2, devices.Count));
         }
         catch (Exception ex) { SetStatus(L.DevicesView_ListError + ex.Message); }
@@ -505,12 +507,29 @@ public sealed class DevicesView : UserControl, IContentView
 
     private static bool IsPending(DeviceInfo d) => string.Equals(d.Status, "Pending", StringComparison.OrdinalIgnoreCase);
 
-    private void UpdateStats()
+    /// <summary>The cards count the devices the search box and the group dropdown narrow to, so a card's number
+    /// is the rows it filters to; the topbar subtitle keeps the fleet-wide figures.</summary>
+    private void UpdateStats(IReadOnlyCollection<DeviceInfo> scope)
     {
-        _statTotal.SetValue(_devices.Count);
-        _statOnline.SetValue(_devices.Count(d => d.Online));
-        _statOffline.SetValue(_devices.Count(d => !d.Online));
-        _statPending.SetValue(_devices.Count(IsPending));
+        _statTotal.SetValue(scope.Count);
+        _statOnline.SetValue(scope.Count(d => d.Online));
+        _statOffline.SetValue(scope.Count(d => !d.Online));
+        _statPending.SetValue(scope.Count(IsPending));
+    }
+
+    /// <summary>The devices after the search box and the group dropdown: what the list and the cards start from.</summary>
+    private IEnumerable<DeviceInfo> Narrowed()
+    {
+        var q = _search.Text.Trim();
+        IEnumerable<DeviceInfo> items = _devices;
+        if (q.Length > 0)
+            items = items.Where(d =>
+                (d.Hostname?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (d.GroupName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (d.Note?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        if (_groupFilter.SelectedIndex > 0 && _groupFilter.SelectedItem is string gn)
+            items = items.Where(d => string.Equals(d.GroupName, gn, StringComparison.OrdinalIgnoreCase));
+        return items;
     }
 
     /// <summary>A stat card clicked: the list narrows to what it counts. The total card, or the card already
@@ -530,16 +549,9 @@ public sealed class DevicesView : UserControl, IContentView
 
     private void RenderList()
     {
-        var q = _search.Text.Trim();
-        IEnumerable<DeviceInfo> items = _devices;
-        if (q.Length > 0)
-            items = items.Where(d =>
-                (d.Hostname?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (d.GroupName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (d.Note?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
-
-        if (_groupFilter.SelectedIndex > 0 && _groupFilter.SelectedItem is string gn)
-            items = items.Where(d => string.Equals(d.GroupName, gn, StringComparison.OrdinalIgnoreCase));
+        var scope = Narrowed().ToList();
+        UpdateStats(scope);
+        IEnumerable<DeviceInfo> items = scope;
 
         // Filter on the same decision the badge draws, so a row can never be shown under a state it does
         // not display (they disagreed before: "online" here ignored a pending device the badge called pending).

@@ -108,7 +108,8 @@ public sealed class TunnelOrchestratorService(
         }
         _ = Task.Run(async () =>
         {
-            for (var next = cmd; next is not null; next = _updates.Next())
+            var next = cmd;
+            while (next is not null)
             {
                 try
                 {
@@ -117,11 +118,16 @@ public sealed class TunnelOrchestratorService(
                     // download of tens of megabytes starts on it.
                     logger.LogInformation(L.TunnelOrchestratorService_UpdateStartsInAMinute, next.Data?.UpdateTarget ?? "agent", next.Data?.UpdateVersion);
                     await Task.Delay(UpdateGrace, ct);
+                    // A rollout's other packages land within that minute. Whichever comes earlier in the order
+                    // goes first: the agent's own package restarts this process, and a console or VNC package
+                    // still waiting would be lost with it.
+                    next = _updates.Reorder(next);
                     await updateInstaller.ApplyAsync(
                         next.Data?.UpdateTarget, next.Data?.UpdateVersion, next.Data?.UpdateUrl, next.Data?.UpdateSha256, ct);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
                 catch (Exception ex) { logger.LogError(ex, L.TunnelOrchestratorService_TunnelCommandProcessingFailedType, CommandTypes.Update); }
+                next = _updates.Next();
             }
         }, ct);
     }

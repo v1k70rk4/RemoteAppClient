@@ -1470,9 +1470,10 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
     // the last hour, or a fresh one. It travels protected in the queue row and in the clear to the operator;
     // an older agent keeps its standing password, which the device list still carries for it.
     // Only a VNC open may choose one: a file open rotating the password after the hour would restart the VNC
-    // server under an operator whose session is running. Nor is it rotated while the device reports its tunnel
-    // up (TunnelActivity): a second operator joining past the hour would otherwise restart the VNC server under
-    // the first one; the password is renewed at the first open after the session has ended.
+    // server under an operator whose session is running. Nor is it rotated while the device reports the tunnel
+    // of a VNC session up (TunnelActivity: a VNC open went out and the tunnel has been reported up since, a
+    // file-only tunnel does not count): a second operator joining past the hour would otherwise restart the VNC
+    // server under the first one; the password is renewed at the first open after the session has ended.
     string? sessionPassword = null, storedPassword = null;
     bool wantsVnc = !string.Equals(purpose, "file", StringComparison.OrdinalIgnoreCase);
     if (wantsVnc && CommandSigner.VersionFor(device.AgentVersion) >= 3)
@@ -1481,7 +1482,7 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
         // Which rule kept the password is logged: the hour's rule covers everything inside the hour, so whether
         // a running session past it keeps its password can only be read here, not from the screen.
         var why = VncSessionPassword.Reusable(device.VncSecretUpdatedAt, now) ? "kept: chosen within the hour"
-                : tunnels.IsUp(deviceId, now) ? "kept: the device reports its tunnel up"
+                : tunnels.IsVncSessionUp(deviceId, now) ? "kept: the device reports its VNC session's tunnel up"
                 : "new";
         if (why is not "new") sessionPassword = protector.TryUnprotect(device.VncSecret);
         if (string.IsNullOrEmpty(sessionPassword))
@@ -1519,6 +1520,9 @@ app.MapPost("/admin/devices/{deviceId}/open-tunnel", async (
         new CommandData { RemotePort = port, ConsentRequired = consentRequired, UnattendedAllowed = unattendedAllowed, FileRemotePort = filePort, FileToken = fileToken, TunnelPurpose = purpose, VncPassword = storedPassword },
         createdBy: me.Id, ct);
     if (cmd is null) return Results.NotFound();
+    // A VNC session is being opened with this password: from the device's next "tunnel up" report on, the
+    // password is kept past the hour until the tunnel is reported down (see TunnelActivity).
+    if (storedPassword is not null) tunnels.VncOpened(deviceId, DateTimeOffset.UtcNow);
 
     // Bind context to nonce: who requested access to which device, so the agent outcome can be audited. The
     // session's password rides on the same entry and is handed over with the outcome, once the device has let

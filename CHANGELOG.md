@@ -23,8 +23,16 @@ the time of that release; the GitHub release pages carry the same text together 
   signature are fresh at each delivery.
 - The session's VNC password is not rotated under a running session. The first VNC open past the hour chose a
   new password, which the agent sets by restarting the VNC server - under the operator whose session was still
-  running. A device whose telemetry reports its tunnel up keeps its password; the next open after the session
-  has ended renews it.
+  running. A device that was sent a VNC open and reports its tunnel up since keeps its password (a file-only
+  tunnel does not count); the next open after the session has ended renews it. The decision is logged.
+- The stat cards count the devices the search box and the group dropdown narrow to, so a card's number is the
+  rows it filters to; the cards take the keyboard too (Tab, Space, Enter), and re-picking "any status" in the
+  dropdown clears an active card.
+- The agent applies a rollout's packages in order even when its own package arrived first: after the minute's
+  grace it runs whatever arrived meanwhile and comes earlier in the order (VNC, console, updater), its own
+  package last, since that one restarts the process.
+- A command's nonce is chosen at the enqueue, not at the first delivery, so a device connecting in between
+  cannot deliver the same row under a nonce of its own.
 - The server update helper (`deploy/steps/10-selfupdate.sh`) wrote tools' error output straight into
   `updates/result.log`, a file in a directory the service user owns, as root: a planted symlink there would have
   sent that output into any file on the box. Every line now goes through the root-only working copy and is

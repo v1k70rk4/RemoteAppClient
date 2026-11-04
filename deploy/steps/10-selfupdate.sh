@@ -102,6 +102,7 @@ if [ -f "$SQL" ]; then
     log "upgrade.sql FAILED; restoring DB and aborting."
     gunzip -c "$BK/db-$TS.sql.gz" | mysql_db 2>>"$PLOG"
     systemctl start "$SVC"
+    log "Database restored from db-$TS."   # also publishes the restore's stderr, written after the last log line
     finish failed
   fi
 fi
