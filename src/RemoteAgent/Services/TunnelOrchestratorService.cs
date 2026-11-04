@@ -226,6 +226,12 @@ public sealed class TunnelOrchestratorService(
         // Different port (or no tunnel): replace the existing one.
         if (_tunnel is not null)
             await _tunnel.StopAsync();
+        // No session on record while the new tunnel starts: the watchdog's dead-tunnel branch goes by the port,
+        // and a start that retries a held port for up to a minute (ssh not running in between) must not be
+        // closed under itself - file tokens and keep-awake gone, and the tunnel then coming up anyway. The port
+        // is recorded again below, once the start has returned. Commands run one at a time, so no second open
+        // can overlap this one; the watchdog is the only other actor here.
+        _tunnelPort = 0;
 
         _tunnel = new SshReverseTunnel(_opt, transport, loggerFactory.CreateLogger<SshReverseTunnel>());
         // Stamped BEFORE the start: the idle watchdog takes a tunnel whose ssh is up for running, and with the
