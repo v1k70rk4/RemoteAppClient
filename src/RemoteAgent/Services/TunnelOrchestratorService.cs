@@ -218,7 +218,8 @@ public sealed class TunnelOrchestratorService(
         if (_tunnel is { IsRunning: true } && _tunnelPort == remotePort && (wantsFile ? _tunnelFiles : _tunnelVnc))
         {
             _lastActivity = DateTimeOffset.UtcNow;
-            state.Set(true, _tunnelVnc);
+            var running = _tunnel;
+            state.Set(true, _tunnelVnc, () => running.IsRunning);
             return;
         }
 
@@ -237,7 +238,8 @@ public sealed class TunnelOrchestratorService(
         _tunnelPort = remotePort;
         _tunnelVnc = !wantsFile;
         _tunnelFiles = serveFiles;
-        state.Set(_tunnel.IsRunning, _tunnelVnc);
+        var started = _tunnel;
+        state.Set(started.IsRunning, _tunnelVnc, () => started.IsRunning);
         if (!_tunnel.IsRunning) keepAwake.Release();   // nothing came up, nothing to stay awake for
         _lastActivity = DateTimeOffset.UtcNow;
     }
@@ -424,6 +426,13 @@ public sealed class TunnelOrchestratorService(
                 if (_tunnel is { IsRunning: true } && DateTimeOffset.UtcNow - _lastActivity > idle)
                 {
                     logger.LogInformation(L.TunnelOrchestratorService_TunnelIdleTimeoutIdleS, idle.TotalSeconds);
+                    await CloseTunnelAsync();
+                }
+                else if (_tunnel is { IsRunning: false } && _tunnelPort != 0)
+                {
+                    // The ssh went away on its own (the bastion dropped it, the link died): close what is left
+                    // of the session - the file tokens, the keep-awake - rather than hold them until the next open.
+                    logger.LogInformation("Reverse tunnel is no longer running; closing the session.");
                     await CloseTunnelAsync();
                 }
             }

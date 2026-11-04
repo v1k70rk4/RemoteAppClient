@@ -914,10 +914,6 @@ public sealed class MainForm : MaterialForm
 
     private async Task EnterMainAsync()
     {
-        // The sign-in button was the form's AcceptButton; signed in, Enter in a field of the shell (the device
-        // search, say) would otherwise sign in again with what the hidden card still holds and build the shell a
-        // second time over the first (a password sign-in), or count a failed sign-in (an empty password).
-        AcceptButton = null;
         // Silent self-update: if a newer 'client' exists on the channel, replace and restart.
         // Channel is resolved from this device's fleet channel by hostname; fallback is local config.
         if (_api is not null)
@@ -927,6 +923,12 @@ public sealed class MainForm : MaterialForm
             if (await ClientUpdater.CheckAndUpdateAsync(_api, channel)) { Cleanup(); _cleaned = true; Application.Exit(); return; }
         }
 
+        // The sign-in button was the form's AcceptButton; signed in, Enter in a field of the shell (the device
+        // search, say) would otherwise sign in again with what the hidden card still holds and build the shell a
+        // second time over the first (a password sign-in), or count a failed sign-in (an empty password). Cleared
+        // only now, past the update check: a check that fails leaves the operator on the sign-in card, where
+        // Enter must still sign in.
+        AcceptButton = null;
         ApplyBranding(); // blue title bar branding
 
         // Operator viewer preferences (roam with the account); applied when launching the VNC viewer.
