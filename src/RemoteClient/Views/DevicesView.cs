@@ -83,6 +83,15 @@ public sealed class DevicesView : UserControl, IContentView
         VisibleChanged += (_, _) => { if (!Visible) { _autoRefresh.Stop(); PopItemToolTip(); } };
     }
 
+    // A view switch detaches this control (MainForm clears the content panel) rather than hiding it, and a
+    // detached control still reads as Visible: VisibleChanged does not fire, the refresh timer kept fetching
+    // the fleet behind the other view, and a tooltip open at the switch stayed. The detach is the signal.
+    protected override void OnParentChanged(EventArgs e)
+    {
+        base.OnParentChanged(e);
+        if (Parent is null) { _autoRefresh.Stop(); PopItemToolTip(); }
+    }
+
     private bool _deactivateHooked;
     protected override void OnHandleCreated(EventArgs e)
     {
