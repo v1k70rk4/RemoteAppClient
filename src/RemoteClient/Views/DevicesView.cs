@@ -73,8 +73,34 @@ public sealed class DevicesView : UserControl, IContentView
         ApplyTheme();
         // Auto-refresh the list every 10s while it is the visible view (online state + last-seen drift) — fast
         // enough to watch a device drop and come back after a restart without hitting the manual refresh.
-        _autoRefresh.Tick += async (_, _) => { if (Visible && _listHost.Visible && !_refreshing) await RefreshAsync(quiet: true); };
-        VisibleChanged += (_, _) => { if (!Visible) _autoRefresh.Stop(); };
+        _autoRefresh.Tick += async (_, _) =>
+        {
+            // A tooltip still open with the pointer gone from the list, or the console no longer the active
+            // window, is one that nothing else is going to close (see PopItemToolTip).
+            if (Form.ActiveForm is null || !_list.ClientRectangle.Contains(_list.PointToClient(MousePosition))) PopItemToolTip();
+            if (Visible && _listHost.Visible && !_refreshing) await RefreshAsync(quiet: true);
+        };
+        VisibleChanged += (_, _) => { if (!Visible) { _autoRefresh.Stop(); PopItemToolTip(); } };
+    }
+
+    // A view switch detaches this control (MainForm clears the content panel) rather than hiding it, and a
+    // detached control still reads as Visible: VisibleChanged does not fire, the refresh timer kept fetching
+    // the fleet behind the other view, and a tooltip open at the switch stayed. The detach is the signal.
+    protected override void OnParentChanged(EventArgs e)
+    {
+        base.OnParentChanged(e);
+        if (Parent is null) { _autoRefresh.Stop(); PopItemToolTip(); }
+    }
+
+    private bool _deactivateHooked;
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (!_deactivateHooked && FindForm() is { } form)
+        {
+            _deactivateHooked = true;
+            form.Deactivate += (_, _) => PopItemToolTip();
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -314,10 +340,14 @@ public sealed class DevicesView : UserControl, IContentView
     private void OnRowHover(object? sender, MouseEventArgs e) => SetHoverRow(_list.GetItemAt(e.X, e.Y)?.Index ?? -1);
 
     // The row tooltips ("Supervisor: …", a lock, a flaky link) are the ListView's own tooltip window, a topmost
-    // window that the list closes only when the mouse leaves the item that opened it. The ten-second refresh
-    // clears and rebuilds every row: a tooltip open at that moment belongs to an item that no longer exists, the
-    // list never tells it to close, and it sits above every window until the console exits. So it is told to
-    // close here, before the rows are cleared and whenever the mouse leaves the list.
+    // window that the list closes only when the mouse leaves the item that opened it. Measured on a bare
+    // ListView (Windows 11, 120 dpi): the tooltip outlives the rows being cleared and rebuilt under it (the
+    // ten-second refresh), the console losing the active window to one that does not cover the list (a viewer
+    // or a dialog of another program coming up, Alt+Tab) while the pointer rests on the row - it then stays
+    // through pointer moves within the list - and the list being hidden (another view). In each case the list
+    // never tells it to close, and it sits above every window until the console exits. So it is told to close
+    // here: before the rows are cleared, when the mouse leaves the list, when the console is deactivated, when
+    // the view is hidden, and on every refresh tick that finds the pointer off the list or the console inactive.
     private const int LVM_GETTOOLTIPS = 0x1000 + 78;
     private const int TTM_POP = 0x0400 + 28;
     private void PopItemToolTip()

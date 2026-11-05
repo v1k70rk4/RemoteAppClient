@@ -6,7 +6,7 @@ the time of that release; the GitHub release pages carry the same text together 
 ## What's New in 3.0.1
 
 **Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.7**, updater **3.0.0.2**, server
-**3.0.0.11**, console **3.0.0.8**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
+**3.0.0.11**, console **3.0.0.9**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
 - The console's stat cards (all / online / offline / awaiting approval) are filter buttons: a click narrows the
   list to what the card counts, the active card is marked, a second click or the "all" card shows everything
   again. The status dropdown and the cards do not stack: choosing one clears the other.
@@ -17,7 +17,11 @@ the time of that release; the GitHub release pages carry the same text together 
   default button.
 - A row tooltip ("Supervisor: …", a sign-in lock, a flaky link) no longer gets stuck above every window. The
   ten-second refresh rebuilt the rows under an open tooltip, which then belonged to no row and was never closed
-  until the console exited; the list now closes it before the rows are rebuilt and when the mouse leaves.
+  until the console exited; the list now closes it before the rows are rebuilt and when the mouse leaves. The
+  same tooltip also outlives the console losing the active window to one that does not cover the list (a
+  viewer or another program's dialog coming up while the pointer rests on a row) and the view being hidden;
+  the list now closes it on those too, and a refresh tick that finds the pointer off the list or the console
+  inactive closes whatever is left (console 3.0.0.9).
 - The agent takes a rollout of several packages one after the other. It ran one update at a time and dropped
   what arrived meanwhile, so a console + agent + updater rollout left every device with the first package only,
   the rest ten minutes later when the server offered them again; now the newest command per component waits
