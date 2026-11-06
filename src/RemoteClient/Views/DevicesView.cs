@@ -39,7 +39,7 @@ public sealed class DevicesView : UserControl, IContentView
     // The stat card the list is narrowed to (online / offline / pending), or null: the cards are filter
     // buttons as well as counters, and a card's number is the number of rows its filter shows.
     private StatCard? _tileFilter;
-    private readonly ToolTip _tip = new();
+    private readonly ToolTip _tip = new() { AutoPopDelay = 10_000 };
     private readonly System.Windows.Forms.Timer _autoRefresh = new() { Interval = 10_000 };
     private bool _suppressFilter;
     private bool _refreshing;
@@ -348,6 +348,10 @@ public sealed class DevicesView : UserControl, IContentView
     // never tells it to close, and it sits above every window until the console exits. So it is told to close
     // here: before the rows are cleared, when the mouse leaves the list, when the console is deactivated, when
     // the view is hidden, and on every refresh tick that finds the pointer off the list or the console inactive.
+    // A second bubble shows the same texts: the tip WinForms itself shows for the row that has the keyboard
+    // focus (ListView.KeyboardToolTip, internal), a ToolTip of its own that closes when the focus moves - and
+    // never when the row is rebuilt or filtered away under it. It is closed here as well; whatever is still
+    // open ten seconds later is closed by TooltipLifetime.
     private const int LVM_GETTOOLTIPS = 0x1000 + 78;
     private const int TTM_POP = 0x0400 + 28;
     private void PopItemToolTip()
@@ -357,6 +361,8 @@ public sealed class DevicesView : UserControl, IContentView
         {
             var tip = SendMessage(_list.Handle, LVM_GETTOOLTIPS, IntPtr.Zero, IntPtr.Zero);
             if (tip != IntPtr.Zero) SendMessage(tip, TTM_POP, IntPtr.Zero, IntPtr.Zero);
+            if (typeof(ListView).GetProperty("KeyboardToolTip", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(_list) is ToolTip keyboardTip)
+                keyboardTip.Hide(_list);
         }
         catch { /* cosmetic */ }
     }
