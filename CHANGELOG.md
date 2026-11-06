@@ -3,10 +3,10 @@
 Release notes for RemoteAppClient, newest first. Each section is what the README's "What's New" said at
 the time of that release; the GitHub release pages carry the same text together with the artifacts.
 
-## What's New in 3.0.1
+## What's New in 3.1.0
 
-**Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.7**, updater **3.0.0.2**, server
-**3.0.0.11**, console **3.0.0.10**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
+**Session passwords, bastion listen rights, device-bound commands, and a console that keeps up.** Every
+component **3.1.0.0**; no schema change.
 - The console's stat cards (all / online / offline / awaiting approval) are filter buttons: a click narrows the
   list to what the card counts, the active card is marked, a second click or the "all" card shows everything
   again. The status dropdown and the cards do not stack: choosing one clears the other.
@@ -21,12 +21,12 @@ the time of that release; the GitHub release pages carry the same text together 
   same tooltip also outlives the console losing the active window to one that does not cover the list (a
   viewer or another program's dialog coming up while the pointer rests on a row) and the view being hidden;
   the list now closes it on those too, and a refresh tick that finds the pointer off the list or the console
-  inactive closes whatever is left (console 3.0.0.9). A second bubble with the same texts turned out to be
+  inactive closes whatever is left. A second bubble with the same texts turned out to be
   WinForms' own tip for the row that has the keyboard focus, which closes only when the focus moves - never
   when the row is rebuilt or filtered away under it, so it stayed on a filtered list next to the other one.
   Every tooltip of the console now lives ten seconds at most: the main window sweeps its tooltip windows once
   a second, closes one that has been up for ten seconds and all of them the moment the console loses the
-  active window, and the list closes the keyboard tip with its own (console 3.0.0.10).
+  active window, and the list closes the keyboard tip with its own.
 - The agent takes a rollout of several packages one after the other. It ran one update at a time and dropped
   what arrived meanwhile, so a console + agent + updater rollout left every device with the first package only,
   the rest ten minutes later when the server offered them again; now the newest command per component waits
@@ -38,7 +38,7 @@ the time of that release; the GitHub release pages carry the same text together 
 - The session's VNC password is not rotated under a running session. The first VNC open past the hour chose a
   new password, which the agent sets by restarting the VNC server - under the operator whose session was still
   running. The agent now reports whether its tunnel carries the VNC forward (`tunnelVncActive`), and a device
-  reporting it up keeps its password (a file-only tunnel reports none, an agent before 3.0.0.7 reports nothing
+  reporting it up keeps its password (a file-only tunnel reports none, an older agent reports nothing
   and keeps the hour rule); the next open after that report has stopped renews it. The decision is logged.
 - The stat cards count the devices the search box and the group dropdown narrow to, so a card's number is the
   rows it filters to; the cards take the keyboard too (Tab, Space, Enter), and re-picking "any status" in the
@@ -102,7 +102,7 @@ the time of that release; the GitHub release pages carry the same text together 
   evaluated it (only "consent required" decides), so it looked like a safeguard and was not one. The
   stored value is kept as it is.
 - The agent accepts device-bound command signatures only. The original, unbound form (what agents older than
-  2.2.7.1 understand) is still signed by the server for those agents, but a 3.0.1 agent refuses it: an unbound
+  2.2.7.1 understand) is still signed by the server for those agents, but a 3.1.0 agent refuses it: an unbound
   command could be replayed at a device it was never meant for. A device whose agent version the server does
   not know yet (a fresh install, a re-imaged machine) now gets the bound form straight away.
 - Enrollment files are no longer trusted by their names. The data folder's clean-up used to keep
@@ -116,8 +116,8 @@ the time of that release; the GitHub release pages carry the same text together 
   tokens and cuts off a transfer in flight; an upload lands in a part file and replaces the destination only
   once complete, so a cut-off one leaves the destination as it was. A session does not survive a lock-and-unlock
   either, however brief: every lock leaves a stamp the service compares against.
-- Every Windows component and the server are built on .NET 10.0.13 (the September and October servicing
-  updates); the previous builds carried 10.0.11.
+- Every Windows component and the server are built on .NET 10.0.14 (the servicing updates through October);
+  the 3.0.0 builds carried 10.0.11.
 - The package store sweeps itself. Every upload added a record and a file and nothing ever removed them, so the
   store held every version ever uploaded. The server now keeps, per channel and component, the current package
   and the one before it, drops the older records and deletes the package files nothing points at; generated
