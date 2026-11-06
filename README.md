@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/agent-Windows-0078D6?logo=windows&logoColor=white" alt="Windows agent">
   <img src="https://img.shields.io/badge/server-Linux-FCC624?logo=linux&logoColor=black" alt="Linux server">
-  <img src="https://img.shields.io/badge/version-3.0.0-2ea44f" alt="version 3.0.0">
+  <img src="https://img.shields.io/badge/version-3.1.0-2ea44f" alt="version 3.1.0">
   <img src="https://img.shields.io/badge/UI-MaterialSkin-7E57C2" alt="MaterialSkin">
   <a href="https://v1k70rk4.github.io/RemoteAppClient/"><img src="https://img.shields.io/badge/website-v1k70rk4.github.io-41bdf5?logo=github" alt="website"></a>
   <a href="https://ko-fi.com/v1k70rk4"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
@@ -40,7 +40,7 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ## Contents
 
-- [What's New in 3.0.0](#whats-new-in-300)
+- [What's New in 3.1.0](#whats-new-in-310)
 - [Changelog](CHANGELOG.md)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -58,33 +58,28 @@ Use this only on systems you own or are explicitly authorized to administer.
 
 ---
 
-## What's New in 3.0.0
+## What's New in 3.1.0
 
-Every key a device holds moves into its TPM, and certificates look after themselves. Every component is
-**3.0.0.0**; one schema change (`upgrade-3.0.0.sql`, idempotent).
+**Session passwords, bastion listen rights, device-bound commands, and a console that keeps up.** Every
+component **3.1.0.0**; no schema change. The full list is in the [changelog](CHANGELOG.md#whats-new-in-310).
 
-- **The device key is a non-exportable TPM key** (Microsoft Platform Crypto Provider; software key storage where
-  the TPM is missing, not ready or flagged for vulnerable firmware). The certificate sits in `LocalMachine\My`
-  bound to it; nothing private is written to a file any more, so neither an administrator nor a lifted disk yields
-  a usable device identity. The DPAPI-sealed PFX remains only where CNG key storage is unavailable.
-- **Devices enrolled earlier re-key by themselves**, 5–30 minutes after the new agent starts: new key, new
-  certificate, proof with the new one, only then the switch. A failure anywhere leaves the old identity in place.
-- **Certificates renew** the same way within 180 days of their end, so the 825-day certificates from 2026 renew in
-  2028 instead of expiring.
-- **A lost TPM key is recovered with one click.** After a BIOS update that cleared the TPM, the agent sends a
-  lost-key request without a certificate; the device turns yellow in the console (*KULCSKÉRÉS*) and *Approve*
-  issues the certificate for the same device id, with its group and notes intact. Nothing is issued by itself.
-- **The console shows where the key is** (*kulcs: TPM / szoftver / fájl*) and when the certificate ends;
-  *Commands → Új eszközkulcs (TPM)* re-keys a device on demand.
-- **The tunnel's SSH key is a TPM key as well**, served to `ssh.exe` by an ssh-agent built into the agent service;
-  no private key file exists any longer. Its certificate lives three days and is fetched over mTLS, so only the
-  device with the TPM-bound identity gets one. Devices enrolled earlier move over by a proven rotation: the new
-  key opens a real connection to the bastion before the server revokes the old one.
-- **Also in this release**: verbose logging on demand (24-hour device log level, TightVNC detail, a daily
-  file log), the server mails when its own checks fail, audit rows live a year, sleeping and roaming devices
-  reconnect at once, deployment hardening, and the first automated tests (201 by now, run by CI on every push).
-
-Earlier releases: [CHANGELOG.md](CHANGELOG.md).
+- **The VNC password belongs to the session.** The server chooses it at open-tunnel, the agent sets it on its
+  VNC server before the tunnel comes up, and the operator gets it only once the device has let the request in;
+  it is kept for an hour and not rotated under a running session. An older agent keeps its standing password.
+- **A device may listen on the bastion only when an operator has just asked**, and only on its own two ports:
+  the server writes a grant at every open-tunnel and the bastion's sshd goes by it (`deploy/steps/05-bastion.sh`,
+  observe mode first). A file session brings up the file port alone.
+- **Commands are device-bound only** - the agent refuses the unbound signature form; enrollment files are no
+  longer trusted by their names; locking file transfer at the device ends a running session.
+- **Rollouts that take**: the agent queues a rollout's packages and runs them in order (its own last), waits a
+  minute before a download, and a paused update is tried again after six hours; a sleeping device's answer
+  reaches the console under the nonce it was given.
+- **Console**: the stat cards filter the list, a name that is in the fleet twice is numbered, the file manager
+  sorts by any column, the console reconnects after sleep, Enter in the search box no longer signs in again, and
+  every tooltip lives ten seconds at most.
+- **Server housekeeping**: a device's sign-in lock runs out after an hour, the "unattended" switch is gone, the
+  package store keeps the current and previous package only, the update helper writes its result through a
+  root-only copy (rerun `10-selfupdate`), MySqlConnector 2.6.2 (GHSA-473q-m89c-ghf8), .NET 10.0.14.
 
 ---
 
