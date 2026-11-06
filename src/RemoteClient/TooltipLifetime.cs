@@ -19,7 +19,11 @@ internal sealed class TooltipLifetime : IDisposable
 
     private readonly Form _form;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
-    private readonly Dictionary<IntPtr, DateTime> _seen = new();
+    // Per tooltip window: when the display now up on it was first seen, and where it is. A ToolTip keeps one
+    // window for everything it shows (the list's tip for every row, a ToolTip component for all its buttons),
+    // so a display is told from the previous one on the same window by its place: the ten seconds are the
+    // display's, not the window's.
+    private readonly Dictionary<IntPtr, (DateTime Since, RECT At)> _seen = new();
 
     public TooltipLifetime(Form form)
     {
@@ -30,9 +34,6 @@ internal sealed class TooltipLifetime : IDisposable
     }
 
     private void OnDeactivate(object? sender, EventArgs e) => Sweep(closeAll: true);
-
-    /// <summary>Closes every tooltip window of the UI thread now (the list calls this before it rebuilds its rows).</summary>
-    public void CloseAll() => Sweep(closeAll: true);
 
     private void Sweep(bool closeAll)
     {
@@ -52,9 +53,11 @@ internal sealed class TooltipLifetime : IDisposable
         bool closed = false;
         foreach (var h in visible)
         {
-            if (!_seen.TryGetValue(h, out var since)) _seen[h] = since = now;
-            if (!closeAll && now - since < MaxLife) continue;
+            GetWindowRect(h, out var at);
+            if (!_seen.TryGetValue(h, out var seen) || !seen.At.Equals(at)) _seen[h] = seen = (now, at);   // a new display
+            if (!closeAll && now - seen.Since < MaxLife) continue;
             Close(h);
+            _seen.Remove(h);   // whatever shows on this window next is a new display
             closed = true;
         }
         foreach (var gone in _seen.Keys.Where(k => !visible.Contains(k)).ToList()) _seen.Remove(gone);
@@ -89,6 +92,8 @@ internal sealed class TooltipLifetime : IDisposable
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hWnd, StringBuilder name, int max);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [StructLayout(LayoutKind.Sequential)] private record struct RECT(int Left, int Top, int Right, int Bottom);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int cmd);
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 }
