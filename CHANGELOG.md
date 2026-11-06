@@ -6,7 +6,7 @@ the time of that release; the GitHub release pages carry the same text together 
 ## What's New in 3.0.1
 
 **Updates on sleepy laptops, and a sortable file manager.** Agent **3.0.0.7**, updater **3.0.0.2**, server
-**3.0.0.11**, console **3.0.0.9**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
+**3.0.0.11**, console **3.0.0.10**, Lite **3.0.0.3**, Linux console **3.0.0.2**; no schema change.
 - The console's stat cards (all / online / offline / awaiting approval) are filter buttons: a click narrows the
   list to what the card counts, the active card is marked, a second click or the "all" card shows everything
   again. The status dropdown and the cards do not stack: choosing one clears the other.
@@ -21,7 +21,12 @@ the time of that release; the GitHub release pages carry the same text together 
   same tooltip also outlives the console losing the active window to one that does not cover the list (a
   viewer or another program's dialog coming up while the pointer rests on a row) and the view being hidden;
   the list now closes it on those too, and a refresh tick that finds the pointer off the list or the console
-  inactive closes whatever is left (console 3.0.0.9).
+  inactive closes whatever is left (console 3.0.0.9). A second bubble with the same texts turned out to be
+  WinForms' own tip for the row that has the keyboard focus, which closes only when the focus moves - never
+  when the row is rebuilt or filtered away under it, so it stayed on a filtered list next to the other one.
+  Every tooltip of the console now lives ten seconds at most: the main window sweeps its tooltip windows once
+  a second, closes one that has been up for ten seconds and all of them the moment the console loses the
+  active window, and the list closes the keyboard tip with its own (console 3.0.0.10).
 - The agent takes a rollout of several packages one after the other. It ran one update at a time and dropped
   what arrived meanwhile, so a console + agent + updater rollout left every device with the first package only,
   the rest ten minutes later when the server offered them again; now the newest command per component waits

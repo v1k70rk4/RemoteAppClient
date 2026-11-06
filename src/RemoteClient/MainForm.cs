@@ -86,6 +86,8 @@ public sealed class MainForm : MaterialForm
     private LogView? _logView;
     private ServerSettingsView? _serverSettingsView;
 
+    private readonly TooltipLifetime? _tooltips;
+
     public MainForm()
     {
         _cfg = ClientConfig.Load();
@@ -99,6 +101,7 @@ public sealed class MainForm : MaterialForm
         // Minimum sized so the full (compact) sidebar fits comfortably; if a smaller/scaled screen forces
         // it lower, OnLoad clamps to the working area and the nav scrolls vertically.
         MinimumSize = new Size(1180, 660);
+        _tooltips = new TooltipLifetime(this);   // every bubble of the console lives ten seconds at most
 
         BuildNoAgentView();
         BuildAuthView();
@@ -1009,6 +1012,7 @@ public sealed class MainForm : MaterialForm
     private void Cleanup()
     {
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        try { _tooltips?.Dispose(); } catch { /* best effort */ }
         try { _envTimer.Stop(); _envTimer.Dispose(); } catch { /* best effort */ }
         try { _api?.LogoutAsync().Wait(TimeSpan.FromSeconds(2)); } catch { }
         _broker?.Dispose();
