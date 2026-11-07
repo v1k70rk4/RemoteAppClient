@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{# The home page's title says what the project is: "Home" tells someone searching nothing. #}
+{% block htmltitle %}
+  {% if page and page.is_homepage %}
+  <title>{{ config.site_name }}: self-hosted remote access and fleet management for Windows</title>
+  {% else %}
+  {{ super() }}
+  {% endif %}
+{% endblock %}
+
+{% block extrahead %}
+  {% if page %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="RemoteAppClient">
+  <meta property="og:title" content="{% if page.is_homepage %}{{ config.site_name }}: self-hosted remote access and fleet management for Windows{% else %}{{ page.title }} · {{ config.site_name }}{% endif %}">
+  <meta property="og:description" content="{{ page.meta.description | default(config.site_description) }}">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="{{ config.site_url }}images/icon.png">
+  <meta name="twitter:card" content="summary">
+  {% if page.is_homepage %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "RemoteAppClient",
+    "description": "{{ config.site_description }}",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows 10, Windows 11, Linux",
+    "url": "{{ config.site_url }}",
+    "downloadUrl": "https://github.com/v1k70rk4/RemoteAppClient/releases/latest",
+    "image": "{{ config.site_url }}images/icon.png",
+    "license": "https://opensource.org/licenses/MIT",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "v1k70rk4", "url": "https://github.com/v1k70rk4" },
+    "sameAs": [ "https://github.com/v1k70rk4/RemoteAppClient" ]
+  }
+  </script>
+  {% endif %}
+  {% endif %}
+{% endblock %}

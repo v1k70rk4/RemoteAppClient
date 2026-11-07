@@ -24,3 +24,7 @@ third_party/
 
 docs/adr/
 /design_handoff_console_redesign
+
+# The website build (mkdocs build / serve) and a local MkDocs environment
+site/
+.venv/
