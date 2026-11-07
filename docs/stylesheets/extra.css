@@ -1,0 +1,172 @@
+/* The colours of the console: a navy header, blue buttons, a sky accent, the online green, Segoe UI. */
+:root {
+  --md-text-font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --md-code-font: Consolas, "Cascadia Mono", ui-monospace, monospace;
+}
+
+[data-md-color-primary=custom] {
+  --md-primary-fg-color: #0b1526;
+  --md-primary-fg-color--light: #15223a;
+  --md-primary-fg-color--dark: #070e1a;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: rgba(255, 255, 255, .7);
+}
+
+[data-md-color-accent=custom] {
+  --md-accent-fg-color: #2563eb;
+  --md-accent-fg-color--transparent: rgba(37, 99, 235, .1);
+  --md-accent-bg-color: #ffffff;
+  --md-accent-bg-color--light: rgba(255, 255, 255, .7);
+}
+
+[data-md-color-scheme=default] {
+  --md-typeset-a-color: #2563eb;
+}
+
+[data-md-color-scheme=slate] {
+  --md-typeset-a-color: #7dd3fc;
+  --md-default-bg-color: #0f172a;
+  --md-default-fg-color: #e2e8f0;
+  --md-code-bg-color: #1e293b;
+  --md-footer-bg-color: #070e1a;
+  --md-footer-bg-color--dark: #070e1a;
+}
+
+/* The active tab in the console's sky blue. */
+.md-tabs__link--active,
+.md-tabs__item--active .md-tabs__link {
+  color: #38bdf8;
+}
+.md-tabs__link:hover {
+  color: #7dd3fc;
+}
+
+.md-header__button.md-logo img {
+  height: 1.6rem;
+  width: 1.6rem;
+  border-radius: 4px;
+}
+
+/* Buttons like the console's. */
+.md-typeset .md-button--primary {
+  background-color: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.md-typeset .md-button--primary:hover {
+  background-color: #1d4ed8;
+  border-color: #1d4ed8;
+}
+.md-typeset .md-button:not(.md-button--primary) {
+  color: #2563eb;
+  border-color: #2563eb;
+}
+[data-md-color-scheme=slate] .md-typeset .md-button:not(.md-button--primary) {
+  color: #7dd3fc;
+  border-color: #7dd3fc;
+}
+.md-typeset .md-button:not(.md-button--primary):hover {
+  background-color: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+/* The home page. */
+.hero {
+  text-align: center;
+  padding: 1.5rem 0 1rem;
+}
+.hero img.logo {
+  width: 104px;
+  height: 104px;
+  border-radius: 22px;
+  filter: drop-shadow(0 8px 24px rgba(37, 99, 235, .35));
+}
+.hero .eyebrow {
+  color: #0284c7;
+  font-weight: 600;
+  letter-spacing: .04em;
+  font-size: .8rem;
+  margin: .6rem 0 0;
+}
+[data-md-color-scheme=slate] .hero .eyebrow {
+  color: #38bdf8;
+}
+.md-typeset .hero h1 {
+  font-size: 2.2rem;
+  margin: .3rem 0 .6rem;
+  letter-spacing: -.02em;
+}
+.md-typeset .hero h1 .headerlink {
+  display: none;
+}
+.hero p.tag {
+  font-size: 1.05rem;
+  max-width: 38rem;
+  margin: 0 auto 1rem;
+}
+.hero .md-button {
+  margin: .25rem .3rem;
+}
+.hero .badges {
+  margin-top: 1rem;
+}
+.hero .badges img {
+  height: 22px;
+  margin: 2px;
+}
+
+/* The three pieces on the home page: agent, server, console. */
+.md-typeset .pieces {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: .8rem;
+  margin: 1rem 0;
+}
+.md-typeset .pieces > div {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 10px;
+  padding: .9rem 1rem;
+}
+.md-typeset .pieces > div > p:first-child {
+  margin-top: 0;
+}
+.md-typeset .pieces strong {
+  font-size: 1.05rem;
+}
+
+/* The status pills of the console, used for the online / offline / pending words. */
+.md-typeset .pill {
+  display: inline-block;
+  padding: .05rem .5rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  vertical-align: middle;
+}
+.md-typeset .pill.online { background: rgba(34, 197, 94, .15); color: #16a34a; }
+.md-typeset .pill.offline { background: rgba(148, 163, 184, .2); color: #64748b; }
+.md-typeset .pill.pending { background: rgba(245, 158, 11, .18); color: #d97706; }
+[data-md-color-scheme=slate] .md-typeset .pill.online { color: #4ade80; }
+[data-md-color-scheme=slate] .md-typeset .pill.offline { color: #94a3b8; }
+[data-md-color-scheme=slate] .md-typeset .pill.pending { color: #fbbf24; }
+
+/* Screenshots: a frame, centred. */
+.md-typeset figure.shot {
+  margin: 1rem auto;
+}
+.md-typeset figure.shot img {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .08);
+}
+.md-typeset figure.shot figcaption {
+  font-size: .75rem;
+  color: var(--md-default-fg-color--light);
+}
+
+/* The changelog and the keys document are long: their tables may scroll sideways on a phone. */
+.md-typeset table:not([class]) {
+  font-size: .72rem;
+}
