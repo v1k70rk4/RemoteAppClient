@@ -47,12 +47,36 @@ def _rewrite_links(text: str, base: PurePosixPath) -> str:
     return LINK.sub(one, text)
 
 
+LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s")
+FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def _separate_lists(lines: list[str]) -> list[str]:
+    """A blank line before a list that follows a paragraph directly.
+
+    GitHub starts a list right after a paragraph line; Python-Markdown does not and runs the items into the
+    paragraph. Lines inside a code fence and continuation lines of an item are left alone.
+    """
+    out: list[str] = []
+    in_fence = False
+    for line in lines:
+        if FENCE.match(line):
+            in_fence = not in_fence
+        elif not in_fence and LIST_ITEM.match(line) and out:
+            prev = out[-1]
+            if prev.strip() and not LIST_ITEM.match(prev) and not prev[:1].isspace():
+                out.append("")
+        out.append(line)
+    return out
+
+
 def _include(rel: str) -> str:
     path = ROOT / rel
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     if lines and lines[0].startswith("# "):
         lines = lines[1:]
+    lines = _separate_lists(lines)
     body = "\n".join(lines).strip("\n") + "\n"
     return _rewrite_links(body, PurePosixPath(rel).parent)
 
