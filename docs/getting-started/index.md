@@ -46,4 +46,4 @@ Three steps, in this order: the server, the first device, the console. Half an h
 | **TightVNC** | Not bundled. `deploy/fetch-tightvnc.sh` downloads the pinned MSI (and its GPL source) with a verified hash; the agent installs it on first start when the MSI sits next to it, and the server bundles it into the group MSIs. |
 
 !!! tip "Already running an older version?"
-    Every release page has an *Upgrading* section with the order (server first, then consoles, then agents). Older agents keep working behind the server's version gates; the console always has to be the current one.
+    Every release page has an *Upgrading* section with the order: server first, then consoles, then agents. The current release is the supported one; the site describes it.
