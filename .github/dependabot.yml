@@ -34,3 +34,9 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "Pomelo.EntityFrameworkCore.MySql"
         update-types: ["version-update:semver-major"]
+      # The runtime packages follow the .NET the projects target (10, LTS): a new .NET major
+      # (11.0.x on a net10.0 project) is a deliberate move of every project, not a routine bump.
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "System.*"
+        update-types: ["version-update:semver-major"]
