@@ -38,7 +38,7 @@
 
   <ItemGroup>
     <!-- TOTP QR code rendering with PngByteQRCode, without System.Drawing generation. -->
-    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
     <!-- Modern Material Design look with dark/light theme, cards, and tabs. -->
     <PackageReference Include="MaterialSkin.2" Version="2.3.1" />
   </ItemGroup>
