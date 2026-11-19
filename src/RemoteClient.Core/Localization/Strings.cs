@@ -604,6 +604,7 @@ public static partial class Strings
     public static string MainForm_PasswordMustBeAtLeast => Get(nameof(MainForm_PasswordMustBeAtLeast));
     public static string MainForm_TheTwoPasswordsDoNot => Get(nameof(MainForm_TheTwoPasswordsDoNot));
     public static string MainForm_EnterTheAuthenticatorCode => Get(nameof(MainForm_EnterTheAuthenticatorCode));
+    public static string MainForm_AuthenticatorCodeRefused => Get(nameof(MainForm_AuthenticatorCodeRefused));
     public static string MainForm_CheckingForUpdates => Get(nameof(MainForm_CheckingForUpdates));
     public static string MainForm_Devices => Get(nameof(MainForm_Devices));
     public static string MainForm_Users => Get(nameof(MainForm_Users));

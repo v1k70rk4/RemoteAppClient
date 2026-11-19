@@ -550,6 +550,7 @@ public static partial class Strings
         [nameof(MainForm_PasswordMustBeAtLeast)] = "Password must be at least 10 characters.",
         [nameof(MainForm_TheTwoPasswordsDoNot)] = "The two passwords do not match.",
         [nameof(MainForm_EnterTheAuthenticatorCode)] = "Enter the authenticator code.",
+        [nameof(MainForm_AuthenticatorCodeRefused)] = "That code is wrong or has already expired. Type the code the authenticator app shows now.",
         [nameof(MainForm_CheckingForUpdates)] = "Checking for updates...",
         [nameof(MainForm_Devices)] = "Devices",
         [nameof(MainForm_Users)] = "Users",
