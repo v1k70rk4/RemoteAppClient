@@ -10,11 +10,11 @@ release artifacts.
 ## TightVNC
 
 - **Component:** TightVNC Server (Windows)
-- **Version:** 2.8.87
+- **Version:** 2.8.90
 - **License:** GNU General Public License, version 2 (GPLv2)
 - **Homepage:** https://www.tightvnc.com/
-- **Binary (MSI):** https://www.tightvnc.com/download/2.8.87/tightvnc-2.8.87-gpl-setup-64bit.msi
-- **Corresponding source:** https://www.tightvnc.com/download/2.8.87/tightvnc-2.8.87-src-gpl.zip
+- **Binary (MSI):** https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-gpl-setup-64bit.msi
+- **Corresponding source:** https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-src-gpl.zip
 
 TightVNC is used as a **separate program**: the RemoteAgent installs it via its
 official MSI (`msiexec`) and communicates with it only over the local VNC (RFB)

@@ -158,11 +158,19 @@ public sealed class AdminApi : IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>Confirms the authenticator set up at first sign-in. A refusal comes back as an
+    /// <see cref="AuthException"/> carrying the server's code ("totp_invalid" for a wrong or stale code).</summary>
     public async Task ConfirmTotpAsync(string code, CancellationToken ct = default)
     {
         using var content = JsonContent.Create(new TotpConfirmRequest { Code = code }, AgentJsonContext.Default.TotpConfirmRequest);
         using var resp = await _http.PostAsync("/auth/totp/confirm", content, ct);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+        {
+            string err = $"http_{(int)resp.StatusCode}";
+            try { var e = await resp.Content.ReadFromJsonAsync(AgentJsonContext.Default.AuthError, ct); if (!string.IsNullOrEmpty(e?.Error)) err = e.Error; }
+            catch { /* non-JSON */ }
+            throw new AuthException(err);
+        }
     }
 
     public async Task LogoutAsync(CancellationToken ct = default)
