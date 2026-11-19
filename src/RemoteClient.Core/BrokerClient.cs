@@ -51,7 +51,7 @@ public sealed class BrokerClient : IDisposable
             await _pipe.ReadExactlyAsync(buf, ct);
             int localPort = BitConverter.ToInt32(buf, 0);
             if (localPort <= 0)
-                throw new InvalidOperationException(L.BrokerClient_TheLocalAgentCouldNot);
+                throw new BrokerForwardRefusedException(L.BrokerClient_TheLocalAgentCouldNot);
             return localPort;
         }
         finally { _gate.Release(); }
@@ -63,3 +63,10 @@ public sealed class BrokerClient : IDisposable
         try { _pipe.Dispose(); } catch { /* best effort */ }
     }
 }
+
+/// <summary>
+/// The agent answered, but could not open that one forward (the bastion port is not up yet, say). The pipe is
+/// fine and every other forward on it is still in use - a file copy, a VNC viewer - so this must not be taken
+/// for a dead pipe: dropping the pipe makes the agent close all of them.
+/// </summary>
+public sealed class BrokerForwardRefusedException(string message) : InvalidOperationException(message);

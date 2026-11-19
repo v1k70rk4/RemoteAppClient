@@ -186,8 +186,10 @@ public sealed class MainForm : MaterialForm
             {
                 return await broker.ForwardAsync(remotePort, ct);
             }
-            catch when (attempt == 0)
+            catch (Exception ex) when (attempt == 0 && ex is not BrokerForwardRefusedException)
             {
+                // A refused forward is an answer over a working pipe: it goes to the caller as it is, because
+                // dropping the pipe would make the agent close every forward on it (a running file copy with it).
                 // The pipe likely died (sleep / agent restart). Discard THIS broker - but only if it is
                 // still the current one, so we neither double-dispose nor throw away a fresh broker another
                 // caller just connected - then retry with a clean reconnect.

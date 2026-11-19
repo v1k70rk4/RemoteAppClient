@@ -114,6 +114,13 @@ public static partial class Strings
     public static string FileManager_ConfirmDelete => Get(nameof(FileManager_ConfirmDelete));
     public static string FileManager_ConfirmOverwrite => Get(nameof(FileManager_ConfirmOverwrite));
     public static string FileManager_DoneSkipped => Get(nameof(FileManager_DoneSkipped));
+    public static string FileManager_DoneFailed => Get(nameof(FileManager_DoneFailed));
+    public static string FileManager_Reconnecting => Get(nameof(FileManager_Reconnecting));
+    public static string FileManager_ReconnectedTryAgain => Get(nameof(FileManager_ReconnectedTryAgain));
+    public static string FileManager_ConnectionLost => Get(nameof(FileManager_ConnectionLost));
+    public static string FileManager_Progress => Get(nameof(FileManager_Progress));
+    public static string FileManager_ProgressRate => Get(nameof(FileManager_ProgressRate));
+    public static string FileManager_ProgressRateNoEta => Get(nameof(FileManager_ProgressRateNoEta));
     public static string FileManager_TooDeep => Get(nameof(FileManager_TooDeep));
     public static string FileManager_SelectOneToRename => Get(nameof(FileManager_SelectOneToRename));
     public static string AboutView_FetchingStatus => Get(nameof(AboutView_FetchingStatus));

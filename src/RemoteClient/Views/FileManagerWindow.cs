@@ -137,13 +137,30 @@ internal sealed class FilePane : UserControl
         catch (Exception ex) { _pathLbl.Text = "⚠ " + ex.Message; }
     }
 
-    public async Task HomeAsync() { try { SetList(await _backend.HomeAsync(_ct)); } catch (Exception ex) { _pathLbl.Text = "⚠ " + ex.Message; } }
+    public Task HomeAsync() => ShowAsync(() => _backend.HomeAsync(_ct));
     public Task RefreshAsync() => NavigateAsync(Path);
+    public Task NavigateAsync(string path) => ShowAsync(() => _backend.ListAsync(path, _ct));
 
-    public async Task NavigateAsync(string path)
+    /// <summary>
+    /// Gets a new session when the old one is gone (set by the window for the device pane); true when the next
+    /// try can go ahead.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<Exception, Task<bool>>? Recover { get; set; }
+
+    /// <summary>Lists and shows a folder; a lost session is recovered once and the listing tried again.</summary>
+    private async Task ShowAsync(Func<Task<FsList>> list)
     {
-        try { SetList(await _backend.ListAsync(path, _ct)); }
-        catch (Exception ex) { _pathLbl.Text = "⚠ " + ex.Message; }
+        try { SetList(await list()); }
+        catch (Exception ex)
+        {
+            try
+            {
+                if (Recover is not null && await Recover(ex)) { SetList(await list()); return; }
+                _pathLbl.Text = "⚠ " + ex.Message;
+            }
+            catch (Exception again) { _pathLbl.Text = "⚠ " + again.Message; }
+        }
     }
 
     private void SetList(FsList l)
@@ -278,10 +295,27 @@ public sealed class FileManagerWindow : MaterialForm
     private readonly FileClient _fc;
     private readonly CancellationTokenSource _cts = new();
     private CancellationTokenSource? _copyCts; // per-copy, cancellable from the Mégse button / Esc
+    private readonly Func<CancellationToken, Task<FileSession?>>? _reconnect;
+    private readonly SemaphoreSlim _reconnectGate = new(1, 1);
+    private int _sessionGeneration;   // bumped on every new session: a caller that waited sees it was done for it
 
-    public FileManagerWindow(int localPort, string token, string hostname)
+    // A lost session is reopened up to this many times per operation, waiting this long before each try: the
+    // device comes back on the server a little after its link does, so the first try alone is often too early.
+    private static readonly TimeSpan[] ReconnectDelays = [TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(30)];
+
+    // Copy progress: the stream only records the bytes; a timer shows them, with the speed, four times a second.
+    private readonly System.Windows.Forms.Timer _progressTimer = new() { Interval = 250 };
+    private readonly System.Diagnostics.Stopwatch _fileClock = new();
+    private readonly TransferMeter _meter = new();
+    private long _fileCopied, _fileTotal;
+
+    /// <param name="reconnect">
+    /// Opens a new file session to the same device (new tunnel, forward and token); null when there is no way to.
+    /// </param>
+    public FileManagerWindow(FileSession session, string hostname, Func<CancellationToken, Task<FileSession?>>? reconnect = null)
     {
-        _fc = new FileClient(localPort, token);
+        _fc = new FileClient(session.LocalPort, session.Token);
+        _reconnect = reconnect;
         // Deliberately NOT AddFormToManage(this): doing so makes MaterialSkin re-theme EVERY managed form
         // (incl. the main window), resetting owner-drawn text inputs to its light input color. The dark
         // title bar still renders from the shared scheme; this window's body is styled manually.
@@ -297,6 +331,8 @@ public sealed class FileManagerWindow : MaterialForm
         _active = _left;
         _left.Activated2 += () => _active = _left;
         _right.Activated2 += () => _active = _right;
+        _right.Recover = ex => RecoverOnceAsync(ex, _cts.Token);
+        _progressTimer.Tick += (_, _) => RenderProgress();
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterWidth = 6 };
         split.Panel1.Controls.Add(_left);
@@ -333,25 +369,115 @@ public sealed class FileManagerWindow : MaterialForm
             if (a is not null) { e.Handled = true; await Guard(a); }
         };
         Shown += async (_, _) => { try { split.SplitterDistance = (split.Width - split.SplitterWidth) / 2; } catch { /* min-size constraints */ } await _left.InitAsync(); await _right.InitAsync(); };
-        FormClosed += (_, _) => { _cts.Cancel(); _fc.Dispose(); };
+        FormClosed += (_, _) => { _cts.Cancel(); _progressTimer.Dispose(); _fc.Dispose(); };
     }
 
     private FilePane Other => _active == _left ? _right : _left;
     private void SetStatus(string s) { if (InvokeRequired) BeginInvoke(() => _status.Text = s); else _status.Text = s; }
-    private async Task Guard(Func<Task> a) { try { await a(); } catch (Exception ex) { SetStatus(L.ForgotPasswordForm_Error + ex.Message); } }
+
+    private async Task Guard(Func<Task> a)
+    {
+        try { await a(); }
+        catch (Exception ex)
+        {
+            // A lost session is reopened here too (delete, rename, new folder); the operator then repeats the step,
+            // because whether it was done before the link went is not known.
+            try
+            {
+                SetStatus(await RecoverOnceAsync(ex, _cts.Token) ? L.FileManager_ReconnectedTryAgain : L.ForgotPasswordForm_Error + ex.Message);
+            }
+            catch (Exception again) { SetStatus(L.ForgotPasswordForm_Error + again.Message); }
+        }
+    }
+
+    /// <summary>One reconnect for a lost session (not for any other error); true when there is a new one.</summary>
+    private async Task<bool> RecoverOnceAsync(Exception ex, CancellationToken ct) =>
+        _reconnect is not null && FileClient.IsConnectionLost(ex) && await ReconnectAsync(Volatile.Read(ref _sessionGeneration), 1, 1, ct);
+
+    /// <summary>
+    /// Opens a new session after the old one was lost, waiting first (see <see cref="ReconnectDelays"/>). One at a
+    /// time: a second caller that lost the same session waits and takes the new one instead of opening another.
+    /// </summary>
+    private async Task<bool> ReconnectAsync(int seenGeneration, int attempt, int attempts, CancellationToken ct)
+    {
+        if (_reconnect is null) return false;
+        await _reconnectGate.WaitAsync(ct);
+        try
+        {
+            if (_sessionGeneration != seenGeneration) return true;   // someone else already reconnected
+            SetStatus(L.Format(L.FileManager_Reconnecting, attempt, attempts));
+            await Task.Delay(ReconnectDelays[Math.Min(attempt, ReconnectDelays.Length) - 1], ct);
+            FileSession? session;
+            try { session = await _reconnect(ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch { return false; }
+            if (session is null) return false;
+            _fc.Retarget(session);
+            Interlocked.Increment(ref _sessionGeneration);
+            return true;
+        }
+        finally { _reconnectGate.Release(); }
+    }
+
+    /// <summary>
+    /// Runs a step against the device; when the session is lost it is reopened (several tries, see
+    /// <see cref="ReconnectDelays"/>) and the step run again from the start. Other errors go to the caller.
+    /// </summary>
+    private async Task<T> WithReconnectAsync<T>(Func<Task<T>> step, CancellationToken ct)
+    {
+        int attempt = 0;
+        while (true)
+        {
+            int generation = Volatile.Read(ref _sessionGeneration);
+            try { return await step(); }
+            catch (Exception ex) when (_reconnect is not null && !ct.IsCancellationRequested && FileClient.IsConnectionLost(ex))
+            {
+                while (true)
+                {
+                    if (++attempt > ReconnectDelays.Length) throw;
+                    if (await ReconnectAsync(generation, attempt, ReconnectDelays.Length, ct)) break;
+                }
+                if (_copyStatus is { } s) SetStatus(s);
+            }
+        }
+    }
+
+    private Task WithReconnectAsync(Func<Task> step, CancellationToken ct) =>
+        WithReconnectAsync(async () => { await step(); return true; }, ct);
+
+    private string? _copyStatus;   // what the status line said before a reconnect overwrote it
+
+    private void SetCopyStatus(string s) { _copyStatus = s; SetStatus(s); }
 
     private void ShowProgress(bool on)
     {
         if (InvokeRequired) { BeginInvoke(() => ShowProgress(on)); return; }
         _progress.Visible = on; _progressLbl.Visible = on;
-        if (!on) { _progress.Value = 0; _progressLbl.Text = ""; }
+        if (on) _progressTimer.Start();
+        else { _progressTimer.Stop(); _progress.Value = 0; _progressLbl.Text = ""; }
     }
 
-    private void SetFileProgress(long copied, long total)
+    /// <summary>A new file: its size, and the clock and the speed from zero.</summary>
+    private void StartFileProgress(long total)
     {
-        if (InvokeRequired) { BeginInvoke(() => SetFileProgress(copied, total)); return; }
+        Interlocked.Exchange(ref _fileCopied, 0);
+        Interlocked.Exchange(ref _fileTotal, total);
+        if (InvokeRequired) BeginInvoke(ResetMeter); else ResetMeter();
+    }
+
+    private void ResetMeter() { _meter.Reset(); _fileClock.Restart(); RenderProgress(); }
+
+    /// <summary>The bar and "copied / size · speed · time left", from the timer (UI thread).</summary>
+    private void RenderProgress()
+    {
+        long copied = Interlocked.Read(ref _fileCopied), total = Interlocked.Read(ref _fileTotal);
         _progress.Value = total > 0 ? (int)Math.Min(100, copied * 100 / total) : 0;
-        _progressLbl.Text = $"{copied / 1024:N0} kB / {(total > 0 ? total : copied) / 1024:N0} kB";
+        var rate = _meter.Sample(_fileClock.Elapsed, copied);
+        string done = TransferMeter.Size(copied), size = TransferMeter.Size(Math.Max(total, copied));
+        _progressLbl.Text = rate is not { } r ? L.Format(L.FileManager_Progress, done, size)
+            : TransferMeter.Remaining(copied, total, r) is { } left
+                ? L.Format(L.FileManager_ProgressRate, done, size, TransferMeter.Size(r), TransferMeter.Duration(left))
+                : L.Format(L.FileManager_ProgressRateNoEta, done, size, TransferMeter.Size(r));
     }
 
     private async Task CopyAsync()
@@ -369,37 +495,50 @@ public sealed class FileManagerWindow : MaterialForm
         _copyCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         var ct = _copyCts.Token;
         ShowProgress(true);
-        _skipped = 0;
+        _skipped = 0; _failed = 0; _lastError = null;
         try
         {
             int n = 0;
             foreach (var (entry, path) in items)
             {
                 n++;
-                SetStatus(L.Format(L.FileManager_Copying, entry.Name, n, items.Count));
+                SetCopyStatus(L.Format(L.FileManager_Copying, entry.Name, n, items.Count));
                 if (SafeChild.Of(dstDir, entry.Name) is not { } target) { _skipped++; continue; }
                 await CopyEntryAsync(src, path, dst, target, entry, 0, ct);
             }
-            SetStatus(_skipped == 0 ? L.FileManager_Done : L.Format(L.FileManager_DoneSkipped, _skipped));
+            var done = _skipped == 0 ? L.FileManager_Done : L.Format(L.FileManager_DoneSkipped, _skipped);
+            SetStatus(_failed == 0 ? done : done + " " + L.Format(L.FileManager_DoneFailed, _failed, _lastError ?? ""));
         }
-        catch (OperationCanceledException) { SetStatus(L.FileManager_Cancelled); }
-        finally { ShowProgress(false); _copyCts.Dispose(); _copyCts = null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { SetStatus(L.FileManager_Cancelled); }
+        catch (Exception ex) when (FileClient.IsConnectionLost(ex)) { SetStatus(L.Format(L.FileManager_ConnectionLost, ex.Message)); }
+        finally { ShowProgress(false); _copyCts.Dispose(); _copyCts = null; _copyStatus = null; }
         await Other.RefreshAsync();
     }
 
-    private int _skipped;
+    private int _skipped, _failed;
+    private string? _lastError;
     private const int MaxCopyDepth = 64;
 
     // Names come from the other side's listing - for a download, from the managed device. Each one is used only
     // when it is a single plain name that stays inside the folder it is copied into (see SafeNames); anything else
     // is skipped and counted, never followed, so a device cannot steer a write elsewhere on this machine.
+    //
+    // A lost session (the tunnel dropped, the device cleared its token) is reopened and the step - a folder's
+    // listing, a whole file - run again from its start. Any other error belongs to that one item: it is counted,
+    // a half-written download removed, and the copy goes on with the rest. Only a session that cannot be got
+    // back ends the copy.
     private async Task CopyEntryAsync(IFsBackend src, string srcPath, IFsBackend dst, string dstPath, FsEntry entry, int depth, CancellationToken ct)
     {
         if (entry.IsDir)
         {
             if (depth >= MaxCopyDepth) throw new InvalidOperationException(L.Format(L.FileManager_TooDeep, MaxCopyDepth));
-            await dst.MkdirAsync(dstPath, ct);
-            var sub = await src.ListAsync(srcPath, ct);
+            FsList sub;
+            try
+            {
+                await WithReconnectAsync(() => dst.MkdirAsync(dstPath, ct), ct);
+                sub = await WithReconnectAsync(() => src.ListAsync(srcPath, ct), ct);
+            }
+            catch (Exception ex) when (IsItemError(ex, ct)) { Fail(ex); return; }
             foreach (var child in sub.Entries)
             {
                 if (SafeChild.Of(dstPath, child.Name) is not { } childDst || SafeChild.Of(srcPath, child.Name) is not { } childSrc)
@@ -409,23 +548,42 @@ public sealed class FileManagerWindow : MaterialForm
         }
         else
         {
-            SetFileProgress(0, entry.Size);
-            long last = 0;
+            bool written = false;   // the target was opened for writing: a file already there is gone by then
             try
             {
-                await using var s = await src.OpenReadAsync(srcPath, ct);
-                await using var ps = new ProgressStream(s, copied =>
+                await WithReconnectAsync(async () =>
                 {
-                    if (copied - last >= 262144 || copied >= entry.Size) { last = copied; SetFileProgress(copied, entry.Size); }
-                });
-                await dst.WriteAsync(dstPath, ps, ct);
+                    StartFileProgress(entry.Size);
+                    await using var s = await src.OpenReadAsync(srcPath, ct);
+                    await using var ps = new ProgressStream(s, copied => Interlocked.Exchange(ref _fileCopied, copied));
+                    written = true;
+                    await dst.WriteAsync(dstPath, ps, ct);
+                }, ct);
             }
-            catch (OperationCanceledException)
+            catch (Exception ex)
             {
-                try { await dst.DeleteAsync(dstPath, CancellationToken.None); } catch { /* best effort: drop the partial file */ }
-                throw;
+                if (written) await DropPartialAsync(dst, dstPath);
+                if (!IsItemError(ex, ct)) throw;
+                Fail(ex);
             }
         }
+    }
+
+    /// <summary>An error that belongs to the one item, not to the whole copy (cancel, a session lost for good).</summary>
+    private static bool IsItemError(Exception ex, CancellationToken ct) =>
+        !(ex is OperationCanceledException && ct.IsCancellationRequested) && !FileClient.IsConnectionLost(ex);
+
+    private void Fail(Exception ex) { _failed++; _lastError = ex.Message; }
+
+    /// <summary>
+    /// A download that broke off after the write began leaves a half-written file here (opening it for writing
+    /// emptied whatever was there): it goes. An upload needs nothing: the device writes to a side file and drops
+    /// it on failure, and deleting the target there would take the file the operator still has.
+    /// </summary>
+    private static async Task DropPartialAsync(IFsBackend dst, string path)
+    {
+        if (dst is not LocalBackend) return;
+        try { await dst.DeleteAsync(path, CancellationToken.None); } catch { /* best effort */ }
     }
 
     private async Task MkdirAsync()

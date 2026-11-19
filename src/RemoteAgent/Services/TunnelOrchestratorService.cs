@@ -453,6 +453,12 @@ public sealed class TunnelOrchestratorService(
                 await _session.WaitAsync(ct);
                 try
                 {
+                    // A viewer or a file transfer going through the tunnel is activity: the idle time counts from
+                    // when the last one ended, not from the last connect - which cut long copies and long VNC
+                    // sessions half an hour in.
+                    if (_tunnel is { IsRunning: true } && TunnelTraffic.InUse(_opt.LocalForwardPort, RemoteAgent.Files.FileService.Port))
+                        _lastActivity = DateTimeOffset.UtcNow;
+
                     if (_tunnel is { IsRunning: true } && DateTimeOffset.UtcNow - _lastActivity > idle)
                     {
                         logger.LogInformation(L.TunnelOrchestratorService_TunnelIdleTimeoutIdleS, idle.TotalSeconds);
