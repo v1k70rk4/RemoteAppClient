@@ -550,6 +550,7 @@ public static partial class Strings
         [nameof(MainForm_PasswordMustBeAtLeast)] = "A jelszó legyen min. 10 karakter.",
         [nameof(MainForm_TheTwoPasswordsDoNot)] = "A két jelszó nem egyezik.",
         [nameof(MainForm_EnterTheAuthenticatorCode)] = "Add meg a hitelesítő kódot.",
+        [nameof(MainForm_AuthenticatorCodeRefused)] = "A kód nem jó vagy már lejárt. Írd be azt a kódot, amit a hitelesítő alkalmazás most mutat.",
         [nameof(MainForm_CheckingForUpdates)] = "Frissítés keresése…",
         [nameof(MainForm_Devices)] = "Eszközök",
         [nameof(MainForm_Users)] = "Felhasználók",

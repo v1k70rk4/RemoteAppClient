@@ -877,6 +877,11 @@ public sealed class MainForm : MaterialForm
                 if (_newPass.Text != _newPass2.Text) { _setupStatus.Text = L.MainForm_TheTwoPasswordsDoNot; return; }
                 // The sign-in password goes along; after a Hello sign-in there is none, and the forced change allows that.
                 await _api!.ChangePasswordAsync(_newPass.Text, string.IsNullOrEmpty(_pass.Text) ? null : _pass.Text);
+                // Done: a second press after a wrong authenticator code must not change it again. The server takes
+                // no forced change any more, and the old sign-in password no longer matches, so every retry would
+                // stop here and never reach the code.
+                _login.MustChangePassword = false;
+                _newPass.Visible = _newPass2.Visible = false;
             }
             if (_login.TotpEnrollRequired)
             {
@@ -884,6 +889,14 @@ public sealed class MainForm : MaterialForm
                 await _api!.ConfirmTotpAsync(_enrollCode.Text.Trim());
             }
             await EnterMainAsync();
+        }
+        catch (AuthException ex) when (ex.Code == "totp_invalid")
+        {
+            // A wrong or stale code: say so in words, clear it, and stay on the QR code. The secret stays the same
+            // at the next sign-in too, so the authenticator scanned now keeps working.
+            _setupStatus.Text = L.MainForm_AuthenticatorCodeRefused;
+            _enrollCode.Text = "";
+            _enrollCode.Focus();
         }
         catch (Exception ex) { _setupStatus.Text = L.ForgotPasswordForm_Error + ex.Message; }
         finally { _finishBtn.Enabled = true; }

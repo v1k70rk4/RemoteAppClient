@@ -305,11 +305,13 @@ app.MapPost("/auth/login", async (HttpContext ctx, AppDbContext db, AuthService 
     if (user.TotpConfirmed && !deviceTrusted && req.RememberDevice)
         resp.TrustToken = await auth.IssueDeviceTrustAsync(user.Id, device?.Hostname, ct);
 
-    // First sign-in or no TOTP yet: generate an enrollment secret, store encrypted and unconfirmed.
+    // First sign-in or no TOTP yet: hand out the enrollment secret, stored encrypted and unconfirmed. The one
+    // already on record is handed out again, so an authenticator scanned at an earlier sign-in still matches;
+    // a new one only when there is none (a new user, or an admin cleared it for a lost phone).
     if (!user.TotpConfirmed)
     {
-        var secret = TotpService.GenerateSecret();
-        user.TotpSecret = protector.Protect(secret);
+        var secret = TotpService.PendingSecret(protector.TryUnprotect(user.TotpSecret), out var isNew);
+        if (isNew) user.TotpSecret = protector.Protect(secret);
         resp.TotpSecret = secret;
         resp.TotpUri = TotpService.BuildUri(secret, user.Username, "RemoteAppClient");
     }
@@ -577,7 +579,8 @@ app.MapPost("/auth/totp/confirm", async (HttpContext ctx, AppDbContext db, AuthS
 
     var user = await db.Users.FirstAsync(u => u.Id == v.Value.User.Id, ct);
     var secret = protector.TryUnprotect(user.TotpSecret);
-    if (secret is null || req is null || !TotpService.Verify(secret, req.Code, out var step) || !totpGuard.TryAccept(user.Id, step))
+    // The first confirmation takes a code about a minute old as well (TotpService.VerifyEnrollment).
+    if (secret is null || req is null || !TotpService.VerifyEnrollment(secret, req.Code, out var step) || !totpGuard.TryAccept(user.Id, step))
         return Results.Json(new AuthError { Error = "totp_invalid" }, AgentJsonContext.Default.AuthError, statusCode: 400);
 
     user.TotpConfirmed = true;
