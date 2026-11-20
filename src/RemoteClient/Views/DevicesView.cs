@@ -788,32 +788,36 @@ public sealed class DevicesView : UserControl, IContentView
     /// the modal "someone at the device must approve" window; when it is NOT, nobody is being asked, so we
     /// simply keep polling and time out quietly. Putting that window up regardless was actively misleading:
     /// a command the agent discarded never reaches a person, yet the console blamed one for not answering.
+    /// A background reconnect (<paramref name="interactive"/> false) never puts a modal window up: it polls as
+    /// long as the device's own prompt can take, and stops as soon as <paramref name="ct"/> is cancelled.
     /// </summary>
-    private async Task<string> WaitAccessAsync(string? nonce, bool consentRequired)
+    private async Task<string> WaitAccessAsync(string? nonce, bool consentRequired, bool interactive = true, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(nonce)) return "auto";
-        for (int i = 0; i < 4; i++)
-        {
-            try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
-            catch { /* tranziens */ }
-            await Task.Delay(600);
-        }
+        if (await PollAccessAsync(nonce, 4, ct) is { } early) return early;
 
-        if (consentRequired)
+        if (consentRequired && interactive)
         {
             using var w = new ConsentWaitForm(_api, nonce);
             w.ShowDialog(this);
             return w.Outcome;
         }
 
-        // No one to wait for: give the agent a bounded chance to answer, then say the device stayed silent.
-        for (int i = 0; i < 25; i++)
+        // No one to wait for (or no window to show): give the agent a bounded chance to answer - with someone at
+        // the device, as long as the consent window would wait (~36 s) - then say the device stayed silent.
+        return await PollAccessAsync(nonce, consentRequired ? 60 : 25, ct) ?? "timeout";
+    }
+
+    private async Task<string?> PollAccessAsync(string nonce, int polls, CancellationToken ct)
+    {
+        for (int i = 0; i < polls; i++)
         {
-            try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
-            catch { /* tranziens */ }
-            await Task.Delay(600);
+            ct.ThrowIfCancellationRequested();
+            try { var o = await _api.GetAccessResultAsync(nonce, ct); if (!string.IsNullOrEmpty(o)) return o; }
+            catch (Exception) when (!ct.IsCancellationRequested) { /* tranziens */ }
+            await Task.Delay(600, ct);
         }
-        return "timeout";
+        return null;
     }
 
     private async Task ConnectSelectedAsync()
@@ -950,22 +954,48 @@ public sealed class DevicesView : UserControl, IContentView
             var d = devices.FirstOrDefault(x => x.DeviceId == sel.DeviceId) ?? sel;
             if (!d.Online) { var st = DeviceLiveness.Label(d); MessageBox.Show(L.Format(L.DevicesView_CannotConnectState, st), st, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
 
-            SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
-            var result = await _api.OpenTunnelAsync(d.DeviceId, "file");
-            if (result is null || result.FileRemotePort <= 0 || string.IsNullOrEmpty(result.FileToken)) { SetStatus(L.DevicesView_TunnelRequestFailed); return; }
-            if (!CommandReachedDevice(result)) return;
-
-            SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
-            var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired);
-            if (outcome is not ("auto" or "granted")) { SetStatus(L.DevicesView_Denied); return; }
-
-            SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
-            await Task.Delay(1500);
-            var localPort = await _forward(result.FileRemotePort, CancellationToken.None);
-            new FileManagerWindow(localPort, result.FileToken!, string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname).Show();
+            var session = await OpenFileSessionAsync(d, CancellationToken.None);
+            if (session is null) return;
+            var deviceId = d.DeviceId;
+            new FileManagerWindow(session, string.IsNullOrEmpty(d.Hostname) ? d.DeviceId : d.Hostname,
+                ct => ReopenFileSessionAsync(deviceId, ct)).Show();
             SetStatus(L.FileManager_Title);
         }
         catch (Exception ex) { SetStatus(L.DevicesView_ConnectionError + ex.Message); }
+    }
+
+    /// <summary>
+    /// Opens a file session on the device: the tunnel (purpose "file"), the access check, then the local forward
+    /// to the device's file port. Null when it was refused or did not reach the device; the status line says why.
+    /// A reconnect (<paramref name="quiet"/>) shows no message box: the file window keeps trying on its own.
+    /// </summary>
+    private async Task<FileSession?> OpenFileSessionAsync(DeviceInfo d, CancellationToken ct, bool quiet = false)
+    {
+        SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
+        var result = await _api.OpenTunnelAsync(d.DeviceId, "file", ct);
+        if (result is null || result.FileRemotePort <= 0 || string.IsNullOrEmpty(result.FileToken)) { SetStatus(L.DevicesView_TunnelRequestFailed); return null; }
+        if (quiet ? !string.Equals(result.Status, "Sent", StringComparison.OrdinalIgnoreCase) : !CommandReachedDevice(result)) return null;
+
+        SetStatus(L.DevicesView_WaitingForTheRemoteDevice);
+        var outcome = await WaitAccessAsync(result.Nonce, result.ConsentRequired, interactive: !quiet, ct);
+        if (outcome is not ("auto" or "granted")) { SetStatus(L.DevicesView_Denied); return null; }
+
+        SetStatus(L.DevicesView_ReachingBastionPortThroughThe);
+        await Task.Delay(1500, ct);
+        var localPort = await _forward(result.FileRemotePort, ct);
+        return new FileSession(localPort, result.FileToken!);
+    }
+
+    /// <summary>
+    /// A new session for an open file window whose session was lost: only while the device is online, so a
+    /// device that is still away is waited for by the window's next try rather than sent a command it misses.
+    /// </summary>
+    private async Task<FileSession?> ReopenFileSessionAsync(string deviceId, CancellationToken ct)
+    {
+        var d = (await _api.GetDevicesAsync(ct)).FirstOrDefault(x => x.DeviceId == deviceId);
+        if (d is not { Online: true }) return null;
+        ct.ThrowIfCancellationRequested();
+        return await OpenFileSessionAsync(d, ct, quiet: true);
     }
 
     /// <summary>Runs a power action on the selected device (right-click menu). Confirms first when asked.</summary>

@@ -38,6 +38,7 @@
   <ItemGroup>
     <Compile Include="..\..\src\RemoteAgent\Diagnostics\DiagMode.cs" Link="Agent\DiagMode.cs" />
     <Compile Include="..\..\src\RemoteAgent\Diagnostics\DiagConfigurationSource.cs" Link="Agent\DiagConfigurationSource.cs" />
+    <Compile Include="..\..\src\RemoteAgent\Tunnel\TunnelTraffic.cs" Link="Agent\TunnelTraffic.cs" />
     <Compile Include="..\..\src\RemoteAgent\Telemetry\TpmInfo.cs" Link="Agent\TpmInfo.cs" />
     <Compile Include="..\..\src\RemoteAgent\Diagnostics\FileLog.cs" Link="Agent\FileLog.cs" />
     <Compile Include="..\..\src\RemoteAgent\Security\RekeyPolicy.cs" Link="Agent\RekeyPolicy.cs" />
