@@ -44,15 +44,19 @@ internal sealed class LocalBackend : IFsBackend
     public async Task WriteAsync(string path, Stream content, CancellationToken ct)
     {
         var part = path + ".part-" + Guid.NewGuid().ToString("N")[..8];
+        bool created = false;   // only a side file this attempt made is ever removed
         try
         {
             await using (var fs = new FileStream(part, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                created = true;
                 await content.CopyToAsync(fs, ct);
+            }
             File.Move(part, path, overwrite: true);
         }
         catch
         {
-            try { File.Delete(part); } catch { /* best effort */ }
+            if (created) try { File.Delete(part); } catch { /* best effort */ }
             throw;
         }
     }

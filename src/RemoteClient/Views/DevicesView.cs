@@ -813,8 +813,8 @@ public sealed class DevicesView : UserControl, IContentView
         for (int i = 0; i < polls; i++)
         {
             ct.ThrowIfCancellationRequested();
-            try { var o = await _api.GetAccessResultAsync(nonce); if (!string.IsNullOrEmpty(o)) return o; }
-            catch { /* tranziens */ }
+            try { var o = await _api.GetAccessResultAsync(nonce, ct); if (!string.IsNullOrEmpty(o)) return o; }
+            catch (Exception) when (!ct.IsCancellationRequested) { /* tranziens */ }
             await Task.Delay(600, ct);
         }
         return null;
