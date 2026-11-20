@@ -306,7 +306,7 @@ public sealed class FileManagerWindow : MaterialForm
     private FilePane _active;
     private readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 26, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0), BackColor = ThemeManager.Bg, ForeColor = ThemeManager.Text2 };
     private readonly MaterialProgressBar _progress = new() { Dock = DockStyle.Bottom, Height = 10, Visible = false };
-    private readonly Label _progressLbl = new() { Dock = DockStyle.Bottom, Height = 18, TextAlign = ContentAlignment.MiddleCenter, Visible = false };
+    private readonly Label _progressLbl = new() { Dock = DockStyle.Bottom, Height = 18, TextAlign = ContentAlignment.MiddleCenter, Visible = false, BackColor = ThemeManager.Bg, ForeColor = ThemeManager.Text };
     private readonly FileClient _fc;
     private readonly CancellationTokenSource _cts = new();
     private CancellationTokenSource? _copyCts; // per-copy, cancellable from the Mégse button / Esc
