@@ -972,7 +972,7 @@ public sealed class DevicesView : UserControl, IContentView
     private async Task<FileSession?> OpenFileSessionAsync(DeviceInfo d, CancellationToken ct, bool quiet = false)
     {
         SetStatus(L.Format(L.DevicesView_OpeningTunnel, d.Hostname));
-        var result = await _api.OpenTunnelAsync(d.DeviceId, "file");
+        var result = await _api.OpenTunnelAsync(d.DeviceId, "file", ct);
         if (result is null || result.FileRemotePort <= 0 || string.IsNullOrEmpty(result.FileToken)) { SetStatus(L.DevicesView_TunnelRequestFailed); return null; }
         if (quiet ? !string.Equals(result.Status, "Sent", StringComparison.OrdinalIgnoreCase) : !CommandReachedDevice(result)) return null;
 
@@ -992,8 +992,9 @@ public sealed class DevicesView : UserControl, IContentView
     /// </summary>
     private async Task<FileSession?> ReopenFileSessionAsync(string deviceId, CancellationToken ct)
     {
-        var d = (await _api.GetDevicesAsync()).FirstOrDefault(x => x.DeviceId == deviceId);
+        var d = (await _api.GetDevicesAsync(ct)).FirstOrDefault(x => x.DeviceId == deviceId);
         if (d is not { Online: true }) return null;
+        ct.ThrowIfCancellationRequested();
         return await OpenFileSessionAsync(d, ct, quiet: true);
     }
 

@@ -67,6 +67,7 @@ public static partial class Strings
         [nameof(FileManager_Progress)] = "{0} / {1}",
         [nameof(FileManager_ProgressRate)] = "{0} / {1}  ·  {2}/s  ·  {3} left",
         [nameof(FileManager_ProgressRateNoEta)] = "{0} / {1}  ·  {2}/s",
+        [nameof(FileManager_CopyRunning)] = "A copy is already running. Wait for it or cancel it (Esc).",
         [nameof(FileManager_TooDeep)] = "The folder structure is deeper than {0} levels; the copy stopped.",
         [nameof(FileManager_SelectOneToRename)] = "Select exactly one item to rename.",
         [nameof(AboutView_FetchingStatus)] = "Fetching status...",

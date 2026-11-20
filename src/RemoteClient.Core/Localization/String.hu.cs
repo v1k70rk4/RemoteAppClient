@@ -67,6 +67,7 @@ public static partial class Strings
         [nameof(FileManager_Progress)] = "{0} / {1}",
         [nameof(FileManager_ProgressRate)] = "{0} / {1}  ·  {2}/s  ·  még {3}",
         [nameof(FileManager_ProgressRateNoEta)] = "{0} / {1}  ·  {2}/s",
+        [nameof(FileManager_CopyRunning)] = "Már fut egy másolás. Várd meg, vagy szakítsd meg (Esc).",
         [nameof(FileManager_TooDeep)] = "A mappaszerkezet mélyebb {0} szintnél; a másolás leállt.",
         [nameof(FileManager_SelectOneToRename)] = "Átnevezéshez jelölj ki pontosan egy elemet.",
         [nameof(AboutView_FetchingStatus)] = "Állapot lekérése…",

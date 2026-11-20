@@ -43,7 +43,8 @@ internal sealed class LocalBackend : IFsBackend
     /// </summary>
     public async Task WriteAsync(string path, Stream content, CancellationToken ct)
     {
-        var part = path + ".part-" + Guid.NewGuid().ToString("N")[..8];
+        // A short name of its own next to the target: appending to a long name could pass the 255-character limit.
+        var part = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path) ?? "", $".rac-{Guid.NewGuid():N}.part");
         bool created = false;   // only a side file this attempt made is ever removed
         try
         {
@@ -510,7 +511,18 @@ public sealed class FileManagerWindow : MaterialForm
                 : L.Format(L.FileManager_ProgressRateNoEta, done, size, TransferMeter.Size(r));
     }
 
+    private bool _copying;   // set on entry, before the overwrite prompt pumps messages: one copy at a time
+
     private async Task CopyAsync()
+    {
+        // A second F5 while a copy runs would take over its cancel and its counters; browsing stays free meanwhile.
+        if (_copying) { SetStatus(L.FileManager_CopyRunning); return; }
+        _copying = true;
+        try { await CopyCoreAsync(); }
+        finally { _copying = false; }
+    }
+
+    private async Task CopyCoreAsync()
     {
         var items = _active.SelectedEntries();
         if (items.Count == 0) { SetStatus(L.FileManager_NothingSelected); return; }
@@ -554,8 +566,8 @@ public sealed class FileManagerWindow : MaterialForm
     // is skipped and counted, never followed, so a device cannot steer a write elsewhere on this machine.
     //
     // A lost session (the tunnel dropped, the device cleared its token) is reopened and the step - a folder's
-    // listing, a whole file - run again from its start. Any other error belongs to that one item: it is counted,
-    // a half-written download removed, and the copy goes on with the rest. Only a session that cannot be got
+    // listing, a whole file - run again from its start. Any other error belongs to that one item: it is counted
+    // and the copy goes on with the rest. Only a session that cannot be got
     // back ends the copy.
     private async Task CopyEntryAsync(IFsBackend src, string srcPath, IFsBackend dst, string dstPath, FsEntry entry, int depth, CancellationToken ct)
     {

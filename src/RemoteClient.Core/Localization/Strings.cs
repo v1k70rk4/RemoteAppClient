@@ -121,6 +121,7 @@ public static partial class Strings
     public static string FileManager_Progress => Get(nameof(FileManager_Progress));
     public static string FileManager_ProgressRate => Get(nameof(FileManager_ProgressRate));
     public static string FileManager_ProgressRateNoEta => Get(nameof(FileManager_ProgressRateNoEta));
+    public static string FileManager_CopyRunning => Get(nameof(FileManager_CopyRunning));
     public static string FileManager_TooDeep => Get(nameof(FileManager_TooDeep));
     public static string FileManager_SelectOneToRename => Get(nameof(FileManager_SelectOneToRename));
     public static string AboutView_FetchingStatus => Get(nameof(AboutView_FetchingStatus));
