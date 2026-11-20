@@ -37,7 +37,25 @@ internal sealed class LocalBackend : IFsBackend
     }
     public Task<FsList> HomeAsync(CancellationToken ct) => ListAsync(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ct);
     public Task<Stream> OpenReadAsync(string path, CancellationToken ct) => Task.FromResult<Stream>(File.OpenRead(path));
-    public async Task WriteAsync(string path, Stream content, CancellationToken ct) { await using var fs = File.Create(path); await content.CopyToAsync(fs, ct); }
+    /// <summary>
+    /// Into a new side file first, put in place only when complete: a download that breaks off (or a name that is
+    /// taken by a folder) leaves whatever was there untouched, and only the side file this attempt made is removed.
+    /// </summary>
+    public async Task WriteAsync(string path, Stream content, CancellationToken ct)
+    {
+        var part = path + ".part-" + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            await using (var fs = new FileStream(part, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                await content.CopyToAsync(fs, ct);
+            File.Move(part, path, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(part); } catch { /* best effort */ }
+            throw;
+        }
+    }
     public Task MkdirAsync(string path, CancellationToken ct) { Directory.CreateDirectory(path); return Task.CompletedTask; }
     public Task DeleteAsync(string path, CancellationToken ct) { if (Directory.Exists(path)) Directory.Delete(path, true); else File.Delete(path); return Task.CompletedTask; }
     public Task RenameAsync(string from, string to, CancellationToken ct) { if (Directory.Exists(from)) Directory.Move(from, to); else File.Move(from, to); return Task.CompletedTask; }
@@ -142,25 +160,17 @@ internal sealed class FilePane : UserControl
     public Task NavigateAsync(string path) => ShowAsync(() => _backend.ListAsync(path, _ct));
 
     /// <summary>
-    /// Gets a new session when the old one is gone (set by the window for the device pane); true when the next
-    /// try can go ahead.
+    /// Runs a listing against the device (set by the window for the device pane): a lost session is reopened once
+    /// and the listing tried again.
     /// </summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public Func<Exception, Task<bool>>? Recover { get; set; }
+    public Func<Func<Task<FsList>>, Task<FsList>>? Run { get; set; }
 
-    /// <summary>Lists and shows a folder; a lost session is recovered once and the listing tried again.</summary>
+    /// <summary>Lists and shows a folder.</summary>
     private async Task ShowAsync(Func<Task<FsList>> list)
     {
-        try { SetList(await list()); }
-        catch (Exception ex)
-        {
-            try
-            {
-                if (Recover is not null && await Recover(ex)) { SetList(await list()); return; }
-                _pathLbl.Text = "⚠ " + ex.Message;
-            }
-            catch (Exception again) { _pathLbl.Text = "⚠ " + again.Message; }
-        }
+        try { SetList(await (Run is null ? list() : Run(list))); }
+        catch (Exception ex) { _pathLbl.Text = "⚠ " + ex.Message; }
     }
 
     private void SetList(FsList l)
@@ -331,7 +341,7 @@ public sealed class FileManagerWindow : MaterialForm
         _active = _left;
         _left.Activated2 += () => _active = _left;
         _right.Activated2 += () => _active = _right;
-        _right.Recover = ex => RecoverOnceAsync(ex, _cts.Token);
+        _right.Run = list => RetryOnceAsync(list, _cts.Token);
         _progressTimer.Tick += (_, _) => RenderProgress();
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterWidth = 6 };
@@ -377,6 +387,7 @@ public sealed class FileManagerWindow : MaterialForm
 
     private async Task Guard(Func<Task> a)
     {
+        int generation = Volatile.Read(ref _sessionGeneration);   // the session the step ran on, read before it ran
         try { await a(); }
         catch (Exception ex)
         {
@@ -384,15 +395,30 @@ public sealed class FileManagerWindow : MaterialForm
             // because whether it was done before the link went is not known.
             try
             {
-                SetStatus(await RecoverOnceAsync(ex, _cts.Token) ? L.FileManager_ReconnectedTryAgain : L.ForgotPasswordForm_Error + ex.Message);
+                SetStatus(await RecoverOnceAsync(generation, ex, _cts.Token) ? L.FileManager_ReconnectedTryAgain : L.ForgotPasswordForm_Error + ex.Message);
             }
             catch (Exception again) { SetStatus(L.ForgotPasswordForm_Error + again.Message); }
         }
     }
 
-    /// <summary>One reconnect for a lost session (not for any other error); true when there is a new one.</summary>
-    private async Task<bool> RecoverOnceAsync(Exception ex, CancellationToken ct) =>
-        _reconnect is not null && FileClient.IsConnectionLost(ex) && await ReconnectAsync(Volatile.Read(ref _sessionGeneration), 1, 1, ct);
+    /// <summary>
+    /// One reconnect for a lost session (not for any other error); true when there is a new one. The generation is
+    /// the one read before the failed step started, so a session another step opened meanwhile is taken, not replaced.
+    /// </summary>
+    private async Task<bool> RecoverOnceAsync(int seenGeneration, Exception ex, CancellationToken ct) =>
+        _reconnect is not null && FileClient.IsConnectionLost(ex) && await ReconnectAsync(seenGeneration, 1, 1, ct);
+
+    /// <summary>A step (a listing) that is safe to repeat: on a lost session it reconnects once and runs it again.</summary>
+    private async Task<T> RetryOnceAsync<T>(Func<Task<T>> step, CancellationToken ct)
+    {
+        int generation = Volatile.Read(ref _sessionGeneration);
+        try { return await step(); }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            if (!await RecoverOnceAsync(generation, ex, ct)) throw;
+        }
+        return await step();
+    }
 
     /// <summary>
     /// Opens a new session after the old one was lost, waiting first (see <see cref="ReconnectDelays"/>). One at a
@@ -531,7 +557,8 @@ public sealed class FileManagerWindow : MaterialForm
     {
         if (entry.IsDir)
         {
-            if (depth >= MaxCopyDepth) throw new InvalidOperationException(L.Format(L.FileManager_TooDeep, MaxCopyDepth));
+            // Too deep: this subtree counts as failed, the rest of the selection still goes.
+            if (depth >= MaxCopyDepth) { Fail(new InvalidOperationException(L.Format(L.FileManager_TooDeep, MaxCopyDepth))); return; }
             FsList sub;
             try
             {
@@ -548,7 +575,8 @@ public sealed class FileManagerWindow : MaterialForm
         }
         else
         {
-            bool written = false;   // the target was opened for writing: a file already there is gone by then
+            // Neither side leaves a half-written file: both write to a side file and drop it on failure, so there
+            // is nothing to clean up here (and deleting the target would take what was there before).
             try
             {
                 await WithReconnectAsync(async () =>
@@ -556,16 +584,10 @@ public sealed class FileManagerWindow : MaterialForm
                     StartFileProgress(entry.Size);
                     await using var s = await src.OpenReadAsync(srcPath, ct);
                     await using var ps = new ProgressStream(s, copied => Interlocked.Exchange(ref _fileCopied, copied));
-                    written = true;
                     await dst.WriteAsync(dstPath, ps, ct);
                 }, ct);
             }
-            catch (Exception ex)
-            {
-                if (written) await DropPartialAsync(dst, dstPath);
-                if (!IsItemError(ex, ct)) throw;
-                Fail(ex);
-            }
+            catch (Exception ex) when (IsItemError(ex, ct)) { Fail(ex); }
         }
     }
 
@@ -574,17 +596,6 @@ public sealed class FileManagerWindow : MaterialForm
         !(ex is OperationCanceledException && ct.IsCancellationRequested) && !FileClient.IsConnectionLost(ex);
 
     private void Fail(Exception ex) { _failed++; _lastError = ex.Message; }
-
-    /// <summary>
-    /// A download that broke off after the write began leaves a half-written file here (opening it for writing
-    /// emptied whatever was there): it goes. An upload needs nothing: the device writes to a side file and drops
-    /// it on failure, and deleting the target there would take the file the operator still has.
-    /// </summary>
-    private static async Task DropPartialAsync(IFsBackend dst, string path)
-    {
-        if (dst is not LocalBackend) return;
-        try { await dst.DeleteAsync(path, CancellationToken.None); } catch { /* best effort */ }
-    }
 
     private async Task MkdirAsync()
     {
